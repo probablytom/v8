@@ -21,13 +21,14 @@ bool DisallowGarbageCollectionScope::IsGarbageCollectionAllowed(
 // static
 void DisallowGarbageCollectionScope::Enter(cppgc::HeapHandle& heap_handle) {
   auto& heap_base = internal::HeapBase::From(heap_handle);
-  heap_base.EnterDisallowGCScope();
+  heap_base.disallow_gc_scope_++;
 }
 
 // static
 void DisallowGarbageCollectionScope::Leave(cppgc::HeapHandle& heap_handle) {
   auto& heap_base = internal::HeapBase::From(heap_handle);
-  heap_base.LeaveDisallowGCScope();
+  DCHECK_GT(heap_base.disallow_gc_scope_, 0);
+  heap_base.disallow_gc_scope_--;
 }
 
 DisallowGarbageCollectionScope::DisallowGarbageCollectionScope(

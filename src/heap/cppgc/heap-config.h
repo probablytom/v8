@@ -17,11 +17,6 @@ enum class CollectionType : uint8_t {
   kMajor,
 };
 
-enum class FreeMemoryHandling : uint8_t {
-  kDoNotDiscard,
-  kDiscardWherePossible
-};
-
 struct MarkingConfig {
   using MarkingType = cppgc::Heap::MarkingType;
   enum class IsForcedGC : uint8_t {
@@ -42,7 +37,7 @@ struct MarkingConfig {
 struct SweepingConfig {
   using SweepingType = cppgc::Heap::SweepingType;
   enum class CompactableSpaceHandling { kSweep, kIgnore };
-  using FreeMemoryHandling = cppgc::internal::FreeMemoryHandling;
+  enum class FreeMemoryHandling { kDoNotDiscard, kDiscardWherePossible };
 
   SweepingType sweeping_type = SweepingType::kIncrementalAndConcurrent;
   CompactableSpaceHandling compactable_space_handling =

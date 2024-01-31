@@ -65,8 +65,7 @@ void JSONTurboshaftGraphWriter::PrintEdges() {
       if (auto* store = op.TryCast<StoreOp>()) {
         if (store->index().valid()) {
           DCHECK_EQ(store->input_count, 3);
-          inputs = {store->base(), store->index().value_or_invalid(),
-                    store->value()};
+          inputs = {store->base(), store->index(), store->value()};
         }
       }
       for (OpIndex input : inputs) {

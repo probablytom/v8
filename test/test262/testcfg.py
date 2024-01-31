@@ -25,13 +25,17 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import importlib.machinery
+import imp
+import itertools
+import os
+import re
 import sys
 
 from pathlib import Path
 
 from testrunner.local import statusfile
 from testrunner.local import testsuite
+from testrunner.local import utils
 from testrunner.objects import testcase
 from testrunner.outproc import base as outproc
 from testrunner.outproc import test262
@@ -142,12 +146,11 @@ class TestSuite(testsuite.TestSuite):
     root = TEST_262_TOOLS_ABS_PATH
     f = None
     try:
-      loader = importlib.machinery.SourceFileLoader(
-          "parseTestRecord", f"{root}/parseTestRecord.py")
-      module = loader.load_module()
+      (f, pathname, description) = imp.find_module("parseTestRecord", [root])
+      module = imp.load_module("parseTestRecord", f, pathname, description)
       return module.parseTestRecord
-    except Exception as e:
-      print(f'Cannot load parseTestRecord: {e}')
+    except:
+      print('Cannot load parseTestRecord')
       raise
     finally:
       if f:

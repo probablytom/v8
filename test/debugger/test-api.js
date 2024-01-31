@@ -114,6 +114,7 @@ class DebugWrapper {
 
   // Returns the resulting breakpoint id.
   setBreakPoint(func, opt_line, opt_column, opt_condition) {
+    assertTrue(%IsFunction(func));
     assertFalse(%FunctionIsAPIFunction(func));
 
     const scriptid = %FunctionGetScriptId(func);
@@ -143,6 +144,8 @@ class DebugWrapper {
   }
 
   showBreakPoints(f) {
+    if (!%IsFunction(f)) throw new Error("Not passed a Function");
+
     const source = %FunctionGetSourceCode(f);
     const offset = %FunctionGetScriptSourcePosition(f);
     const locations = %GetBreakLocations(f);

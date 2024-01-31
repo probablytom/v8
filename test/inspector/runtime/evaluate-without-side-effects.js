@@ -6,13 +6,9 @@ let {session, contextGroup, Protocol} = InspectorTest.start("Tests that Runtime.
 
 session.setupScriptMap();
 contextGroup.addScript(`
-function f() {
-  return 2;
-}
-
-class Foo {#bar = 1}
-const foo = new Foo;
-//# sourceURL=test.js`);
+    function f() {
+      return 2;
+    } //# sourceURL=test.js`);
 Protocol.Runtime.enable();
 Protocol.Debugger.enable();
 
@@ -57,13 +53,6 @@ Protocol.Debugger.onPaused(message => {
   InspectorTest.logMessage(await Protocol.Runtime.evaluate({
     expression: "f()",
     throwOnSideEffect: true
-  }));
-
-  InspectorTest.log("Test that private member access does not trigger with replMode and throwOnSideEffect");
-  InspectorTest.logMessage(await Protocol.Runtime.evaluate({
-    expression: "foo.#bar",
-    throwOnSideEffect: true,
-    replMode: true,
   }));
 
   InspectorTest.completeTest();

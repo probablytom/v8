@@ -77,16 +77,14 @@ static Handle<FixedArray> CombineKeys(Isolate* isolate,
   Handle<FixedArray> combined_keys = isolate->factory()->NewFixedArray(
       own_keys_length + prototype_chain_keys_length);
   if (own_keys_length != 0) {
-    FixedArray::CopyElements(isolate, *combined_keys, 0, *own_keys, 0,
-                             own_keys_length);
+    own_keys->CopyTo(0, *combined_keys, 0, own_keys_length);
   }
   int target_keys_length = own_keys_length;
   for (int i = 0; i < prototype_chain_keys_length; i++) {
     target_keys_length += AddKey(prototype_chain_keys->get(i), combined_keys,
                                  descs, nof_descriptors, target_keys_length);
   }
-  return FixedArray::RightTrimOrEmpty(isolate, combined_keys,
-                                      target_keys_length);
+  return FixedArray::ShrinkOrEmpty(isolate, combined_keys, target_keys_length);
 }
 
 }  // namespace
@@ -220,7 +218,7 @@ MaybeHandle<FixedArray> FilterProxyKeys(KeyAccumulator* accumulator,
     }
     store_position++;
   }
-  return FixedArray::RightTrimOrEmpty(isolate, keys, store_position);
+  return FixedArray::ShrinkOrEmpty(isolate, keys, store_position);
 }
 
 // Returns "nothing" in case of exception, "true" on success.
@@ -279,8 +277,8 @@ Maybe<bool> KeyAccumulator::CollectKeys(Handle<JSReceiver> receiver,
     }
     MAYBE_RETURN(result, Nothing<bool>());
     if (!result.FromJust()) break;  // |false| means "stop iterating".
-    // Iterate through proxies but ignore access checks case on API objects for
-    // OWN_ONLY keys handled in CollectOwnKeys.
+    // Iterate through proxies but ignore access checks for the ALL_CAN_READ
+    // case on API objects for OWN_ONLY keys handled in CollectOwnKeys.
     if (!iter.AdvanceFollowingProxiesIgnoringAccessChecks()) {
       return Nothing<bool>();
     }
@@ -773,6 +771,9 @@ Maybe<bool> KeyAccumulator::CollectInterceptorKeys(Handle<JSReceiver> receiver,
                                           ? object->GetIndexedInterceptor()
                                           : object->GetNamedInterceptor(),
                                       isolate_);
+  if ((filter() & ONLY_ALL_CAN_READ) && !interceptor->all_can_read()) {
+    return Just(true);
+  }
   return CollectInterceptorKeysInternal(receiver, object, interceptor, type);
 }
 
@@ -806,6 +807,13 @@ base::Optional<int> CollectOwnPropertyNamesInternal(
       } else {
         continue;
       }
+    }
+
+    if (filter & ONLY_ALL_CAN_READ) {
+      if (details.kind() != PropertyKind::kAccessor) continue;
+      Tagged<Object> accessors = descs->GetStrongValue(i);
+      if (!IsAccessorInfo(accessors)) continue;
+      if (!AccessorInfo::cast(accessors)->all_can_read()) continue;
     }
 
     Tagged<Name> key = descs->GetKey(i);
@@ -894,7 +902,7 @@ void CopyEnumKeysTo(Isolate* isolate, Handle<Dictionary> dictionary,
   EnumIndexComparator<Dictionary> cmp(raw_dictionary);
   // Use AtomicSlot wrapper to ensure that std::sort uses atomic load and
   // store operations that are safe for concurrent marking.
-  AtomicSlot start(storage->RawFieldOfFirstElement());
+  AtomicSlot start(storage->GetFirstElementAddress());
   std::sort(start, start + length, cmp);
   for (int i = 0; i < length; i++) {
     InternalIndex index(Smi::ToInt(raw_storage->get(i)));
@@ -959,6 +967,12 @@ ExceptionStatus CollectKeysFromDictionary(Handle<Dictionary> dictionary,
         keys->AddShadowingKey(key, &gc);
         continue;
       }
+      if (filter & ONLY_ALL_CAN_READ) {
+        if (details.kind() != PropertyKind::kAccessor) continue;
+        Tagged<Object> accessors = raw_dictionary->ValueAt(i);
+        if (!IsAccessorInfo(accessors)) continue;
+        if (!AccessorInfo::cast(accessors)->all_can_read()) continue;
+      }
       // TODO(emrich): consider storing keys instead of indices into the array
       // in case of ordered dictionary type.
       array->set(array_size++, Smi::FromInt(i.as_int()));
@@ -970,7 +984,7 @@ ExceptionStatus CollectKeysFromDictionary(Handle<Dictionary> dictionary,
       EnumIndexComparator<Dictionary> cmp(*dictionary);
       // Use AtomicSlot wrapper to ensure that std::sort uses atomic load and
       // store operations that are safe for concurrent marking.
-      AtomicSlot start(array->RawFieldOfFirstElement());
+      AtomicSlot start(array->GetFirstElementAddress());
       std::sort(start, start + array_size, cmp);
     }
   }
@@ -1151,8 +1165,9 @@ Maybe<bool> KeyAccumulator::CollectOwnKeys(Handle<JSReceiver> receiver,
       MAYBE_RETURN(CollectAccessCheckInterceptorKeys(access_check_info,
                                                      receiver, object),
                    Nothing<bool>());
+      return Just(false);
     }
-    return Just(false);
+    filter_ = static_cast<PropertyFilter>(filter_ | ONLY_ALL_CAN_READ);
   }
   if (filter_ & PRIVATE_NAMES_ONLY) {
     RETURN_NOTHING_IF_NOT_SUCCESSFUL(CollectPrivateNames(receiver, object));

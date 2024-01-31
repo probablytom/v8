@@ -213,7 +213,6 @@
 
 #define JS_CONSTRUCT_OP_LIST(V) \
   V(JSConstructForwardVarargs)  \
-  V(JSConstructForwardAllArgs)  \
   V(JSConstruct)                \
   V(JSConstructWithArrayLike)   \
   V(JSConstructWithSpread)
@@ -560,8 +559,8 @@
   V(WasmTypeCastAbstract)          \
   V(WasmTypeCheck)                 \
   V(WasmTypeCheckAbstract)         \
-  V(WasmAnyConvertExtern)          \
-  V(WasmExternConvertAny)          \
+  V(WasmExternInternalize)         \
+  V(WasmExternExternalize)         \
   V(WasmStructGet)                 \
   V(WasmStructSet)                 \
   V(WasmArrayGet)                  \

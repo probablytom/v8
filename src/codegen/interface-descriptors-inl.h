@@ -407,13 +407,6 @@ constexpr auto StoreDescriptor::registers() {
 }
 
 // static
-constexpr auto StoreNoFeedbackDescriptor::registers() {
-  return RegisterArray(StoreDescriptor::ReceiverRegister(),
-                       StoreDescriptor::NameRegister(),
-                       StoreDescriptor::ValueRegister());
-}
-
-// static
 constexpr auto StoreBaselineDescriptor::registers() {
   return StoreDescriptor::registers();
 }

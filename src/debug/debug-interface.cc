@@ -228,8 +228,8 @@ void ForEachContextLocal(i::Isolate* isolate, i::Handle<i::Context> context,
 }  // namespace
 
 bool GetPrivateMembers(Local<Context> context, Local<Object> object, int filter,
-                       LocalVector<Value>* names_out,
-                       LocalVector<Value>* values_out) {
+                       std::vector<Local<Value>>* names_out,
+                       std::vector<Local<Value>>* values_out) {
   i::Isolate* isolate = reinterpret_cast<i::Isolate*>(context->GetIsolate());
   API_RCS_SCOPE(isolate, debug, GetPrivateMembers);
   ENTER_V8_NO_SCRIPT_NO_EXCEPTION(isolate);
@@ -1226,8 +1226,9 @@ void GlobalLexicalScopeNames(v8::Local<v8::Context> v8_context,
   i::Isolate* isolate = context->GetIsolate();
   i::Handle<i::ScriptContextTable> table(
       context->native_context()->script_context_table(), isolate);
-  for (int i = 0; i < table->length(kAcquireLoad); i++) {
-    i::Handle<i::Context> script_context(table->get(i), isolate);
+  for (int i = 0; i < table->used(kAcquireLoad); i++) {
+    i::Handle<i::Context> script_context =
+        i::ScriptContextTable::GetContext(isolate, table, i);
     DCHECK(script_context->IsScriptContext());
     i::Handle<i::ScopeInfo> scope_info(script_context->scope_info(), isolate);
     for (auto it : i::ScopeInfo::IterateLocalNames(scope_info)) {

@@ -44,7 +44,7 @@ function testOptimized(run, fctToOptimize) {
       kExprLocalGet, 2,
       kGCPrefix, kExprArrayNewFixed, backingStore, 3,
       kGCPrefix, kExprStructNew, arrayStruct,
-      kGCPrefix, kExprExternConvertAny,
+      kGCPrefix, kExprExternExternalize,
     ])
     .exportFunc();
 
@@ -52,7 +52,7 @@ function testOptimized(run, fctToOptimize) {
       makeSig([kWasmExternRef], [kWasmI32]))
     .addBody([
       kExprLocalGet, 0,
-      kGCPrefix, kExprAnyConvertExtern,
+      kGCPrefix, kExprExternInternalize,
       kGCPrefix, kExprRefCast, arrayStruct,
       kGCPrefix, kExprStructGet, arrayStruct, 0,
     ])
@@ -61,7 +61,7 @@ function testOptimized(run, fctToOptimize) {
   builder.addFunction('get', makeSig([kWasmExternRef, kWasmI32], [kWasmI32]))
     .addBody([
       kExprLocalGet, 0,
-      kGCPrefix, kExprAnyConvertExtern,
+      kGCPrefix, kExprExternInternalize,
       kGCPrefix, kExprRefCast, arrayStruct,
       kGCPrefix, kExprStructGet, arrayStruct, 1,
       kExprLocalGet, 1,

@@ -5,7 +5,6 @@
 #include "src/json/json-stringifier.h"
 
 #include "src/base/strings.h"
-#include "src/common/assert-scope.h"
 #include "src/common/message-template.h"
 #include "src/numbers/conversions.h"
 #include "src/objects/heap-number-inl.h"
@@ -16,7 +15,6 @@
 #include "src/objects/oddball-inl.h"
 #include "src/objects/ordered-hash-table.h"
 #include "src/objects/smi.h"
-#include "src/objects/tagged.h"
 #include "src/strings/string-builder-inl.h"
 
 namespace v8 {
@@ -135,32 +133,35 @@ class JsonStringifier {
     return CurrentPartCanFit(length << 3);
   }
 
-  void AppendStringByCopy(Tagged<String> string,
-                          const DisallowGarbageCollection& no_gc) {
+  void AppendStringByCopy(Handle<String> string) {
     DCHECK(encoding_ == String::TWO_BYTE_ENCODING ||
            (string->IsFlat() &&
-            String::IsOneByteRepresentationUnderneath(string)));
+            String::IsOneByteRepresentationUnderneath(*string)));
     DCHECK(CurrentPartCanFit(string->length()));
-    if (encoding_ == String::ONE_BYTE_ENCODING) {
-      if (String::IsOneByteRepresentationUnderneath(string)) {
-        CopyChars<uint8_t, uint8_t>(
-            one_byte_ptr_ + current_index_,
-            string->GetCharVector<uint8_t>(no_gc).begin(), string->length());
+
+    {
+      DisallowGarbageCollection no_gc;
+      if (encoding_ == String::ONE_BYTE_ENCODING) {
+        if (String::IsOneByteRepresentationUnderneath(*string)) {
+          CopyChars<uint8_t, uint8_t>(
+              one_byte_ptr_ + current_index_,
+              string->GetCharVector<uint8_t>(no_gc).begin(), string->length());
+        } else {
+          ChangeEncoding();
+          CopyChars<uint16_t, uint16_t>(
+              two_byte_ptr_ + current_index_,
+              string->GetCharVector<uint16_t>(no_gc).begin(), string->length());
+        }
       } else {
-        ChangeEncoding();
-        CopyChars<uint16_t, uint16_t>(
-            two_byte_ptr_ + current_index_,
-            string->GetCharVector<uint16_t>(no_gc).begin(), string->length());
-      }
-    } else {
-      if (String::IsOneByteRepresentationUnderneath(*string)) {
-        CopyChars<uint8_t, uint16_t>(
-            two_byte_ptr_ + current_index_,
-            string->GetCharVector<uint8_t>(no_gc).begin(), string->length());
-      } else {
-        CopyChars<uint16_t, uint16_t>(
-            two_byte_ptr_ + current_index_,
-            string->GetCharVector<uint16_t>(no_gc).begin(), string->length());
+        if (String::IsOneByteRepresentationUnderneath(*string)) {
+          CopyChars<uint8_t, uint16_t>(
+              two_byte_ptr_ + current_index_,
+              string->GetCharVector<uint8_t>(no_gc).begin(), string->length());
+        } else {
+          CopyChars<uint16_t, uint16_t>(
+              two_byte_ptr_ + current_index_,
+              string->GetCharVector<uint16_t>(no_gc).begin(), string->length());
+        }
       }
     }
     current_index_ += string->length();
@@ -168,21 +169,17 @@ class JsonStringifier {
     if (current_index_ == part_length_) Extend();
   }
 
-  V8_NOINLINE void AppendString(Handle<String> string_handle) {
-    {
-      DisallowGarbageCollection no_gc;
-      Tagged<String> string = *string_handle;
-      const bool representation_ok =
-          encoding_ == String::TWO_BYTE_ENCODING ||
-          (string->IsFlat() &&
-           String::IsOneByteRepresentationUnderneath(*string));
-      if (representation_ok) {
-        while (!CurrentPartCanFit(string->length())) Extend();
-        AppendStringByCopy(string, no_gc);
-        return;
-      }
+  V8_NOINLINE void AppendString(Handle<String> string) {
+    const bool representation_ok =
+        encoding_ == String::TWO_BYTE_ENCODING ||
+        (string->IsFlat() &&
+         String::IsOneByteRepresentationUnderneath(*string));
+    if (representation_ok) {
+      while (!CurrentPartCanFit(string->length())) Extend();
+      AppendStringByCopy(string);
+      return;
     }
-    SerializeString<true>(string_handle);
+    SerializeString<true>(string);
   }
 
   bool HasValidCurrentIndex() const { return current_index_ < part_length_; }
@@ -299,14 +296,12 @@ class JsonStringifier {
 
   // Returns whether any escape sequences were used.
   template <typename SrcChar, typename DestChar, bool raw_json>
-  V8_INLINE bool SerializeString_(Tagged<String> string,
-                                  const DisallowGarbageCollection& no_gc);
+  V8_INLINE bool SerializeString_(Handle<String> string);
 
   // Tries to do fast-path serialization for a property key, and returns whether
   // it was successful.
   template <typename DestChar>
-  bool TrySerializeSimplePropertyKey(Tagged<String> string,
-                                     const DisallowGarbageCollection& no_gc);
+  bool TrySerializeSimplePropertyKey(Tagged<String> string);
 
   template <typename Char>
   V8_INLINE static bool DoNotEscape(Char c);
@@ -990,7 +985,7 @@ JsonStringifier::Result JsonStringifier::SerializeJSArray(
         while (true) {
           for (; i < limit; i++) {
             Separator(i == 0);
-            SerializeSmi(Smi::cast(elements->get(i)));
+            SerializeSmi(Smi::cast(elements->get(cage_base, i)));
           }
           if (i >= length) break;
           DCHECK_LT(limit, kMaxAllowedFastPackedLength);
@@ -1034,7 +1029,8 @@ JsonStringifier::Result JsonStringifier::SerializeJSArray(
           Separator(i == 0);
           Result result = SerializeElement(
               isolate_,
-              handle(FixedArray::cast(object->elements())->get(i), isolate_),
+              handle(FixedArray::cast(object->elements())->get(cage_base, i),
+                     isolate_),
               i);
           if (result == UNCHANGED) {
             AppendCStringLiteral("null");
@@ -1315,23 +1311,24 @@ bool JsonStringifier::SerializeStringUnchecked_(
 }
 
 template <typename SrcChar, typename DestChar, bool raw_json>
-bool JsonStringifier::SerializeString_(Tagged<String> string,
-                                       const DisallowGarbageCollection& no_gc) {
+bool JsonStringifier::SerializeString_(Handle<String> string) {
   int length = string->length();
   bool required_escaping = false;
   if (!raw_json) Append<uint8_t, DestChar>('"');
   // We might be able to fit the whole escaped string in the current string
   // part, or we might need to allocate.
-  base::Vector<const SrcChar> vector = string->GetCharVector<SrcChar>(no_gc);
   if V8_LIKELY (EscapedLengthIfCurrentPartFits(length)) {
+    DisallowGarbageCollection no_gc;
+    base::Vector<const SrcChar> vector = string->GetCharVector<SrcChar>(no_gc);
     NoExtendBuilder<DestChar> no_extend(
         reinterpret_cast<DestChar*>(part_ptr_) + current_index_,
         &current_index_);
     required_escaping = SerializeStringUnchecked_<SrcChar, DestChar, raw_json>(
         vector, &no_extend);
   } else {
-    for (int i = 0; i < vector.length(); i++) {
-      SrcChar c = vector.at(i);
+    FlatStringReader reader(isolate_, string);
+    for (int i = 0; i < reader.length(); i++) {
+      SrcChar c = reader.Get<SrcChar>(i);
       if (raw_json || DoNotEscape(c)) {
         Append<SrcChar, DestChar>(c);
       } else if (sizeof(SrcChar) != 1 &&
@@ -1341,9 +1338,9 @@ bool JsonStringifier::SerializeString_(Tagged<String> string,
         required_escaping = true;
         if (c <= 0xDBFF) {
           // The current character is a leading surrogate.
-          if (i + 1 < vector.length()) {
+          if (i + 1 < reader.length()) {
             // There is a next character.
-            SrcChar next = vector.at(i + 1);
+            SrcChar next = reader.Get<SrcChar>(i + 1);
             if (base::IsInRange(next, static_cast<SrcChar>(0xDC00),
                                 static_cast<SrcChar>(0xDFFF))) {
               // The next character is a trailing surrogate, meaning this is a
@@ -1389,8 +1386,8 @@ bool JsonStringifier::SerializeString_(Tagged<String> string,
 }
 
 template <typename DestChar>
-bool JsonStringifier::TrySerializeSimplePropertyKey(
-    Tagged<String> key, const DisallowGarbageCollection& no_gc) {
+bool JsonStringifier::TrySerializeSimplePropertyKey(Tagged<String> key) {
+  DisallowGarbageCollection no_gc;
   ReadOnlyRoots roots(isolate_);
   if (key->map(isolate_) != roots.internalized_one_byte_string_map()) {
     return false;
@@ -1467,14 +1464,10 @@ void JsonStringifier::SerializeDeferredKey(bool deferred_comma,
                                            Handle<Object> deferred_key) {
   Separator(!deferred_comma);
   Handle<String> string_key = Handle<String>::cast(deferred_key);
-  bool wrote_simple = false;
-  {
-    DisallowGarbageCollection no_gc;
-    wrote_simple =
-        encoding_ == String::ONE_BYTE_ENCODING
-            ? TrySerializeSimplePropertyKey<uint8_t>(*string_key, no_gc)
-            : TrySerializeSimplePropertyKey<base::uc16>(*string_key, no_gc);
-  }
+  bool wrote_simple =
+      encoding_ == String::ONE_BYTE_ENCODING
+          ? TrySerializeSimplePropertyKey<uint8_t>(*string_key)
+          : TrySerializeSimplePropertyKey<base::uc16>(*string_key);
 
   if (!wrote_simple) {
     bool required_escaping = SerializeString<false>(string_key);
@@ -1490,20 +1483,19 @@ void JsonStringifier::SerializeDeferredKey(bool deferred_comma,
 template <bool raw_json>
 bool JsonStringifier::SerializeString(Handle<String> object) {
   object = String::Flatten(isolate_, object);
-  DisallowGarbageCollection no_gc;
-  auto string = *object;
   if (encoding_ == String::ONE_BYTE_ENCODING) {
-    if (String::IsOneByteRepresentationUnderneath(string)) {
-      return SerializeString_<uint8_t, uint8_t, raw_json>(string, no_gc);
+    if (String::IsOneByteRepresentationUnderneath(*object)) {
+      return SerializeString_<uint8_t, uint8_t, raw_json>(object);
     } else {
       ChangeEncoding();
+      return SerializeString<raw_json>(object);
     }
-  }
-  DCHECK_EQ(encoding_, String::TWO_BYTE_ENCODING);
-  if (String::IsOneByteRepresentationUnderneath(string)) {
-    return SerializeString_<uint8_t, base::uc16, raw_json>(string, no_gc);
   } else {
-    return SerializeString_<base::uc16, base::uc16, raw_json>(string, no_gc);
+    if (String::IsOneByteRepresentationUnderneath(*object)) {
+      return SerializeString_<uint8_t, base::uc16, raw_json>(object);
+    } else {
+      return SerializeString_<base::uc16, base::uc16, raw_json>(object);
+    }
   }
 }
 

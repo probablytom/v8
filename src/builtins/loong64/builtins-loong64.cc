@@ -1460,53 +1460,6 @@ void Builtins::Generate_InterpreterPushArgsThenConstructImpl(
   }
 }
 
-// static
-void Builtins::Generate_ConstructForwardAllArgsImpl(
-    MacroAssembler* masm, ForwardWhichFrame which_frame) {
-  // ----------- S t a t e -------------
-  // -- a3 : new target
-  // -- a1 : constructor to call
-  // -----------------------------------
-  Label stack_overflow;
-
-  // Load the frame pointer into a4.
-  switch (which_frame) {
-    case ForwardWhichFrame::kCurrentFrame:
-      __ Move(a4, fp);
-      break;
-    case ForwardWhichFrame::kParentFrame:
-      __ Ld_d(a4, MemOperand(fp, StandardFrameConstants::kCallerFPOffset));
-      break;
-  }
-
-  // Load the argument count into a0.
-  __ Ld_d(a0, MemOperand(a4, StandardFrameConstants::kArgCOffset));
-  __ StackOverflowCheck(a0, a5, t0, &stack_overflow);
-
-  // Point a4 to the base of the argument list to forward, excluding the
-  // receiver.
-  __ Add_d(a4, a4,
-           Operand((StandardFrameConstants::kFixedSlotCountAboveFp + 1) *
-                   kSystemPointerSize));
-
-  // Copy arguments on the stack. a5 and t0 are scratch registers.
-  Register argc_without_receiver = a6;
-  __ Sub_d(argc_without_receiver, a0, Operand(kJSArgcReceiverSlots));
-  __ PushArray(a4, argc_without_receiver, a5, t0);
-
-  // Push a slot for the receiver.
-  __ Push(zero_reg);
-
-  // Call the constructor with a0, a1, and a3 unmodified.
-  __ Jump(BUILTIN_CODE(masm->isolate(), Construct), RelocInfo::CODE_TARGET);
-
-  __ bind(&stack_overflow);
-  {
-    __ TailCallRuntime(Runtime::kThrowStackOverflow);
-    __ break_(0xCC);
-  }
-}
-
 namespace {
 
 void NewImplicitReceiver(MacroAssembler* masm) {
@@ -2977,30 +2930,6 @@ void Builtins::Generate_WasmReturnPromiseOnSuspendAsm(MacroAssembler* masm) {
 }
 
 void Builtins::Generate_WasmToJsWrapperAsm(MacroAssembler* masm) { __ Trap(); }
-
-void Builtins::Generate_WasmTrapHandlerLandingPad(MacroAssembler* masm) {
-  // This builtin gets called from the WebAssembly trap handler when an
-  // out-of-bounds memory access happened or when a null reference gets
-  // dereferenced. This builtin then fakes a call from the instruction that
-  // triggered the signal to the runtime. This is done by setting a return
-  // address and then jumping to a builtin which will call further to the
-  // runtime.
-  // As the return address we use the fault address + 1. Using the fault address
-  // itself would cause problems with safepoints and source positions.
-  //
-  // The problem with safepoints is that a safepoint has to be registered at the
-  // return address, and that at most one safepoint should be registered at a
-  // location. However, there could already be a safepoint registered at the
-  // fault address if the fault address is the return address of a call.
-  //
-  // The problem with source positions is that the stack trace code looks for
-  // the source position of a call before the return address. The source
-  // position of the faulty memory access, however, is recorded at the fault
-  // address. Therefore the stack trace code would not find the source position
-  // if we used the fault address as the return address.
-  __ Add_d(ra, kWasmTrapHandlerFaultAddressRegister, 1);
-  __ TailCallBuiltin(Builtin::kWasmTrapHandlerThrowTrap);
-}
 
 void Builtins::Generate_WasmSuspend(MacroAssembler* masm) {
   // TODO(v8:12191): Implement for this platform.

@@ -4,6 +4,7 @@
 
 #include "src/execution/stack-guard.h"
 
+#include "src/baseline/baseline-batch-compiler.h"
 #include "src/compiler-dispatcher/optimizing-compile-dispatcher.h"
 #include "src/execution/interrupts-scope.h"
 #include "src/execution/isolate.h"
@@ -14,10 +15,6 @@
 #include "src/roots/roots-inl.h"
 #include "src/tracing/trace-event.h"
 #include "src/utils/memcopy.h"
-
-#ifdef V8_ENABLE_SPARKPLUG
-#include "src/baseline/baseline-batch-compiler.h"
-#endif
 
 #ifdef V8_ENABLE_MAGLEV
 #include "src/maglev/maglev-concurrent-dispatcher.h"
@@ -349,13 +346,11 @@ Tagged<Object> StackGuard::HandleInterrupts(InterruptLevel level) {
     isolate_->optimizing_compile_dispatcher()->InstallOptimizedFunctions();
   }
 
-#ifdef V8_ENABLE_SPARKPLUG
   if (TestAndClear(&interrupt_flags, INSTALL_BASELINE_CODE)) {
     TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("v8.compile"),
                  "V8.FinalizeBaselineConcurrentCompilation");
     isolate_->baseline_batch_compiler()->InstallBatch();
   }
-#endif  // V8_ENABLE_SPARKPLUG
 
 #ifdef V8_ENABLE_MAGLEV
   if (TestAndClear(&interrupt_flags, INSTALL_MAGLEV_CODE)) {

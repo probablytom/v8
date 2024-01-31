@@ -236,10 +236,8 @@ class DebugInfoImpl {
     // If lazy validation is on, we might need to lazily validate here.
     if (V8_UNLIKELY(!env.module->function_was_validated(func_index))) {
       WasmFeatures unused_detected_features;
-      Zone validation_zone(wasm::GetWasmEngine()->allocator(), ZONE_NAME);
-      DecodeResult validation_result =
-          ValidateFunctionBody(&validation_zone, env.enabled_features,
-                               env.module, &unused_detected_features, body);
+      DecodeResult validation_result = ValidateFunctionBody(
+          env.enabled_features, env.module, &unused_detected_features, body);
       // Handling illegal modules here is tricky. As lazy validation is off by
       // default anyway and this is for debugging only, we just crash for now.
       CHECK_WITH_MSG(validation_result.ok(),
@@ -848,14 +846,15 @@ namespace {
 // contains the locals count for the function.
 int FindNextBreakablePosition(wasm::NativeModule* native_module, int func_index,
                               int offset_in_func) {
-  Zone zone{wasm::GetWasmEngine()->allocator(), ZONE_NAME};
+  AccountingAllocator alloc;
+  Zone tmp(&alloc, ZONE_NAME);
   wasm::BodyLocalDecls locals;
   const uint8_t* module_start = native_module->wire_bytes().begin();
   const wasm::WasmFunction& func =
       native_module->module()->functions[func_index];
   wasm::BytecodeIterator iterator(module_start + func.code.offset(),
                                   module_start + func.code.end_offset(),
-                                  &locals, &zone);
+                                  &locals, &tmp);
   DCHECK_LT(0, locals.encoded_size);
   if (offset_in_func < 0) return 0;
   for (; iterator.has_next(); iterator.next()) {
@@ -1008,9 +1007,7 @@ bool WasmScript::ClearBreakPoint(Handle<Script> script, int position,
       if (IsUndefined(entry, isolate)) break;
     }
     // Make sure last array element is empty as a result.
-    breakpoint_infos->set(breakpoint_infos->length() - 1,
-                          ReadOnlyRoots{isolate}.undefined_value(),
-                          SKIP_WRITE_BARRIER);
+    breakpoint_infos->set_undefined(breakpoint_infos->length() - 1);
   }
 
   if (break_point->id() == v8::internal::Debug::kInstrumentationId) {
@@ -1160,7 +1157,8 @@ bool WasmScript::GetPossibleBreakpoints(
   if (start_func_index == end_func_index &&
       start_offset > functions[end_func_index].code.end_offset())
     return false;
-  Zone zone{wasm::GetWasmEngine()->allocator(), ZONE_NAME};
+  AccountingAllocator alloc;
+  Zone tmp(&alloc, ZONE_NAME);
   const uint8_t* module_start = native_module->wire_bytes().begin();
 
   for (int func_idx = start_func_index; func_idx <= end_func_index;
@@ -1171,7 +1169,7 @@ bool WasmScript::GetPossibleBreakpoints(
     wasm::BodyLocalDecls locals;
     wasm::BytecodeIterator iterator(module_start + func.code.offset(),
                                     module_start + func.code.end_offset(),
-                                    &locals, &zone);
+                                    &locals, &tmp);
     DCHECK_LT(0u, locals.encoded_size);
     for (; iterator.has_next(); iterator.next()) {
       uint32_t total_offset = func.code.offset() + iterator.pc_offset();
@@ -1251,7 +1249,7 @@ MaybeHandle<FixedArray> WasmScript::CheckBreakPoints(Isolate* isolate,
     }
   }
   if (break_points_hit_count == 0) return {};
-  break_points_hit->RightTrim(isolate, break_points_hit_count);
+  break_points_hit->Shrink(isolate, break_points_hit_count);
   return break_points_hit;
 }
 

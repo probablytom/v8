@@ -34,23 +34,22 @@ class MachineOperatorReducerTest : public GraphTest {
  public:
   explicit MachineOperatorReducerTest(int num_parameters = 2)
       : GraphTest(num_parameters),
-        data_(std::make_unique<Data>(isolate(), zone(), graph(), tick_counter(),
-                                     broker())) {}
+        machine_(zone(), MachineType::PointerRepresentation(),
+                 MachineOperatorBuilder::kAllOptionalOps),
+        common_(zone()),
+        javascript_(zone()),
+        jsgraph_(isolate(), graph(), &common_, &javascript_, nullptr,
+                 &machine_),
+        graph_reducer_(zone(), graph(), tick_counter(), broker(),
+                       jsgraph_.Dead()) {}
 
  protected:
-  void Reset() {
-    data_ = nullptr;
-    GraphTest::Reset();
-    data_ = std::make_unique<Data>(isolate(), zone(), graph(), tick_counter(),
-                                   broker());
-  }
-
   Reduction Reduce(Node* node) {
     JSOperatorBuilder javascript(zone());
     JSGraph jsgraph(isolate(), graph(), common(), &javascript, nullptr,
-                    &data_->machine_);
+                    &machine_);
     MachineOperatorReducer reducer(
-        &data_->graph_reducer_, &jsgraph,
+        &graph_reducer_, &jsgraph,
         MachineOperatorReducer::kPropagateSignallingNan);
     return reducer.Reduce(node);
   }
@@ -95,25 +94,14 @@ class MachineOperatorReducerTest : public GraphTest {
                       IsWord64Shr(dividend_matcher, IsInt64Constant(63)));
   }
 
-  MachineOperatorBuilder* machine() { return &data_->machine_; }
+  MachineOperatorBuilder* machine() { return &machine_; }
 
  private:
-  struct Data {
-    Data(Isolate* isolate, Zone* zone, Graph* graph, TickCounter* tick_counter,
-         JSHeapBroker* broker)
-        : machine_(zone, MachineType::PointerRepresentation(),
-                   MachineOperatorBuilder::kAllOptionalOps),
-          common_(zone),
-          javascript_(zone),
-          jsgraph_(isolate, graph, &common_, &javascript_, nullptr, &machine_),
-          graph_reducer_(zone, graph, tick_counter, broker, jsgraph_.Dead()) {}
-    MachineOperatorBuilder machine_;
-    CommonOperatorBuilder common_;
-    JSOperatorBuilder javascript_;
-    JSGraph jsgraph_;
-    GraphReducer graph_reducer_;
-  };
-  std::unique_ptr<Data> data_;
+  MachineOperatorBuilder machine_;
+  CommonOperatorBuilder common_;
+  JSOperatorBuilder javascript_;
+  JSGraph jsgraph_;
+  GraphReducer graph_reducer_;
 };
 
 
@@ -702,8 +690,9 @@ TEST_F(MachineOperatorReducerTest, Word32AndWithWord32ShlWithConstant) {
 
 
 TEST_F(MachineOperatorReducerTest, Word32AndWithWord32AndWithConstant) {
+  Node* const p0 = Parameter(0);
+
   TRACED_FOREACH(int32_t, k, kInt32Values) {
-    Node* const p0 = Parameter(0);
     TRACED_FOREACH(int32_t, l, kInt32Values) {
       if (k == 0 || k == -1 || l == 0 || l == -1) continue;
 
@@ -727,8 +716,6 @@ TEST_F(MachineOperatorReducerTest, Word32AndWithWord32AndWithConstant) {
                   (k & l) ? IsWord32And(p0, IsInt32Constant(k & l))
                           : IsInt32Constant(0));
     }
-    // This test uses too much memory if we don't periodically reset.
-    Reset();
   }
 }
 
@@ -1381,9 +1368,9 @@ TEST_F(MachineOperatorReducerTest, Word64ShlWithWord64SarShiftOutZeros) {
 TEST_F(MachineOperatorReducerTest,
        Word32EqualWithShiftedMaskedValueAndConstant) {
   // ((x >> K1) & K2) == K3 => (x & (K2 << K1)) == (K3 << K1)
+  Node* const p0 = Parameter(0);
   TRACED_FOREACH(uint32_t, mask, kUint32Values) {
     TRACED_FOREACH(uint32_t, rhs, kUint32Values) {
-      Node* const p0 = Parameter(0);
       TRACED_FORRANGE(uint32_t, shift_bits, 1, 31) {
         Node* node = graph()->NewNode(
             machine()->Word32Equal(),
@@ -1409,8 +1396,6 @@ TEST_F(MachineOperatorReducerTest,
           ASSERT_FALSE(r.Changed());
         }
       }
-      // This test uses too much memory if we don't periodically reset.
-      Reset();
     }
   }
 }
@@ -1436,9 +1421,9 @@ TEST_F(MachineOperatorReducerTest, Word32EqualWithAddAndConstant) {
 TEST_F(MachineOperatorReducerTest,
        Word64EqualWithShiftedMaskedValueAndConstant) {
   // ((x >> K1) & K2) == K3 => (x & (K2 << K1)) == (K3 << K1)
+  Node* const p0 = Parameter(0);
   TRACED_FOREACH(uint64_t, mask, kUint64Values) {
     TRACED_FOREACH(uint64_t, rhs, kUint64Values) {
-      Node* const p0 = Parameter(0);
       TRACED_FORRANGE(uint64_t, shift_bits, 1, 63) {
         Node* node = graph()->NewNode(
             machine()->Word64Equal(),
@@ -1464,8 +1449,6 @@ TEST_F(MachineOperatorReducerTest,
           ASSERT_FALSE(r.Changed());
         }
       }
-      // This test uses too much memory if we don't periodically reset.
-      Reset();
     }
   }
 }
@@ -2223,8 +2206,8 @@ TEST_F(MachineOperatorReducerTest, Int32AddWithOverflowWithZero) {
 
 
 TEST_F(MachineOperatorReducerTest, Int32AddWithOverflowWithConstant) {
+  Node* control = graph()->start();
   TRACED_FOREACH(int32_t, x, kInt32Values) {
-    Node* control = graph()->start();
     TRACED_FOREACH(int32_t, y, kInt32Values) {
       int32_t z;
       Node* add = graph()->NewNode(machine()->Int32AddWithOverflow(),
@@ -2240,8 +2223,6 @@ TEST_F(MachineOperatorReducerTest, Int32AddWithOverflowWithConstant) {
       ASSERT_TRUE(r.Changed());
       EXPECT_THAT(r.replacement(), IsInt32Constant(z));
     }
-    // This test uses too much memory if we don't periodically reset.
-    Reset();
   }
 }
 
@@ -2267,8 +2248,8 @@ TEST_F(MachineOperatorReducerTest, Int32SubWithOverflowWithZero) {
 
 
 TEST_F(MachineOperatorReducerTest, Int32SubWithOverflowWithConstant) {
+  Node* control = graph()->start();
   TRACED_FOREACH(int32_t, x, kInt32Values) {
-    Node* control = graph()->start();
     TRACED_FOREACH(int32_t, y, kInt32Values) {
       int32_t z;
       Node* add = graph()->NewNode(machine()->Int32SubWithOverflow(),
@@ -2284,8 +2265,6 @@ TEST_F(MachineOperatorReducerTest, Int32SubWithOverflowWithConstant) {
       ASSERT_TRUE(r.Changed());
       EXPECT_THAT(r.replacement(), IsInt32Constant(z));
     }
-    // This test uses too much memory if we don't periodically reset.
-    Reset();
   }
 }
 
@@ -2396,8 +2375,8 @@ TEST_F(MachineOperatorReducerTest, Int32MulWithOverflowWithTwo) {
 }
 
 TEST_F(MachineOperatorReducerTest, Int32MulWithOverflowWithConstant) {
+  Node* control = graph()->start();
   TRACED_FOREACH(int32_t, x, kInt32Values) {
-    Node* control = graph()->start();
     TRACED_FOREACH(int32_t, y, kInt32Values) {
       int32_t z;
       Node* mul = graph()->NewNode(machine()->Int32MulWithOverflow(),
@@ -2413,8 +2392,6 @@ TEST_F(MachineOperatorReducerTest, Int32MulWithOverflowWithConstant) {
       ASSERT_TRUE(r.Changed());
       EXPECT_THAT(r.replacement(), IsInt32Constant(z));
     }
-    // This test uses too much memory if we don't periodically reset.
-    Reset();
   }
 }
 

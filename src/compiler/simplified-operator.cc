@@ -1567,15 +1567,15 @@ const Operator* SimplifiedOperatorBuilder::StringPrepareForGetCodeunit() {
   return &cache_.kStringPrepareForGetCodeunit;
 }
 
-const Operator* SimplifiedOperatorBuilder::WasmAnyConvertExtern() {
-  return zone()->New<Operator>(IrOpcode::kWasmAnyConvertExtern,
-                               Operator::kEliminatable, "WasmAnyConvertExtern",
+const Operator* SimplifiedOperatorBuilder::WasmExternInternalize() {
+  return zone()->New<Operator>(IrOpcode::kWasmExternInternalize,
+                               Operator::kEliminatable, "WasmExternInternalize",
                                1, 1, 1, 1, 1, 1);
 }
 
-const Operator* SimplifiedOperatorBuilder::WasmExternConvertAny() {
-  return zone()->New<Operator>(IrOpcode::kWasmExternConvertAny,
-                               Operator::kEliminatable, "WasmExternConvertAny",
+const Operator* SimplifiedOperatorBuilder::WasmExternExternalize() {
+  return zone()->New<Operator>(IrOpcode::kWasmExternExternalize,
+                               Operator::kEliminatable, "WasmExternExternalize",
                                1, 1, 1, 1, 1, 1);
 }
 

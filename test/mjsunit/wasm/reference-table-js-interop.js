@@ -67,7 +67,7 @@ for (let [typeName, type] of Object.entries(tableTypes)) {
   builder.addFunction("tableGet", makeSig([kWasmI32], [kWasmExternRef]))
     .addBody([
       kExprLocalGet, 0, kExprTableGet, 0,
-      kGCPrefix, kExprExternConvertAny,
+      kGCPrefix, kExprExternExternalize,
     ])
     .exportFunc();
 
@@ -93,7 +93,7 @@ for (let [typeName, type] of Object.entries(tableTypes)) {
     .addBody([
       kExprLocalGet, 0,
       kExprCallRef, creatorSig,
-      kGCPrefix, kExprExternConvertAny,
+      kGCPrefix, kExprExternExternalize,
     ])
     .exportFunc();
   builder.addFunction("exportedAny",
@@ -101,7 +101,7 @@ for (let [typeName, type] of Object.entries(tableTypes)) {
     .addBody([
       kExprLocalGet, 0,
       kExprCallRef, creatorAnySig,
-      kGCPrefix, kExprExternConvertAny,
+      kGCPrefix, kExprExternExternalize,
     ])
     .exportFunc();
 
@@ -133,7 +133,7 @@ for (let [typeName, type] of Object.entries(tableTypes)) {
     .addBody([
       kExprLocalGet, 0,
       kExprLocalGet, 1,
-      kGCPrefix, kExprAnyConvertExtern,
+      kGCPrefix, kExprExternInternalize,
       kExprTableSet, 0,
     ])
     .exportFunc();

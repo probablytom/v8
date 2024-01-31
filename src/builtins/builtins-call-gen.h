@@ -68,12 +68,6 @@ class CallOrConstructBuiltinsAssembler : public CodeStubAssembler {
                                 const LazyNode<HeapObject>& feedback_vector,
                                 TNode<UintPtrT> slot, UpdateFeedbackMode mode);
 
-  void BuildConstructForwardAllArgs(TNode<Object> target,
-                                    TNode<Object> new_target,
-                                    const LazyNode<Context>& context,
-                                    const LazyNode<HeapObject>& feedback_vector,
-                                    TNode<UintPtrT> slot);
-
  private:
   TNode<JSReceiver> GetCompatibleReceiver(TNode<JSReceiver> receiver,
                                           TNode<HeapObject> signature,

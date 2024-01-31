@@ -41,15 +41,15 @@ class TypeInferenceAnalysis {
       : graph_(graph),
         // TODO(nicohartmann@): Might put types back into phase_zone once we
         // don't store them in the graph anymore.
-        types_(graph.op_id_count(), Type{}, graph.graph_zone(), &graph),
+        types_(graph.op_id_count(), Type{}, graph.graph_zone()),
         table_(phase_zone),
-        op_to_key_mapping_(phase_zone, &graph),
+        op_to_key_mapping_(phase_zone),
         block_to_snapshot_mapping_(graph.block_count(), base::nullopt,
                                    phase_zone),
         predecessors_(phase_zone),
         graph_zone_(graph.graph_zone()) {}
 
-  GrowingOpIndexSidetable<Type> Run(
+  GrowingSidetable<Type> Run(
       GrowingBlockSidetable<std::vector<std::pair<OpIndex, Type>>>*
           block_refinements = nullptr) {
 #ifdef DEBUG
@@ -309,17 +309,13 @@ class TypeInferenceAnalysis {
         case Opcode::kRttCanon:
         case Opcode::kWasmTypeCheck:
         case Opcode::kWasmTypeCast:
-        case Opcode::kAnyConvertExtern:
-        case Opcode::kExternConvertAny:
-        case Opcode::kWasmTypeAnnotation:
+        case Opcode::kExternInternalize:
+        case Opcode::kExternExternalize:
         case Opcode::kStructGet:
         case Opcode::kStructSet:
         case Opcode::kArrayGet:
         case Opcode::kArraySet:
         case Opcode::kArrayLength:
-        case Opcode::kWasmAllocateArray:
-        case Opcode::kWasmAllocateStruct:
-        case Opcode::kWasmRefFunc:
         case Opcode::kSimd128Constant:
         case Opcode::kSimd128Binop:
         case Opcode::kSimd128Unary:
@@ -640,11 +636,11 @@ class TypeInferenceAnalysis {
 
  private:
   const Graph& graph_;
-  GrowingOpIndexSidetable<Type> types_;
+  GrowingSidetable<Type> types_;
   using table_t = SnapshotTable<Type>;
   table_t table_;
   const Block* current_block_ = nullptr;
-  GrowingOpIndexSidetable<base::Optional<table_t::Key>> op_to_key_mapping_;
+  GrowingSidetable<base::Optional<table_t::Key>> op_to_key_mapping_;
   GrowingBlockSidetable<base::Optional<table_t::Snapshot>>
       block_to_snapshot_mapping_;
   // {predecessors_} is used during merging, but we use an instance variable for

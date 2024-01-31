@@ -56,6 +56,12 @@ bool NewSpace::Contains(Tagged<HeapObject> o) const {
   return BasicMemoryChunk::FromHeapObject(o)->InNewSpace();
 }
 
+V8_WARN_UNUSED_RESULT inline AllocationResult NewSpace::AllocateRawSynchronized(
+    int size_in_bytes, AllocationAlignment alignment, AllocationOrigin origin) {
+  base::MutexGuard guard(&mutex_);
+  return AllocateRaw(size_in_bytes, alignment, origin);
+}
+
 // -----------------------------------------------------------------------------
 // SemiSpaceObjectIterator
 

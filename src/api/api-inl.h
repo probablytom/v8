@@ -73,6 +73,20 @@ inline Local<To> Utils::Convert(v8::internal::DirectHandle<From> obj,
 #endif
 }
 
+template <class From, class To>
+inline Local<To> Utils::Convert(v8::internal::CapabilityHandle<From> obj,
+                                v8::internal::Isolate* isolate) {
+#if defined(V8_ENABLE_DIRECT_LOCAL)
+  DCHECK(obj.is_null() || (IsSmi(*obj) || !IsTheHole(*obj)));
+  return Local<To>::FromAddress(obj.address());
+#elif defined(V8_ENABLE_CAPABILITY_HANDLE)
+  return Convert<From, To>(v8::internal::Handle<From>(*obj, isolate)); 
+#else
+  return Convert<From, To>(obj);
+#endif
+}
+
+
 // Implementations of ToLocal
 
 #define MAKE_TO_LOCAL(Name, From, To)                                       \
@@ -82,6 +96,12 @@ inline Local<To> Utils::Convert(v8::internal::DirectHandle<From> obj,
                                                                             \
   Local<v8::To> Utils::Name(                                                \
       v8::internal::DirectHandle<v8::internal::From> obj,                   \
+      i::Isolate* isolate) {                                                \
+    return Convert<v8::internal::From, v8::To>(obj, isolate);               \
+  }                                                                         \
+                                                                            \
+  Local<v8::To> Utils::Name(                                                \
+      v8::internal::CapabilityHandle<v8::internal::From> obj,               \
       i::Isolate* isolate) {                                                \
     return Convert<v8::internal::From, v8::To>(obj, isolate);               \
   }
@@ -97,6 +117,13 @@ TO_LOCAL_LIST(MAKE_TO_LOCAL)
                                                                                \
   Local<v8::Type##Array> Utils::ToLocal##Type##Array(                          \
       v8::internal::DirectHandle<v8::internal::JSTypedArray> obj,              \
+      v8::internal::Isolate* isolate) {                                        \
+    DCHECK(obj->type() == v8::internal::kExternal##Type##Array);               \
+    return Convert<v8::internal::JSTypedArray, v8::Type##Array>(obj, isolate); \
+  }                                                                            \
+                                                                               \
+  Local<v8::Type##Array> Utils::ToLocal##Type##Array(                          \
+      v8::internal::CapabilityHandle<v8::internal::JSTypedArray> obj,          \
       v8::internal::Isolate* isolate) {                                        \
     DCHECK(obj->type() == v8::internal::kExternal##Type##Array);               \
     return Convert<v8::internal::JSTypedArray, v8::Type##Array>(obj, isolate); \
@@ -168,10 +195,31 @@ TYPED_ARRAYS(MAKE_TO_LOCAL_TYPED_ARRAY)
 
 #endif  // V8_ENABLE_DIRECT_LOCAL
 
-OPEN_HANDLE_LIST(MAKE_OPEN_HANDLE)
 
+OPEN_HANDLE_LIST(MAKE_OPEN_HANDLE)
 #undef MAKE_OPEN_HANDLE
+
+
+#ifdef V8_ENABLE_CAPABILITY_HANDLE
+
+#define MAKE_CAP_HANDLE(From, To)                                                    \
+  v8::internal::CapabilityHandle<v8::internal::To> Utils::OpenCapabilityHandle(      \
+      const v8::From* that, bool allow_empty_handle) {                               \
+    DCHECK(allow_empty_handle || !v8::internal::ValueHelper::IsEmpty(that));         \
+    DCHECK(v8::internal::ValueHelper::IsEmpty(that) ||                               \
+           Is##To(v8::internal::Tagged<v8::internal::Object>(                        \
+               v8::internal::ValueHelper::ValueAsAddress(that))));                   \
+    return v8::internal::CapabilityHandle<v8::internal::To>(                         \
+        v8::internal::ValueHelper::ValueAsAddress(that));                            \
+  }
+
+OPEN_HANDLE_LIST(MAKE_CAP_HANDLE)
+#undef MAKE_CAP_HANDLE
+
+#endif // V8_ENABLE_CAPABILITY_HANDLE
+
 #undef OPEN_HANDLE_LIST
+
 
 template <bool do_callback>
 class V8_NODISCARD CallDepthScope {
@@ -351,10 +399,35 @@ inline bool V8_EXPORT TryToCopyAndConvertArrayToCppBuffer(Local<Array> src,
 namespace internal {
 
 void HandleScopeImplementer::EnterContext(Tagged<NativeContext> context) {
+  DCHECK_EQ(entered_contexts_.capacity(), is_microtask_context_.capacity());
+  DCHECK_EQ(entered_contexts_.size(), is_microtask_context_.size());
   entered_contexts_.push_back(context);
+  is_microtask_context_.push_back(0);
+}
+
+void HandleScopeImplementer::EnterMicrotaskContext(
+    Tagged<NativeContext> context) {
+  DCHECK_EQ(entered_contexts_.capacity(), is_microtask_context_.capacity());
+  DCHECK_EQ(entered_contexts_.size(), is_microtask_context_.size());
+  entered_contexts_.push_back(context);
+  is_microtask_context_.push_back(1);
 }
 
 Handle<NativeContext> HandleScopeImplementer::LastEnteredContext() {
+  DCHECK_EQ(entered_contexts_.capacity(), is_microtask_context_.capacity());
+  DCHECK_EQ(entered_contexts_.size(), is_microtask_context_.size());
+
+  for (size_t i = 0; i < entered_contexts_.size(); ++i) {
+    size_t j = entered_contexts_.size() - i - 1;
+    if (!is_microtask_context_.at(j)) {
+      return handle(entered_contexts_.at(j), isolate_);
+    }
+  }
+
+  return {};
+}
+
+Handle<NativeContext> HandleScopeImplementer::LastEnteredOrMicrotaskContext() {
   if (entered_contexts_.empty()) return {};
   return handle(entered_contexts_.back(), isolate_);
 }

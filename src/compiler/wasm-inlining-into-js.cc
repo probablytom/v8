@@ -96,13 +96,13 @@ class WasmIntoJSInlinerImpl : private wasm::Decoder {
     while (is_inlineable_) {
       WasmOpcode opcode = ReadOpcode();
       switch (opcode) {
-        case wasm::kExprAnyConvertExtern:
+        case wasm::kExprExternInternalize:
           DCHECK(!stack.empty());
-          stack.back() = ParseAnyConvertExtern(stack.back());
+          stack.back() = ParseExternInternalize(stack.back());
           continue;
-        case wasm::kExprExternConvertAny:
+        case wasm::kExprExternExternalize:
           DCHECK(!stack.empty());
-          stack.back() = ParseExternConvertAny(stack.back());
+          stack.back() = ParseExternExternalize(stack.back());
           continue;
         case wasm::kExprRefCast:
         case wasm::kExprRefCastNull:
@@ -183,24 +183,24 @@ class WasmIntoJSInlinerImpl : private wasm::Decoder {
   }
 
  private:
-  Value ParseAnyConvertExtern(Value input) {
+  Value ParseExternInternalize(Value input) {
     DCHECK(input.type.is_reference_to(wasm::HeapType::kExtern) ||
            input.type.is_reference_to(wasm::HeapType::kNoExtern));
     wasm::ValueType result_type = wasm::ValueType::RefMaybeNull(
         wasm::HeapType::kAny, input.type.is_nullable()
                                   ? wasm::Nullability::kNullable
                                   : wasm::Nullability::kNonNullable);
-    Node* internalized = gasm_.WasmAnyConvertExtern(input.node);
+    Node* internalized = gasm_.WasmExternInternalize(input.node);
     return TypeNode(internalized, result_type);
   }
 
-  Value ParseExternConvertAny(Value input) {
+  Value ParseExternExternalize(Value input) {
     DCHECK(input.type.is_reference());
     wasm::ValueType result_type = wasm::ValueType::RefMaybeNull(
         wasm::HeapType::kExtern, input.type.is_nullable()
                                      ? wasm::Nullability::kNullable
                                      : wasm::Nullability::kNonNullable);
-    Node* internalized = gasm_.WasmExternConvertAny(input.node);
+    Node* internalized = gasm_.WasmExternExternalize(input.node);
     return TypeNode(internalized, result_type);
   }
 

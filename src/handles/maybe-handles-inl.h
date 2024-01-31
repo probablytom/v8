@@ -226,6 +226,114 @@ DirectHandle<Object> MaybeObjectDirectHandle::object() const {
 
 #endif  // V8_ENABLE_DIRECT_HANDLE
 
+#ifdef V8_ENABLE_CAPABILITY_HANDLE
+
+template <typename T>
+MaybeCapabilityHandle<T>::MaybeCapabilityHandle(Tagged<T> object, Isolate* isolate)
+    : MaybeCapabilityHandle(capability_handle(object, isolate)) {}
+
+template <typename T>
+MaybeCapabilityHandle<T>::MaybeCapabilityHandle(Tagged<T> object, LocalHeap* local_heap)
+    : MaybeCapabilityHandle(capability_handle(object, local_heap)) {}
+
+template <typename T>
+inline std::ostream& operator<<(std::ostream& os, MaybeCapabilityHandle<T> handle) {
+  if (handle.is_null()) return os << "null";
+  return os << handle.ToHandleChecked();
+}
+
+MaybeObjectCapabilityHandle::MaybeObjectCapabilityHandle(MaybeObject object,
+                                                 Isolate* isolate) {
+  Tagged<HeapObject> heap_object;
+  DCHECK(!object->IsCleared());
+  if (object.GetHeapObjectIfWeak(&heap_object)) {
+    handle_ = capability_handle(heap_object, isolate);
+    reference_type_ = HeapObjectReferenceType::WEAK;
+  } else {
+    handle_ = capability_handle(object->cast<Object>(), isolate);
+    reference_type_ = HeapObjectReferenceType::STRONG;
+  }
+}
+
+MaybeObjectCapabilityHandle::MaybeObjectCapabilityHandle(MaybeObject object,
+                                                 LocalHeap* local_heap) {
+  Tagged<HeapObject> heap_object;
+  DCHECK(!object->IsCleared());
+  if (object.GetHeapObjectIfWeak(&heap_object)) {
+    handle_ = capability_handle(heap_object, local_heap);
+    reference_type_ = HeapObjectReferenceType::WEAK;
+  } else {
+    handle_ = capability_handle(object->cast<Object>(), local_heap);
+    reference_type_ = HeapObjectReferenceType::STRONG;
+  }
+}
+
+MaybeObjectCapabilityHandle::MaybeObjectCapabilityHandle(CapabilityHandle<Object> object)
+    : reference_type_(HeapObjectReferenceType::STRONG), handle_(object) {}
+
+MaybeObjectCapabilityHandle::MaybeObjectCapabilityHandle(Tagged<Object> object,
+                                                 Isolate* isolate)
+    : reference_type_(HeapObjectReferenceType::STRONG),
+      handle_(object, isolate) {}
+
+MaybeObjectCapabilityHandle::MaybeObjectCapabilityHandle(Tagged<Object> object,
+                                                 LocalHeap* local_heap)
+    : reference_type_(HeapObjectReferenceType::STRONG),
+      handle_(object, local_heap) {}
+
+MaybeObjectCapabilityHandle::MaybeObjectCapabilityHandle(
+    Tagged<Object> object, HeapObjectReferenceType reference_type,
+    Isolate* isolate)
+    : reference_type_(reference_type), handle_(object, isolate) {}
+
+MaybeObjectCapabilityHandle::MaybeObjectCapabilityHandle(
+    CapabilityHandle<Object> object, HeapObjectReferenceType reference_type)
+    : reference_type_(reference_type), handle_(object) {}
+
+MaybeObjectCapabilityHandle MaybeObjectCapabilityHandle::Weak(
+    CapabilityHandle<Object> object) {
+  return MaybeObjectCapabilityHandle(object, HeapObjectReferenceType::WEAK);
+}
+
+MaybeObjectCapabilityHandle MaybeObjectCapabilityHandle::Weak(Tagged<Object> object,
+                                                      Isolate* isolate) {
+  return MaybeObjectCapabilityHandle(object, HeapObjectReferenceType::WEAK,
+                                 isolate);
+}
+
+bool MaybeObjectCapabilityHandle::is_identical_to(
+    const MaybeObjectCapabilityHandle& other) const {
+  CapabilityHandle<Object> this_handle;
+  CapabilityHandle<Object> other_handle;
+  return reference_type_ == other.reference_type_ &&
+         handle_.ToHandle(&this_handle) ==
+             other.handle_.ToHandle(&other_handle) &&
+         this_handle.is_identical_to(other_handle);
+}
+
+MaybeObject MaybeObjectCapabilityHandle::operator*() const {
+  if (reference_type_ == HeapObjectReferenceType::WEAK) {
+    return HeapObjectReference::Weak(*handle_.ToHandleChecked());
+  } else {
+    return MaybeObject::FromObject(*handle_.ToHandleChecked());
+  }
+}
+
+MaybeObject MaybeObjectCapabilityHandle::operator->() const {
+  if (reference_type_ == HeapObjectReferenceType::WEAK) {
+    return HeapObjectReference::Weak(*handle_.ToHandleChecked());
+  } else {
+    return MaybeObject::FromObject(*handle_.ToHandleChecked());
+  }
+}
+
+CapabilityHandle<Object> MaybeObjectCapabilityHandle::object() const {
+  return handle_.ToHandleChecked();
+}
+
+#endif  // V8_ENABLE_CAPABILITY_HANDLE
+
+
 }  // namespace internal
 }  // namespace v8
 

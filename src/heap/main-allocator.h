@@ -9,7 +9,6 @@
 #include "src/common/globals.h"
 #include "src/heap/allocation-observer.h"
 #include "src/heap/allocation-result.h"
-#include "src/heap/gc-tracer.h"
 #include "src/heap/linear-allocation-area.h"
 #include "src/tasks/cancelable-task.h"
 
@@ -17,104 +16,7 @@ namespace v8 {
 namespace internal {
 
 class Heap;
-class MainAllocator;
-class SemiSpaceNewSpace;
 class SpaceWithLinearArea;
-class PagedNewSpace;
-class PagedSpaceBase;
-
-class AllocatorPolicy {
- public:
-  explicit AllocatorPolicy(MainAllocator* allocator);
-  virtual ~AllocatorPolicy() {}
-
-  // Sets up a linear allocation area that fits the given number of bytes.
-  // Returns false if there is not enough space and the caller has to retry
-  // after collecting garbage.
-  // Writes to `max_aligned_size` the actual number of bytes used for checking
-  // that there is enough space.
-  virtual bool EnsureAllocation(int size_in_bytes,
-                                AllocationAlignment alignment,
-                                AllocationOrigin origin) = 0;
-  virtual void FreeLinearAllocationArea() = 0;
-
-  virtual bool SupportsExtendingLAB() const { return false; }
-
- protected:
-  Heap* heap() const { return heap_; }
-
-  MainAllocator* const allocator_;
-  Heap* const heap_;
-};
-
-class SemiSpaceNewSpaceAllocatorPolicy final : public AllocatorPolicy {
- public:
-  explicit SemiSpaceNewSpaceAllocatorPolicy(SemiSpaceNewSpace* space,
-                                            MainAllocator* allocator)
-      : AllocatorPolicy(allocator), space_(space) {}
-
-  bool EnsureAllocation(int size_in_bytes, AllocationAlignment alignment,
-                        AllocationOrigin origin) final;
-  void FreeLinearAllocationArea() final;
-
- private:
-  static constexpr int kLabSizeInGC = 32 * KB;
-
-  void FreeLinearAllocationAreaUnsynchronized();
-
-  SemiSpaceNewSpace* const space_;
-};
-
-class PagedSpaceAllocatorPolicy final : public AllocatorPolicy {
- public:
-  PagedSpaceAllocatorPolicy(PagedSpaceBase* space, MainAllocator* allocator)
-      : AllocatorPolicy(allocator), space_(space) {}
-
-  bool EnsureAllocation(int size_in_bytes, AllocationAlignment alignment,
-                        AllocationOrigin origin) final;
-  void FreeLinearAllocationArea() final;
-
- private:
-  bool RefillLabMain(int size_in_bytes, AllocationOrigin origin);
-  bool RawRefillLabMain(int size_in_bytes, AllocationOrigin origin);
-
-  bool ContributeToSweepingMain(int required_freed_bytes, int max_pages,
-                                int size_in_bytes, AllocationOrigin origin,
-                                GCTracer::Scope::ScopeId sweeping_scope_id,
-                                ThreadKind sweeping_scope_kind);
-
-  bool TryAllocationFromFreeListMain(size_t size_in_bytes,
-                                     AllocationOrigin origin);
-
-  V8_WARN_UNUSED_RESULT bool TryExtendLAB(int size_in_bytes);
-
-  void SetLinearAllocationArea(Address top, Address limit, Address end);
-  void DecreaseLimit(Address new_limit);
-
-  void FreeLinearAllocationAreaUnsynchronized();
-
-  PagedSpaceBase* const space_;
-
-  friend class PagedNewSpaceAllocatorPolicy;
-};
-
-class PagedNewSpaceAllocatorPolicy final : public AllocatorPolicy {
- public:
-  PagedNewSpaceAllocatorPolicy(PagedNewSpace* space, MainAllocator* allocator);
-
-  bool EnsureAllocation(int size_in_bytes, AllocationAlignment alignment,
-                        AllocationOrigin origin) final;
-  void FreeLinearAllocationArea() final;
-
-  bool SupportsExtendingLAB() const final { return true; }
-
- private:
-  bool AddPageBeyondCapacity(int size_in_bytes, AllocationOrigin origin);
-  bool WaitForSweepingForAllocation(int size_in_bytes, AllocationOrigin origin);
-
-  PagedNewSpace* const space_;
-  std::unique_ptr<PagedSpaceAllocatorPolicy> paged_space_allocator_policy_;
-};
 
 class LinearAreaOriginalData {
  public:
@@ -147,18 +49,17 @@ class LinearAreaOriginalData {
 
 class MainAllocator {
  public:
-  enum class Context {
-    kGC,
-    kNotGC,
-  };
+  enum SupportsExtendingLAB { kYes, kNo };
 
-  V8_EXPORT_PRIVATE MainAllocator(
-      Heap* heap, SpaceWithLinearArea* space,
-      MainAllocator::Context context = MainAllocator::Context::kNotGC);
+  MainAllocator(Heap* heap, SpaceWithLinearArea* space,
+                CompactionSpaceKind compaction_space_kind,
+                SupportsExtendingLAB supports_extending_lab);
 
   // This constructor allows to pass in the address of a LinearAllocationArea.
-  V8_EXPORT_PRIVATE MainAllocator(Heap* heap, SpaceWithLinearArea* space,
-                                  LinearAllocationArea& allocation_info);
+  MainAllocator(Heap* heap, SpaceWithLinearArea* space,
+                CompactionSpaceKind compaction_space_kind,
+                SupportsExtendingLAB supports_extending_lab,
+                LinearAllocationArea& allocation_info);
 
   // Returns the allocation pointer in this space.
   Address start() const { return allocation_info_.start(); }
@@ -176,16 +77,15 @@ class MainAllocator {
   }
 
   Address original_top_acquire() const {
-    return linear_area_original_data().get_original_top_acquire();
+    return linear_area_original_data_.get_original_top_acquire();
   }
 
   Address original_limit_relaxed() const {
-    return linear_area_original_data().get_original_limit_relaxed();
+    return linear_area_original_data_.get_original_limit_relaxed();
   }
 
   void MoveOriginalTopForward();
-  V8_EXPORT_PRIVATE void ResetLab(Address start, Address end,
-                                  Address extended_end);
+  void ResetLab(Address start, Address end, Address extended_end);
   V8_EXPORT_PRIVATE bool IsPendingAllocation(Address object_address);
   void MaybeFreeUnusedLab(LinearAllocationArea lab);
 
@@ -195,12 +95,10 @@ class MainAllocator {
     return allocation_info_;
   }
 
-  AllocationCounter& allocation_counter() {
-    return allocation_counter_.value();
-  }
+  AllocationCounter& allocation_counter() { return allocation_counter_; }
 
   const AllocationCounter& allocation_counter() const {
-    return allocation_counter_.value();
+    return allocation_counter_;
   }
 
   V8_WARN_UNUSED_RESULT V8_INLINE AllocationResult
@@ -223,13 +121,12 @@ class MainAllocator {
                                                    size_t aligned_size_in_bytes,
                                                    size_t allocation_size);
 
-  V8_EXPORT_PRIVATE void MakeLinearAllocationAreaIterable();
+  void MarkLabStartInitialized();
+
+  void MakeLinearAllocationAreaIterable();
 
   void MarkLinearAllocationAreaBlack();
   void UnmarkLinearAllocationArea();
-
-  V8_EXPORT_PRIVATE Address AlignTopForTesting(AllocationAlignment alignment,
-                                               int offset);
 
   V8_INLINE bool TryFreeLast(Address object_address, int object_size);
 
@@ -247,13 +144,15 @@ class MainAllocator {
   // Checks whether the LAB is currently in use.
   V8_INLINE bool IsLabValid() { return allocation_info_.top() != kNullAddress; }
 
+  void UpdateInlineAllocationLimit();
+
   V8_EXPORT_PRIVATE void FreeLinearAllocationArea();
 
   void ExtendLAB(Address limit);
 
-  V8_EXPORT_PRIVATE bool EnsureAllocationForTesting(
-      int size_in_bytes, AllocationAlignment alignment,
-      AllocationOrigin origin);
+  bool supports_extending_lab() const {
+    return supports_extending_lab_ == SupportsExtendingLAB::kYes;
+  }
 
  private:
   // Allocates an object from the linear allocation area. Assumes that the
@@ -286,46 +185,38 @@ class MainAllocator {
                          AllocationOrigin origin = AllocationOrigin::kRuntime);
 
   bool EnsureAllocation(int size_in_bytes, AllocationAlignment alignment,
-                        AllocationOrigin origin);
-
-  void MarkLabStartInitialized();
+                        AllocationOrigin origin, int* out_max_aligned_size);
 
   LinearAreaOriginalData& linear_area_original_data() {
-    return linear_area_original_data_.value();
+    return linear_area_original_data_;
   }
 
   const LinearAreaOriginalData& linear_area_original_data() const {
-    return linear_area_original_data_.value();
+    return linear_area_original_data_;
   }
 
   int ObjectAlignment() const;
 
   AllocationSpace identity() const;
 
-  bool SupportsAllocationObserver() const { return !in_gc(); }
+  bool SupportsAllocationObserver() const { return !is_compaction_space(); }
 
-  bool in_gc() const { return context_ == Context::kGC; }
-
-  bool supports_extending_lab() const { return supports_extending_lab_; }
+  bool is_compaction_space() const {
+    return compaction_space_kind_ != CompactionSpaceKind::kNone;
+  }
 
   Heap* heap() const { return heap_; }
 
-  Heap* const heap_;
-  SpaceWithLinearArea* const space_;
+  Heap* heap_;
+  SpaceWithLinearArea* space_;
+  CompactionSpaceKind compaction_space_kind_;
+  const SupportsExtendingLAB supports_extending_lab_;
 
-  base::Optional<AllocationCounter> allocation_counter_;
+  AllocationCounter allocation_counter_;
   LinearAllocationArea& allocation_info_;
   // This memory is used if no LinearAllocationArea& is passed in as argument.
   LinearAllocationArea owned_allocation_info_;
-  base::Optional<LinearAreaOriginalData> linear_area_original_data_;
-  std::unique_ptr<AllocatorPolicy> allocator_policy_;
-
-  const Context context_;
-  const bool supports_extending_lab_;
-
-  friend class AllocatorPolicy;
-  friend class PagedSpaceAllocatorPolicy;
-  friend class SemiSpaceNewSpaceAllocatorPolicy;
+  LinearAreaOriginalData linear_area_original_data_;
 };
 
 }  // namespace internal

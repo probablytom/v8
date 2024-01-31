@@ -87,7 +87,6 @@ class V8ValueStringBuilder {
   explicit V8ValueStringBuilder(v8::Local<v8::Context> context)
       : m_arrayLimit(maxArrayItemsLimit),
         m_isolate(context->GetIsolate()),
-        m_visitedArrays(context->GetIsolate()),
         m_tryCatch(context->GetIsolate()),
         m_context(context) {}
 
@@ -184,7 +183,7 @@ class V8ValueStringBuilder {
   uint32_t m_arrayLimit;
   v8::Isolate* m_isolate;
   String16Builder m_builder;
-  v8::LocalVector<v8::Array> m_visitedArrays;
+  std::vector<v8::Local<v8::Array>> m_visitedArrays;
   v8::TryCatch m_tryCatch;
   v8::Local<v8::Context> m_context;
 };
@@ -426,7 +425,7 @@ ConsoleAPIType V8ConsoleMessage::type() const { return m_type; }
 std::unique_ptr<V8ConsoleMessage> V8ConsoleMessage::createForConsoleAPI(
     v8::Local<v8::Context> v8Context, int contextId, int groupId,
     V8InspectorImpl* inspector, double timestamp, ConsoleAPIType type,
-    v8::MemorySpan<const v8::Local<v8::Value>> arguments,
+    const std::vector<v8::Local<v8::Value>>& arguments,
     const String16& consoleContext,
     std::unique_ptr<V8StackTraceImpl> stackTrace) {
   v8::Isolate* isolate = v8Context->GetIsolate();
@@ -442,21 +441,18 @@ std::unique_ptr<V8ConsoleMessage> V8ConsoleMessage::createForConsoleAPI(
   message->m_consoleContext = consoleContext;
   message->m_type = type;
   message->m_contextId = contextId;
-  for (v8::Local<v8::Value> arg : arguments) {
+  for (size_t i = 0; i < arguments.size(); ++i) {
     std::unique_ptr<v8::Global<v8::Value>> argument(
-        new v8::Global<v8::Value>(isolate, arg));
+        new v8::Global<v8::Value>(isolate, arguments.at(i)));
     argument->AnnotateStrongRetainer(kGlobalConsoleMessageHandleLabel);
     message->m_arguments.push_back(std::move(argument));
-    message->m_v8Size += v8::debug::EstimatedValueSize(isolate, arg);
+    message->m_v8Size +=
+        v8::debug::EstimatedValueSize(isolate, arguments.at(i));
   }
-  bool sep = false;
-  for (v8::Local<v8::Value> arg : arguments) {
-    if (sep) {
-      message->m_message += String16(" ");
-    } else {
-      sep = true;
-    }
-    message->m_message += V8ValueStringBuilder::toString(arg, v8Context);
+  for (size_t i = 0, num_args = arguments.size(); i < num_args; ++i) {
+    if (i) message->m_message += String16(" ");
+    message->m_message +=
+        V8ValueStringBuilder::toString(arguments[i], v8Context);
   }
 
   v8::Isolate::MessageErrorLevel clientLevel = v8::Isolate::kMessageInfo;

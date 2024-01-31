@@ -178,9 +178,11 @@ void AsyncBuiltinsAssembler::InitializeNativeClosure(
   // contains a builtin index (as Smi), so there's no need to use
   // CodeStubAssembler::GetSharedFunctionInfoCode() helper here,
   // which almost doubles the size of `await` builtins (unnecessarily).
-  TNode<Smi> builtin_id = LoadSharedFunctionInfoBuiltinId(shared_info);
+  TNode<Smi> builtin_id = LoadObjectField<Smi>(
+      shared_info, SharedFunctionInfo::kFunctionDataOffset);
   TNode<Code> code = LoadBuiltin(builtin_id);
-  StoreCodePointerFieldNoWriteBarrier(function, JSFunction::kCodeOffset, code);
+  StoreMaybeIndirectPointerFieldNoWriteBarrier(
+      function, JSFunction::kCodeOffset, kCodeIndirectPointerTag, code);
 }
 
 TNode<JSFunction> AsyncBuiltinsAssembler::CreateUnwrapClosure(

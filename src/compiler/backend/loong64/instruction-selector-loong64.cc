@@ -1782,6 +1782,7 @@ void InstructionSelectorT<Adapter>::VisitTryTruncateFloat64ToInt32(
   } else {
     Loong64OperandGeneratorT<Adapter> g(this);
     InstructionOperand inputs[] = {g.UseRegister(node->InputAt(0))};
+    InstructionOperand temps[] = {g.TempDoubleRegister()};
     InstructionOperand outputs[2];
     size_t output_count = 0;
     outputs[output_count++] = g.DefineAsRegister(node);
@@ -1791,7 +1792,7 @@ void InstructionSelectorT<Adapter>::VisitTryTruncateFloat64ToInt32(
       outputs[output_count++] = g.DefineAsRegister(success_output);
     }
 
-    Emit(kLoong64Float64ToInt32, output_count, outputs, 1, inputs);
+    Emit(kLoong64Float64ToInt32, output_count, outputs, 1, inputs, 1, temps);
   }
 }
 
@@ -1803,6 +1804,7 @@ void InstructionSelectorT<Adapter>::VisitTryTruncateFloat64ToUint32(
   } else {
     Loong64OperandGeneratorT<Adapter> g(this);
     InstructionOperand inputs[] = {g.UseRegister(node->InputAt(0))};
+    InstructionOperand temps[] = {g.TempDoubleRegister()};
     InstructionOperand outputs[2];
     size_t output_count = 0;
     outputs[output_count++] = g.DefineAsRegister(node);
@@ -1812,7 +1814,7 @@ void InstructionSelectorT<Adapter>::VisitTryTruncateFloat64ToUint32(
       outputs[output_count++] = g.DefineAsRegister(success_output);
     }
 
-    Emit(kLoong64Float64ToUint32, output_count, outputs, 1, inputs);
+    Emit(kLoong64Float64ToUint32, output_count, outputs, 1, inputs, 1, temps);
   }
 }
 

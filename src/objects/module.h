@@ -22,8 +22,6 @@ class SourceTextModuleDescriptor;
 class SourceTextModuleInfo;
 class SourceTextModuleInfoEntry;
 class Zone;
-template <typename T>
-class ZoneForwardList;
 
 #include "torque-generated/src/objects/module-tq.inc"
 

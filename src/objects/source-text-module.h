@@ -86,7 +86,7 @@ class SourceTextModule
 
   V8_EXPORT_PRIVATE
   std::vector<std::tuple<Handle<SourceTextModule>, Handle<JSMessageObject>>>
-  GetStalledTopLevelAwaitMessages(Isolate* isolate);
+  GetStalledTopLevelAwaitMessage(Isolate* isolate);
 
  private:
   friend class Factory;

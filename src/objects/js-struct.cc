@@ -36,15 +36,6 @@ void AlwaysSharedSpaceJSObject::PrepareMapNoEnumerableProperties(
 }
 
 // static
-void AlwaysSharedSpaceJSObject::PrepareMapNoEnumerableProperties(
-    Isolate* isolate, Tagged<Map> map, Tagged<DescriptorArray> descriptors) {
-  PrepareMapCommon(map);
-  map->InitializeDescriptors(isolate, *descriptors);
-  DCHECK_EQ(0, map->NumberOfEnumerableProperties());
-  map->SetEnumLength(0);
-}
-
-// static
 void AlwaysSharedSpaceJSObject::PrepareMapWithEnumerableProperties(
     Isolate* isolate, Handle<Map> map, Handle<DescriptorArray> descriptors,
     int enum_length) {
@@ -109,15 +100,6 @@ Maybe<bool> AlwaysSharedSpaceJSObject::HasInstance(
     if (!iter.AdvanceFollowingProxies()) return Nothing<bool>();
     if (iter.IsAtEnd()) return Just(false);
   }
-}
-
-// static
-bool JSSharedStruct::IsElementsTemplateDescriptor(Isolate* isolate,
-                                                  Tagged<Map> instance_map,
-                                                  InternalIndex i) {
-  DCHECK(IsJSSharedStructMap(instance_map));
-  return instance_map->instance_descriptors(isolate)->GetKey(i) ==
-         ReadOnlyRoots(isolate).class_fields_symbol();
 }
 
 }  // namespace internal

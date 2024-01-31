@@ -171,8 +171,7 @@ void CodeSerializer::SerializeObjectImpl(Handle<HeapObject> obj,
         // Clear debug info.
         if (debug_info->HasInstrumentedBytecodeArray()) {
           restore_bytecode = true;
-          sfi->SetActiveBytecodeArray(
-              debug_info->OriginalBytecodeArray(isolate()));
+          sfi->SetActiveBytecodeArray(debug_info->OriginalBytecodeArray());
         }
       }
     }
@@ -180,7 +179,7 @@ void CodeSerializer::SerializeObjectImpl(Handle<HeapObject> obj,
     if (restore_bytecode) {
       DisallowGarbageCollection no_gc;
       Tagged<SharedFunctionInfo> sfi = SharedFunctionInfo::cast(*obj);
-      sfi->SetActiveBytecodeArray(debug_info->DebugBytecodeArray(isolate()));
+      sfi->SetActiveBytecodeArray(debug_info->DebugBytecodeArray());
     }
     return;
   } else if (InstanceTypeChecker::IsUncompiledDataWithoutPreparseDataWithJob(
@@ -210,8 +209,7 @@ void CodeSerializer::SerializeObjectImpl(Handle<HeapObject> obj,
   // --interpreted-frames-native-stack is on. See v8:9122 for more context
   if (V8_UNLIKELY(v8_flags.interpreted_frames_native_stack) &&
       IsInterpreterData(*obj)) {
-    obj = handle(InterpreterData::cast(*obj)->bytecode_array(isolate()),
-                 isolate());
+    obj = handle(InterpreterData::cast(*obj)->bytecode_array(), isolate());
   }
 
   // Past this point we should not see any (context-specific) maps anymore.
@@ -379,7 +377,6 @@ void FinalizeDeserialization(Isolate* isolate,
   }
 }
 
-#ifdef V8_ENABLE_SPARKPLUG
 void BaselineBatchCompileIfSparkplugCompiled(Isolate* isolate,
                                              Tagged<Script> script) {
   // Here is main thread, we trigger early baseline compilation only in
@@ -395,9 +392,6 @@ void BaselineBatchCompileIfSparkplugCompiled(Isolate* isolate,
     }
   }
 }
-#else
-void BaselineBatchCompileIfSparkplugCompiled(Isolate*, Tagged<Script>) {}
-#endif  // V8_ENABLE_SPARKPLUG
 
 const char* ToString(SerializedCodeSanityCheckResult result) {
   switch (result) {
@@ -484,9 +478,8 @@ MaybeHandle<SharedFunctionInfo> CodeSerializer::Deserialize(
     result = merge.CompleteMergeInForeground(isolate, new_script);
   }
 
-  Tagged<Script> script = Script::cast(result->script());
-  script->set_deserialized(true);
-  BaselineBatchCompileIfSparkplugCompiled(isolate, script);
+  BaselineBatchCompileIfSparkplugCompiled(isolate,
+                                          Script::cast(result->script()));
   if (v8_flags.profile_deserialization) {
     double ms = timer.Elapsed().InMillisecondsF();
     int length = cached_data->length();
@@ -621,7 +614,6 @@ MaybeHandle<SharedFunctionInfo> CodeSerializer::FinishOffThreadDeserialize(
     // Fix up the script list to include the newly deserialized script.
     Handle<WeakArrayList> list = isolate->factory()->script_list();
     for (Handle<Script> script : data.scripts) {
-      script->set_deserialized(true);
       BaselineBatchCompileIfSparkplugCompiled(isolate, *script);
       DCHECK(data.persistent_handles->Contains(script.location()));
       list = WeakArrayList::AddToEnd(isolate, list,

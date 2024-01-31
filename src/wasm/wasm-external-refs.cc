@@ -344,20 +344,30 @@ uint32_t word64_popcnt_wrapper(Address data) {
   return base::bits::CountPopulation(ReadUnalignedValue<uint64_t>(data));
 }
 
-uint32_t word32_rol_wrapper(uint32_t input, uint32_t shift) {
-  return (input << (shift & 31)) | (input >> ((32 - shift) & 31));
+uint32_t word32_rol_wrapper(Address data) {
+  uint32_t input = ReadUnalignedValue<uint32_t>(data);
+  uint32_t shift = ReadUnalignedValue<uint32_t>(data + sizeof(input)) & 31;
+  return (input << shift) | (input >> ((32 - shift) & 31));
 }
 
-uint32_t word32_ror_wrapper(uint32_t input, uint32_t shift) {
-  return (input >> (shift & 31)) | (input << ((32 - shift) & 31));
+uint32_t word32_ror_wrapper(Address data) {
+  uint32_t input = ReadUnalignedValue<uint32_t>(data);
+  uint32_t shift = ReadUnalignedValue<uint32_t>(data + sizeof(input)) & 31;
+  return (input >> shift) | (input << ((32 - shift) & 31));
 }
 
-uint64_t word64_rol_wrapper(uint64_t input, uint32_t shift) {
-  return (input << (shift & 63)) | (input >> ((64 - shift) & 63));
+void word64_rol_wrapper(Address data) {
+  uint64_t input = ReadUnalignedValue<uint64_t>(data);
+  uint64_t shift = ReadUnalignedValue<uint64_t>(data + sizeof(input)) & 63;
+  uint64_t result = (input << shift) | (input >> ((64 - shift) & 63));
+  WriteUnalignedValue<uint64_t>(data, result);
 }
 
-uint64_t word64_ror_wrapper(uint64_t input, uint32_t shift) {
-  return (input >> (shift & 63)) | (input << ((64 - shift) & 63));
+void word64_ror_wrapper(Address data) {
+  uint64_t input = ReadUnalignedValue<uint64_t>(data);
+  uint64_t shift = ReadUnalignedValue<uint64_t>(data + sizeof(input)) & 63;
+  uint64_t result = (input >> shift) | (input << ((64 - shift) & 63));
+  WriteUnalignedValue<uint64_t>(data, result);
 }
 
 void float64_pow_wrapper(Address data) {
@@ -591,8 +601,7 @@ void array_fill_wrapper(Address raw_array, uint32_t index, uint32_t length,
   ValueType type = ValueType::FromRawBitField(raw_type);
   int8_t* initial_element_address = reinterpret_cast<int8_t*>(
       ArrayElementAddress(raw_array, index, type.value_kind_size()));
-  // Stack pointers are only aligned to 4 bytes.
-  int64_t initial_value = base::ReadUnalignedValue<int64_t>(initial_value_addr);
+  int64_t initial_value = *reinterpret_cast<int64_t*>(initial_value_addr);
   const int bytes_to_set = length * type.value_kind_size();
 
   // If the initial value is zero, we memset the array.
@@ -609,10 +618,7 @@ void array_fill_wrapper(Address raw_array, uint32_t index, uint32_t length,
   switch (type.kind()) {
     case kI64:
     case kF64: {
-      // Array elements are only aligned to 4 bytes, therefore
-      // `initial_element_address` may be misaligned as a 64-bit pointer.
-      base::WriteUnalignedValue<int64_t>(
-          reinterpret_cast<Address>(initial_element_address), initial_value);
+      *reinterpret_cast<int64_t*>(initial_element_address) = initial_value;
       break;
     }
     case kI32:
@@ -640,9 +646,7 @@ void array_fill_wrapper(Address raw_array, uint32_t index, uint32_t length,
         int32_t* base = reinterpret_cast<int32_t*>(initial_element_address);
         base[0] = base[1] = static_cast<int32_t>(initial_value);
       } else {
-        // We use WriteUnalignedValue; see above.
-        base::WriteUnalignedValue(
-            reinterpret_cast<Address>(initial_element_address), initial_value);
+        *reinterpret_cast<int64_t*>(initial_element_address) = initial_value;
       }
       break;
     case kS128:

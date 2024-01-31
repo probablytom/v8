@@ -62,9 +62,6 @@ namespace internal {
   V(Compare_WithFeedback)                            \
   V(Construct_Baseline)                              \
   V(ConstructForwardVarargs)                         \
-  V(ConstructForwardAllArgs)                         \
-  V(ConstructForwardAllArgs_Baseline)                \
-  V(ConstructForwardAllArgs_WithFeedback)            \
   V(ConstructStub)                                   \
   V(ConstructVarargs)                                \
   V(ConstructWithArrayLike)                          \
@@ -123,7 +120,6 @@ namespace internal {
   V(RunMicrotasksEntry)                              \
   V(SingleParameterOnStack)                          \
   V(Store)                                           \
-  V(StoreNoFeedback)                                 \
   V(StoreBaseline)                                   \
   V(StoreGlobal)                                     \
   V(StoreGlobalBaseline)                             \
@@ -980,18 +976,6 @@ class StoreDescriptor : public StaticCallInterfaceDescriptor<StoreDescriptor> {
   static constexpr auto registers();
 };
 
-class StoreNoFeedbackDescriptor
-    : public StaticCallInterfaceDescriptor<StoreNoFeedbackDescriptor> {
- public:
-  DEFINE_PARAMETERS(kReceiver, kName, kValue)
-  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),  // kReceiver
-                         MachineType::AnyTagged(),  // kName
-                         MachineType::AnyTagged())  // kValue
-  DECLARE_DESCRIPTOR(StoreNoFeedbackDescriptor)
-
-  static constexpr auto registers();
-};
-
 class StoreBaselineDescriptor
     : public StaticCallInterfaceDescriptor<StoreBaselineDescriptor> {
  public:
@@ -1650,40 +1634,6 @@ class ConstructWithArrayLike_WithFeedbackDescriptor
                          MachineType::UintPtr(),    // kSlot
                          MachineType::AnyTagged())  // kFeedbackVector
   DECLARE_DESCRIPTOR(ConstructWithArrayLike_WithFeedbackDescriptor)
-};
-
-class ConstructForwardAllArgsDescriptor
-    : public StaticCallInterfaceDescriptor<ConstructForwardAllArgsDescriptor> {
- public:
-  DEFINE_PARAMETERS(kConstructor, kNewTarget)
-  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),  // kConstructor
-                         MachineType::AnyTagged())  // kNewTarget
-  DECLARE_DESCRIPTOR(ConstructForwardAllArgsDescriptor)
-
-  static constexpr inline auto registers();
-};
-
-class ConstructForwardAllArgs_BaselineDescriptor
-    : public StaticCallInterfaceDescriptor<
-          ConstructForwardAllArgs_BaselineDescriptor> {
- public:
-  DEFINE_PARAMETERS(kTarget, kNewTarget, kSlot)
-  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),  // kTarget
-                         MachineType::AnyTagged(),  // kNewTarget
-                         MachineType::UintPtr())    // kSlot
-  DECLARE_DESCRIPTOR(ConstructForwardAllArgs_BaselineDescriptor)
-};
-
-class ConstructForwardAllArgs_WithFeedbackDescriptor
-    : public StaticCallInterfaceDescriptor<
-          ConstructForwardAllArgs_WithFeedbackDescriptor> {
- public:
-  DEFINE_PARAMETERS(kTarget, kNewTarget, kSlot, kVector)
-  DEFINE_PARAMETER_TYPES(MachineType::AnyTagged(),  // kTarget
-                         MachineType::AnyTagged(),  // kNewTarget
-                         MachineType::UintPtr(),    // kSlot
-                         MachineType::AnyTagged())  // kVector
-  DECLARE_DESCRIPTOR(ConstructForwardAllArgs_WithFeedbackDescriptor)
 };
 
 // TODO(ishell): consider merging this with ArrayConstructorDescriptor

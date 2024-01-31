@@ -28,8 +28,6 @@ class MaglevCodeGenerator final {
 
   MaybeHandle<Code> Generate(Isolate* isolate);
 
-  GlobalHandleVector<Map> RetainedMaps(Isolate* isolate);
-
  private:
   V8_NODISCARD bool EmitCode();
   void EmitDeferredCode();
@@ -38,7 +36,6 @@ class MaglevCodeGenerator final {
   void EmitMetadata();
   void RecordInlinedFunctions();
 
-  GlobalHandleVector<Map> CollectRetainedMaps(Handle<Code> code);
   Handle<DeoptimizationData> GenerateDeoptimizationData(
       LocalIsolate* local_isolate);
   MaybeHandle<Code> BuildCodeObject(LocalIsolate* local_isolate);
@@ -66,7 +63,6 @@ class MaglevCodeGenerator final {
 
   Handle<DeoptimizationData> deopt_data_;
   MaybeHandle<Code> code_;
-  GlobalHandleVector<Map> retained_maps_;
 };
 
 }  // namespace maglev

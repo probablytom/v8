@@ -3040,7 +3040,7 @@ void AccessorAssembler::LoadIC_BytecodeHandler(const LazyLoadICParameters* p,
 
     // Call into the stub that implements the non-inlined parts of LoadIC.
     Callable ic = Builtins::CallableFor(isolate(), Builtin::kLoadIC_Noninlined);
-    TNode<Code> code_target = HeapConstantNoHole(ic.code());
+    TNode<Code> code_target = HeapConstant(ic.code());
     exit_point->ReturnCallStub(ic.descriptor(), code_target, p->context(),
                                p->receiver_and_lookup_start_object(), p->name(),
                                p->slot(), p->vector());
@@ -3395,8 +3395,9 @@ void AccessorAssembler::ScriptContextTableLookup(
       LoadContextElement(native_context, Context::SCRIPT_CONTEXT_TABLE_INDEX));
   TVARIABLE(IntPtrT, context_index, IntPtrConstant(-1));
   Label loop(this, &context_index);
-  TNode<IntPtrT> num_script_contexts = PositiveSmiUntag(CAST(LoadObjectField(
-      script_context_table, ScriptContextTable::kLengthOffset)));
+  TNode<IntPtrT> num_script_contexts =
+      PositiveSmiUntag(CAST(LoadFixedArrayElement(
+          script_context_table, ScriptContextTable::kUsedSlotIndex)));
   Goto(&loop);
 
   BIND(&loop);
@@ -3405,8 +3406,9 @@ void AccessorAssembler::ScriptContextTableLookup(
     GotoIf(IntPtrGreaterThanOrEqual(context_index.value(), num_script_contexts),
            not_found);
 
-    TNode<Context> script_context =
-        LoadArrayElement(script_context_table, context_index.value());
+    TNode<Context> script_context = CAST(LoadFixedArrayElement(
+        script_context_table, context_index.value(),
+        ScriptContextTable::kFirstContextSlotIndex * kTaggedSize));
     TNode<ScopeInfo> scope_info =
         CAST(LoadContextElement(script_context, Context::SCOPE_INFO_INDEX));
 
@@ -3749,8 +3751,8 @@ void AccessorAssembler::StoreIC(const StoreICParameters* p) {
     // be called here and below when !p->IsDefineNamedOwn().
     auto builtin = p->IsDefineNamedOwn() ? Builtin::kDefineNamedOwnIC_NoFeedback
                                          : Builtin::kStoreIC_NoFeedback;
-    TailCallBuiltin(builtin, p->context(), p->receiver(), p->name(),
-                    p->value());
+    TailCallBuiltin(builtin, p->context(), p->receiver(), p->name(), p->value(),
+                    p->slot());
   }
 
   BIND(&miss);
@@ -3952,8 +3954,7 @@ void AccessorAssembler::KeyedStoreIC(const StoreICParameters* p) {
     BIND(&no_feedback);
     {
       TailCallBuiltin(Builtin::kKeyedStoreIC_Megamorphic, p->context(),
-                      p->receiver(), p->name(), p->value(), p->slot(),
-                      p->vector());
+                      p->receiver(), p->name(), p->value(), p->slot());
     }
 
     BIND(&try_polymorphic_name);
@@ -4047,7 +4048,7 @@ void AccessorAssembler::DefineKeyedOwnIC(const StoreICParameters* p) {
     BIND(&no_feedback);
     {
       TailCallBuiltin(Builtin::kDefineKeyedOwnIC_Megamorphic, p->context(),
-                      p->receiver(), p->name(), p->value());
+                      p->receiver(), p->name(), p->value(), p->slot());
     }
 
     BIND(&try_polymorphic_name);
@@ -4733,20 +4734,6 @@ void AccessorAssembler::GenerateKeyedStoreICTrampoline() {
 
   TailCallBuiltin(Builtin::kKeyedStoreIC, context, receiver, name, value, slot,
                   vector);
-}
-
-void AccessorAssembler::GenerateKeyedStoreICTrampoline_Megamorphic() {
-  using Descriptor = StoreDescriptor;
-
-  auto receiver = Parameter<Object>(Descriptor::kReceiver);
-  auto name = Parameter<Object>(Descriptor::kName);
-  auto value = Parameter<Object>(Descriptor::kValue);
-  auto slot = Parameter<TaggedIndex>(Descriptor::kSlot);
-  auto context = Parameter<Context>(Descriptor::kContext);
-  TNode<FeedbackVector> vector = LoadFeedbackVectorForStub();
-
-  TailCallBuiltin(Builtin::kKeyedStoreIC_Megamorphic, context, receiver, name,
-                  value, slot, vector);
 }
 
 void AccessorAssembler::GenerateKeyedStoreICBaseline() {

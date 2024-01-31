@@ -5,7 +5,9 @@
 
 import unittest
 
+import os
 import yaml
+import imp
 
 # add parent dir to search path
 import sys

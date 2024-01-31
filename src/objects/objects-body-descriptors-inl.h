@@ -12,7 +12,6 @@
 #include "src/ic/handler-configuration.h"
 #include "src/objects/arguments-inl.h"
 #include "src/objects/bigint.h"
-#include "src/objects/call-site-info-inl.h"
 #include "src/objects/call-site-info.h"
 #include "src/objects/cell.h"
 #include "src/objects/data-handler.h"
@@ -153,10 +152,11 @@ void BodyDescriptorBase::IterateCustomWeakPointer(Tagged<HeapObject> obj,
 }
 
 template <typename ObjectVisitor>
-void BodyDescriptorBase::IterateTrustedPointer(Tagged<HeapObject> obj,
-                                               int offset, ObjectVisitor* v,
-                                               IndirectPointerMode mode,
-                                               IndirectPointerTag tag) {
+void BodyDescriptorBase::IterateMaybeIndirectPointer(Tagged<HeapObject> obj,
+                                                     int offset,
+                                                     ObjectVisitor* v,
+                                                     IndirectPointerMode mode,
+                                                     IndirectPointerTag tag) {
 #ifdef V8_ENABLE_SANDBOX
   v->VisitIndirectPointer(obj, obj->RawIndirectPointerField(offset, tag), mode);
 #else
@@ -165,24 +165,6 @@ void BodyDescriptorBase::IterateTrustedPointer(Tagged<HeapObject> obj,
   } else {
     IterateCustomWeakPointer(obj, offset, v);
   }
-#endif
-}
-
-template <typename ObjectVisitor>
-void BodyDescriptorBase::IterateCodePointer(Tagged<HeapObject> obj, int offset,
-                                            ObjectVisitor* v,
-                                            IndirectPointerMode mode) {
-  IterateTrustedPointer(obj, offset, v, mode, kCodeIndirectPointerTag);
-}
-
-template <typename ObjectVisitor>
-void BodyDescriptorBase::IterateSelfIndirectPointer(Tagged<HeapObject> obj,
-                                                    IndirectPointerTag tag,
-                                                    ObjectVisitor* v) {
-#ifdef V8_ENABLE_SANDBOX
-  v->VisitTrustedPointerTableEntry(
-      obj, obj->RawIndirectPointerField(
-               ExposedTrustedObject::kSelfIndirectPointerOffset, tag));
 #endif
 }
 
@@ -340,7 +322,9 @@ class JSFunction::BodyDescriptor final : public BodyDescriptorBase {
     // and the bytecode array corresponding to this function is old. In the rest
     // of the cases this field is treated as strong pointer.
     // See MarkingVisitorBase::VisitJSFunction.
-    IterateCodePointer(obj, kCodeOffset, v, IndirectPointerMode::kCustom);
+    IterateMaybeIndirectPointer(obj, kCodeOffset, v,
+                                IndirectPointerMode::kCustom,
+                                kCodeIndirectPointerTag);
     DCHECK_GE(header_size, kCodeOffset);
     // Iterate rest of the header fields
     IteratePointers(obj, kCodeOffset + kTaggedSize, header_size, v);
@@ -468,7 +452,8 @@ class ByteArray::BodyDescriptor final : public BodyDescriptorBase {
                                  int object_size, ObjectVisitor* v) {}
 
   static inline int SizeOf(Tagged<Map> map, Tagged<HeapObject> obj) {
-    return ByteArray::unchecked_cast(obj)->AllocatedSize();
+    return ByteArray::SizeFor(
+        ByteArray::unchecked_cast(obj)->length(kAcquireLoad));
   }
 };
 
@@ -477,30 +462,14 @@ class BytecodeArray::BodyDescriptor final : public BodyDescriptorBase {
   template <typename ObjectVisitor>
   static inline void IterateBody(Tagged<Map> map, Tagged<HeapObject> obj,
                                  int object_size, ObjectVisitor* v) {
-    IterateSelfIndirectPointer(obj, kBytecodeArrayIndirectPointerTag, v);
     IteratePointer(obj, kConstantPoolOffset, v);
     IteratePointer(obj, kHandlerTableOffset, v);
-    IteratePointer(obj, kWrapperOffset, v);
     IteratePointer(obj, kSourcePositionTableOffset, v);
   }
 
   static inline int SizeOf(Tagged<Map> map, Tagged<HeapObject> obj) {
     return BytecodeArray::SizeFor(
         BytecodeArray::cast(obj)->length(kAcquireLoad));
-  }
-};
-
-class BytecodeWrapper::BodyDescriptor final : public BodyDescriptorBase {
- public:
-  template <typename ObjectVisitor>
-  static inline void IterateBody(Tagged<Map> map, Tagged<HeapObject> obj,
-                                 int object_size, ObjectVisitor* v) {
-    IterateTrustedPointer(obj, kBytecodeOffset, v, IndirectPointerMode::kStrong,
-                          kBytecodeArrayIndirectPointerTag);
-  }
-
-  static inline int SizeOf(Tagged<Map> map, Tagged<HeapObject> obj) {
-    return kSize;
   }
 };
 
@@ -549,7 +518,8 @@ class FixedDoubleArray::BodyDescriptor final : public BodyDescriptorBase {
                                  int object_size, ObjectVisitor* v) {}
 
   static inline int SizeOf(Tagged<Map> map, Tagged<HeapObject> obj) {
-    return FixedDoubleArray::unchecked_cast(obj)->AllocatedSize();
+    return FixedDoubleArray::SizeFor(
+        FixedDoubleArray::unchecked_cast(obj)->length(kAcquireLoad));
   }
 };
 
@@ -582,22 +552,6 @@ class PreparseData::BodyDescriptor final : public BodyDescriptorBase {
   }
 };
 
-class InterpreterData::BodyDescriptor final : public BodyDescriptorBase {
- public:
-  template <typename ObjectVisitor>
-  static inline void IterateBody(Tagged<Map> map, Tagged<HeapObject> obj,
-                                 int object_size, ObjectVisitor* v) {
-    IterateTrustedPointer(obj, kBytecodeArrayOffset, v,
-                          IndirectPointerMode::kStrong,
-                          kBytecodeArrayIndirectPointerTag);
-    IteratePointer(obj, kInterpreterTrampolineOffset, v);
-  }
-
-  static inline int SizeOf(Tagged<Map> map, Tagged<HeapObject> raw_object) {
-    return kSize;
-  }
-};
-
 class SharedFunctionInfo::BodyDescriptor final : public BodyDescriptorBase {
  public:
   template <typename ObjectVisitor>
@@ -611,45 +565,6 @@ class SharedFunctionInfo::BodyDescriptor final : public BodyDescriptorBase {
 
   static inline int SizeOf(Tagged<Map> map, Tagged<HeapObject> raw_object) {
     return kSize;
-  }
-};
-
-class DebugInfo::BodyDescriptor final : public BodyDescriptorBase {
- public:
-  template <typename ObjectVisitor>
-  static inline void IterateBody(Tagged<Map> map, Tagged<HeapObject> obj,
-                                 int object_size, ObjectVisitor* v) {
-    IteratePointers(obj, kStartOfStrongFieldsOffset, kEndOfStrongFieldsOffset,
-                    v);
-    IterateTrustedPointer(obj, kDebugBytecodeArrayOffset, v,
-                          IndirectPointerMode::kStrong,
-                          kBytecodeArrayIndirectPointerTag);
-    IterateTrustedPointer(obj, kOriginalBytecodeArrayOffset, v,
-                          IndirectPointerMode::kStrong,
-                          kBytecodeArrayIndirectPointerTag);
-  }
-
-  static inline int SizeOf(Tagged<Map> map, Tagged<HeapObject> obj) {
-    return obj->SizeFromMap(map);
-  }
-};
-
-class CallSiteInfo::BodyDescriptor final : public BodyDescriptorBase {
- public:
-  template <typename ObjectVisitor>
-  static inline void IterateBody(Tagged<Map> map, Tagged<HeapObject> obj,
-                                 int object_size, ObjectVisitor* v) {
-    // The field can contain either a Code or a BytecodeArray object, so we need
-    // to use the kUnknownIndirectPointerTag here.
-    IterateTrustedPointer(obj, kCodeObjectOffset, v,
-                          IndirectPointerMode::kStrong,
-                          kUnknownIndirectPointerTag);
-    IteratePointers(obj, kStartOfStrongFieldsOffset, kEndOfStrongFieldsOffset,
-                    v);
-  }
-
-  static inline int SizeOf(Tagged<Map> map, Tagged<HeapObject> obj) {
-    return obj->SizeFromMap(map);
   }
 };
 
@@ -1018,7 +933,6 @@ class Code::BodyDescriptor final : public BodyDescriptorBase {
   template <typename ObjectVisitor>
   static inline void IterateBody(Tagged<Map> map, Tagged<HeapObject> obj,
                                  int object_size, ObjectVisitor* v) {
-    IterateSelfIndirectPointer(obj, kCodeIndirectPointerTag, v);
     IteratePointers(obj, Code::kStartOfStrongFieldsOffset,
                     Code::kEndOfStrongFieldsWithMainCageBaseOffset, v);
 
@@ -1029,6 +943,11 @@ class Code::BodyDescriptor final : public BodyDescriptorBase {
     v->VisitInstructionStreamPointer(
         Code::cast(obj),
         obj->RawInstructionStreamField(kInstructionStreamOffset));
+#ifdef V8_ENABLE_SANDBOX
+    v->VisitIndirectPointerTableEntry(
+        obj, obj->RawIndirectPointerField(kSelfIndirectPointerOffset,
+                                          kCodeIndirectPointerTag));
+#endif
   }
 
   static inline int SizeOf(Tagged<Map> map, Tagged<HeapObject> object) {
@@ -1100,6 +1019,9 @@ auto BodyDescriptorApply(InstanceType type, Args&&... args) {
   switch (type) {
     case EMBEDDER_DATA_ARRAY_TYPE:
       return CALL_APPLY(EmbedderDataArray);
+    case FIXED_ARRAY_TYPE:
+    case OBJECT_BOILERPLATE_DESCRIPTION_TYPE:
+    case CLOSURE_FEEDBACK_CELL_ARRAY_TYPE:
     case HASH_TABLE_TYPE:
     case ORDERED_HASH_MAP_TYPE:
     case ORDERED_HASH_SET_TYPE:
@@ -1110,12 +1032,8 @@ auto BodyDescriptorApply(InstanceType type, Args&&... args) {
     case SIMPLE_NUMBER_DICTIONARY_TYPE:
     case NAME_TO_INDEX_HASH_TABLE_TYPE:
     case REGISTERED_SYMBOL_TABLE_TYPE:
+    case SCRIPT_CONTEXT_TABLE_TYPE:
       return CALL_APPLY(FixedArray);
-#define CASE(TypeCamelCase, TYPE_UPPER_CASE) \
-  case TYPE_UPPER_CASE##_TYPE:               \
-    return CALL_APPLY(TypeCamelCase);
-      SIMPLE_HEAP_OBJECT_LIST2(CASE)
-#undef CASE
     case SLOPPY_ARGUMENTS_ELEMENTS_TYPE:
       return CALL_APPLY(SloppyArgumentsElements);
     case EPHEMERON_HASH_TABLE_TYPE:
@@ -1132,6 +1050,8 @@ auto BodyDescriptorApply(InstanceType type, Args&&... args) {
       return CALL_APPLY(Context);
     case NATIVE_CONTEXT_TYPE:
       return CALL_APPLY(NativeContext);
+    case FIXED_DOUBLE_ARRAY_TYPE:
+      return CALL_APPLY(FixedDoubleArray);
     case FEEDBACK_METADATA_TYPE:
       return CALL_APPLY(FeedbackMetadata);
     case PROPERTY_ARRAY_TYPE:
@@ -1322,6 +1242,8 @@ auto BodyDescriptorApply(InstanceType type, Args&&... args) {
       return CALL_APPLY(SharedFunctionInfo);
     case HEAP_NUMBER_TYPE:
       return CALL_APPLY(HeapNumber);
+    case BYTE_ARRAY_TYPE:
+      return CALL_APPLY(ByteArray);
     case EXTERNAL_POINTER_ARRAY_TYPE:
       return CALL_APPLY(ExternalPointerArray);
     case BIGINT_TYPE:
@@ -1483,7 +1405,6 @@ class CallHandlerInfo::BodyDescriptor final : public BodyDescriptorBase {
   }
 };
 
-// TODO(jgruber): Combine these into generic Suffix descriptors.
 class FixedArray::BodyDescriptor final
     : public SuffixRangeBodyDescriptor<HeapObject::kHeaderSize> {
  public:
@@ -1497,56 +1418,6 @@ class SloppyArgumentsElements::BodyDescriptor final
  public:
   static inline int SizeOf(Tagged<Map> map, Tagged<HeapObject> raw_object) {
     return SloppyArgumentsElements::unchecked_cast(raw_object)->AllocatedSize();
-  }
-};
-
-class RegExpMatchInfo::BodyDescriptor final
-    : public SuffixRangeBodyDescriptor<HeapObject::kHeaderSize> {
- public:
-  static inline int SizeOf(Tagged<Map> map, Tagged<HeapObject> raw_object) {
-    return RegExpMatchInfo::unchecked_cast(raw_object)->AllocatedSize();
-  }
-};
-
-class ArrayList::BodyDescriptor final
-    : public SuffixRangeBodyDescriptor<HeapObject::kHeaderSize> {
- public:
-  static inline int SizeOf(Tagged<Map> map, Tagged<HeapObject> raw_object) {
-    return ArrayList::unchecked_cast(raw_object)->AllocatedSize();
-  }
-};
-
-class ObjectBoilerplateDescription::BodyDescriptor final
-    : public SuffixRangeBodyDescriptor<HeapObject::kHeaderSize> {
- public:
-  static inline int SizeOf(Tagged<Map> map, Tagged<HeapObject> raw_object) {
-    return ObjectBoilerplateDescription::unchecked_cast(raw_object)
-        ->AllocatedSize();
-  }
-};
-
-class ClosureFeedbackCellArray::BodyDescriptor final
-    : public SuffixRangeBodyDescriptor<HeapObject::kHeaderSize> {
- public:
-  static inline int SizeOf(Tagged<Map> map, Tagged<HeapObject> raw_object) {
-    return ClosureFeedbackCellArray::unchecked_cast(raw_object)
-        ->AllocatedSize();
-  }
-};
-
-class ScriptContextTable::BodyDescriptor final
-    : public SuffixRangeBodyDescriptor<HeapObject::kHeaderSize> {
- public:
-  static inline int SizeOf(Tagged<Map> map, Tagged<HeapObject> raw_object) {
-    return ScriptContextTable::unchecked_cast(raw_object)->AllocatedSize();
-  }
-};
-
-class WeakFixedArray::BodyDescriptor final
-    : public SuffixRangeWeakBodyDescriptor<HeapObject::kHeaderSize> {
- public:
-  static inline int SizeOf(Tagged<Map> map, Tagged<HeapObject> raw_object) {
-    return WeakFixedArray::unchecked_cast(raw_object)->AllocatedSize();
   }
 };
 

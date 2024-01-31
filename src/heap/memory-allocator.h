@@ -56,8 +56,7 @@ class MemoryAllocator {
     }
 
     void AddMemoryChunkSafe(MemoryChunk* chunk) {
-      if (!chunk->IsLargePage() && chunk->executable() != EXECUTABLE &&
-          !chunk->IsTrusted()) {
+      if (!chunk->IsLargePage() && chunk->executable() != EXECUTABLE) {
         AddMemoryChunkSafe(ChunkQueueType::kRegular, chunk);
       } else {
         AddMemoryChunkSafe(ChunkQueueType::kNonRegular, chunk);
@@ -98,8 +97,8 @@ class MemoryAllocator {
     static const int kMaxUnmapperTasks = 4;
 
     enum ChunkQueueType {
-      kRegular,     // Pages of kPageSize that do not live in a CodeRange or
-                    // TrustedRange and can thus be used for stealing.
+      kRegular,     // Pages of kPageSize that do not live in a CodeRange and
+                    // can thus be used for stealing.
       kNonRegular,  // Large chunks and executable chunks.
       kPooled,      // Pooled chunks, already freed and ready for reuse.
       kNumberOfChunkQueues,
@@ -185,7 +184,6 @@ class MemoryAllocator {
 
   V8_EXPORT_PRIVATE MemoryAllocator(Isolate* isolate,
                                     v8::PageAllocator* code_page_allocator,
-                                    v8::PageAllocator* trusted_page_allocator,
                                     size_t max_capacity);
 
   V8_EXPORT_PRIVATE void TearDown();

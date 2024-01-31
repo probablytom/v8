@@ -37,6 +37,12 @@ for (const type of types) {
   assertThrows(() => { array.sort(Symbol()); }, TypeError);
 }
 
-assertThrows(
-    () => Array.prototype.sort.call(null, 42), TypeError,
-    'The comparison function must be either a function or undefined: 42');
+assertThrows(() => { Array.prototype.sort.call(null, 42); }, TypeError);
+try {
+  Array.prototype.sort.call(null, 42);
+} catch (exception) {
+  assertEquals(
+    'The comparison function must be either a function or undefined',
+    exception.message
+  );
+}

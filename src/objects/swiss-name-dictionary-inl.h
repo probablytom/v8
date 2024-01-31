@@ -444,8 +444,9 @@ void SwissNameDictionary::SetMetaTableField(Tagged<ByteArray> meta_table,
                 (std::is_same<T, uint16_t>::value) ||
                 (std::is_same<T, uint32_t>::value));
   DCHECK_LE(value, std::numeric_limits<T>::max());
-  DCHECK_LT(meta_table->begin() + field_index * sizeof(T), meta_table->end());
-  T* raw_data = reinterpret_cast<T*>(meta_table->begin());
+  DCHECK_LT(meta_table->GetDataStartAddress() + field_index * sizeof(T),
+            meta_table->GetDataEndAddress());
+  T* raw_data = reinterpret_cast<T*>(meta_table->GetDataStartAddress());
   raw_data[field_index] = value;
 }
 
@@ -456,8 +457,9 @@ int SwissNameDictionary::GetMetaTableField(Tagged<ByteArray> meta_table,
   static_assert((std::is_same<T, uint8_t>::value) ||
                 (std::is_same<T, uint16_t>::value) ||
                 (std::is_same<T, uint32_t>::value));
-  DCHECK_LT(meta_table->begin() + field_index * sizeof(T), meta_table->end());
-  T* raw_data = reinterpret_cast<T*>(meta_table->begin());
+  DCHECK_LT(meta_table->GetDataStartAddress() + field_index * sizeof(T),
+            meta_table->GetDataEndAddress());
+  T* raw_data = reinterpret_cast<T*>(meta_table->GetDataStartAddress());
   return raw_data[field_index];
 }
 
@@ -682,7 +684,7 @@ constexpr int SwissNameDictionary::MaxCapacity() {
       // Enumeration table entry size at maximum capacity:
       sizeof(uint32_t);
 
-  int result = (FixedArrayBase::kMaxSize - const_size) / per_entry_size;
+  int result = (FixedArray::kMaxSize - const_size) / per_entry_size;
   DCHECK_GE(Smi::kMaxValue, result);
 
   return result;
@@ -762,7 +764,5 @@ ACCESSORS_CHECKED2(SwissNameDictionary, meta_table, Tagged<ByteArray>,
 
 }  // namespace internal
 }  // namespace v8
-
-#include "src/objects/object-macros-undef.h"
 
 #endif  // V8_OBJECTS_SWISS_NAME_DICTIONARY_INL_H_

@@ -4,7 +4,7 @@
 
 export class BaseArgumentsProcessor {
   constructor(args) {
-    this.args_ = args.slice();
+    this.args_ = args;
     this.result_ = this.getDefaultResults();
     console.assert(this.result_ !== undefined)
     console.assert(this.result_.logFileName !== undefined);

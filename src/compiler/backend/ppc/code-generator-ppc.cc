@@ -1870,35 +1870,13 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       }
       break;
     }
-#define DOUBLE_TO_INT32(op)                                                \
-  bool check_conversion = i.OutputCount() > 1;                             \
-  CRegister cr = cr7;                                                      \
-  FPSCRBit fps_bit = VXCVI;                                                \
-  int cr_bit = v8::internal::Assembler::encode_crbit(                      \
-      cr, static_cast<CRBit>(fps_bit % CRWIDTH));                          \
-  __ mtfsb0(fps_bit); /* clear FPSCR:VXCVI bit */                          \
-  __ op(kScratchDoubleReg, i.InputDoubleRegister(0));                      \
-  __ MovDoubleLowToInt(i.OutputRegister(0), kScratchDoubleReg);            \
-  __ mcrfs(cr, VXCVI); /* extract FPSCR field containing VXCVI into cr7 */ \
-  if (check_conversion) {                                                  \
-    __ li(i.OutputRegister(1), Operand(1));                                \
-    __ isel(i.OutputRegister(1), r0, i.OutputRegister(1), cr_bit);         \
-  } else {                                                                 \
-    __ isel(i.OutputRegister(0), r0, i.OutputRegister(0), cr_bit);         \
-  }
-    case kPPC_DoubleToInt32: {
-      DOUBLE_TO_INT32(fctiwz)
-      break;
-    }
-    case kPPC_DoubleToUint32: {
-      DOUBLE_TO_INT32(fctiwuz)
-      break;
-    }
-#undef DOUBLE_TO_INT32
+    case kPPC_DoubleToInt32:
+    case kPPC_DoubleToUint32:
     case kPPC_DoubleToInt64: {
 #if V8_TARGET_ARCH_PPC64
-      bool check_conversion = i.OutputCount() > 1;
-      __ mtfsb0(VXCVI);  // clear FPSCR:VXCVI bit
+      bool check_conversion =
+          (opcode == kPPC_DoubleToInt64 && i.OutputCount() > 1);
+        __ mtfsb0(VXCVI);  // clear FPSCR:VXCVI bit
 #endif
       __ ConvertDoubleToInt64(i.InputDoubleRegister(0),
 #if !V8_TARGET_ARCH_PPC64
@@ -2646,60 +2624,46 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       }
       break;
     }
-    case kPPC_FReplaceLane: {
+    case kPPC_F64x2ReplaceLane: {
       DCHECK_EQ(i.OutputSimd128Register(), i.InputSimd128Register(0));
-      int lane_size = LaneSizeField::decode(instr->opcode());
-      switch (lane_size) {
-        case 32: {
-          __ F32x4ReplaceLane(
-              i.OutputSimd128Register(), i.InputSimd128Register(0),
-              i.InputDoubleRegister(2), i.InputInt8(1), kScratchReg,
-              kScratchDoubleReg, kScratchSimd128Reg);
-          break;
-        }
-        case 64: {
-          __ F64x2ReplaceLane(i.OutputSimd128Register(),
-                              i.InputSimd128Register(0),
-                              i.InputDoubleRegister(2), i.InputInt8(1),
-                              kScratchReg, kScratchSimd128Reg);
-          break;
-        }
-        default:
-          UNREACHABLE();
-      }
+      __ F64x2ReplaceLane(i.OutputSimd128Register(), i.InputSimd128Register(0),
+                          i.InputDoubleRegister(2), i.InputInt8(1), kScratchReg,
+                          kScratchSimd128Reg);
       break;
     }
-    case kPPC_IReplaceLane: {
+    case kPPC_F32x4ReplaceLane: {
       DCHECK_EQ(i.OutputSimd128Register(), i.InputSimd128Register(0));
-      int lane_size = LaneSizeField::decode(instr->opcode());
-      switch (lane_size) {
-        case 8: {
-          __ I8x16ReplaceLane(i.OutputSimd128Register(),
-                              i.InputSimd128Register(0), i.InputRegister(2),
-                              i.InputInt8(1), kScratchSimd128Reg);
-          break;
-        }
-        case 16: {
-          __ I16x8ReplaceLane(i.OutputSimd128Register(),
-                              i.InputSimd128Register(0), i.InputRegister(2),
-                              i.InputInt8(1), kScratchSimd128Reg);
-          break;
-        }
-        case 32: {
-          __ I32x4ReplaceLane(i.OutputSimd128Register(),
-                              i.InputSimd128Register(0), i.InputRegister(2),
-                              i.InputInt8(1), kScratchSimd128Reg);
-          break;
-        }
-        case 64: {
-          __ I64x2ReplaceLane(i.OutputSimd128Register(),
-                              i.InputSimd128Register(0), i.InputRegister(2),
-                              i.InputInt8(1), kScratchSimd128Reg);
-          break;
-        }
-        default:
-          UNREACHABLE();
-      }
+      __ F32x4ReplaceLane(i.OutputSimd128Register(), i.InputSimd128Register(0),
+                          i.InputDoubleRegister(2), i.InputInt8(1), kScratchReg,
+                          kScratchDoubleReg, kScratchSimd128Reg);
+      break;
+    }
+    case kPPC_I64x2ReplaceLane: {
+      DCHECK_EQ(i.OutputSimd128Register(), i.InputSimd128Register(0));
+      __ I64x2ReplaceLane(i.OutputSimd128Register(), i.InputSimd128Register(0),
+                          i.InputRegister(2), i.InputInt8(1),
+                          kScratchSimd128Reg);
+      break;
+    }
+    case kPPC_I32x4ReplaceLane: {
+      DCHECK_EQ(i.OutputSimd128Register(), i.InputSimd128Register(0));
+      __ I32x4ReplaceLane(i.OutputSimd128Register(), i.InputSimd128Register(0),
+                          i.InputRegister(2), i.InputInt8(1),
+                          kScratchSimd128Reg);
+      break;
+    }
+    case kPPC_I16x8ReplaceLane: {
+      DCHECK_EQ(i.OutputSimd128Register(), i.InputSimd128Register(0));
+      __ I16x8ReplaceLane(i.OutputSimd128Register(), i.InputSimd128Register(0),
+                          i.InputRegister(2), i.InputInt8(1),
+                          kScratchSimd128Reg);
+      break;
+    }
+    case kPPC_I8x16ReplaceLane: {
+      DCHECK_EQ(i.OutputSimd128Register(), i.InputSimd128Register(0));
+      __ I8x16ReplaceLane(i.OutputSimd128Register(), i.InputSimd128Register(0),
+                          i.InputRegister(2), i.InputInt8(1),
+                          kScratchSimd128Reg);
       break;
     }
     case kPPC_I64x2Mul: {
@@ -3191,11 +3155,16 @@ void CodeGenerator::AssembleConstructFrame() {
       // exception unconditionally. Thereby we can avoid the integer overflow
       // check in the condition code.
       if (required_slots * kSystemPointerSize < v8_flags.stack_size * KB) {
-        Register stack_limit = ip;
-        __ LoadStackLimit(stack_limit, StackLimitKind::kRealStackLimit, r0);
-        __ AddS64(stack_limit, stack_limit,
+        Register scratch = ip;
+        __ LoadU64(
+            scratch,
+            FieldMemOperand(kWasmInstanceRegister,
+                            WasmInstanceObject::kRealStackLimitAddressOffset),
+            r0);
+        __ LoadU64(scratch, MemOperand(scratch), r0);
+        __ AddS64(scratch, scratch,
                   Operand(required_slots * kSystemPointerSize), r0);
-        __ CmpU64(sp, stack_limit);
+        __ CmpU64(sp, scratch);
         __ bge(&done);
       }
 

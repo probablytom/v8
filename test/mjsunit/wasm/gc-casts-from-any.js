@@ -20,19 +20,19 @@ d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
     .addBody([
       kExprLocalGet, 0,
       kGCPrefix, kExprStructNew, structSuper,
-      kGCPrefix, kExprExternConvertAny,
+      kGCPrefix, kExprExternExternalize,
     ]).exportFunc();
   builder.addFunction('createStructSub', makeSig([kWasmI32], [kWasmExternRef]))
     .addBody([
       kExprLocalGet, 0,
       kGCPrefix, kExprStructNew, structSub,
-      kGCPrefix, kExprExternConvertAny,
+      kGCPrefix, kExprExternExternalize,
     ]).exportFunc();
   builder.addFunction('createArray', makeSig([kWasmI32], [kWasmExternRef]))
     .addBody([
       kExprLocalGet, 0,
       kGCPrefix, kExprArrayNewFixed, array, 1,
-      kGCPrefix, kExprExternConvertAny,
+      kGCPrefix, kExprExternExternalize,
     ]).exportFunc();
   builder.addFunction('createFuncRef', makeSig([], [kWasmFuncRef]))
     .addBody([
@@ -56,10 +56,10 @@ d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
                         makeSig([kWasmExternRef], [kWasmI32, kWasmI32]))
     .addBody([
       kExprLocalGet, 0,
-      kGCPrefix, kExprAnyConvertExtern,
+      kGCPrefix, kExprExternInternalize,
       kGCPrefix, kExprRefTest, typeCode,
       kExprLocalGet, 0,
-      kGCPrefix, kExprAnyConvertExtern,
+      kGCPrefix, kExprExternInternalize,
       kGCPrefix, kExprRefTestNull, typeCode,
     ]).exportFunc();
 
@@ -67,18 +67,18 @@ d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
                         makeSig([kWasmExternRef], [kWasmExternRef]))
     .addBody([
       kExprLocalGet, 0,
-      kGCPrefix, kExprAnyConvertExtern,
+      kGCPrefix, kExprExternInternalize,
       kGCPrefix, kExprRefCast, typeCode,
-      kGCPrefix, kExprExternConvertAny,
+      kGCPrefix, kExprExternExternalize,
     ]).exportFunc();
 
     builder.addFunction(`refCastNull${typeName}`,
                         makeSig([kWasmExternRef], [kWasmExternRef]))
     .addBody([
       kExprLocalGet, 0,
-      kGCPrefix, kExprAnyConvertExtern,
+      kGCPrefix, kExprExternInternalize,
       kGCPrefix, kExprRefCastNull, typeCode,
-      kGCPrefix, kExprExternConvertAny,
+      kGCPrefix, kExprExternExternalize,
     ]).exportFunc();
 
     builder.addFunction(`brOnCastGeneric${typeName}`,
@@ -86,7 +86,7 @@ d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
     .addBody([
       kExprBlock, kWasmRef, typeCode,
         kExprLocalGet, 0,
-        kGCPrefix, kExprAnyConvertExtern,
+        kGCPrefix, kExprExternInternalize,
         kGCPrefix, kExprBrOnCastGeneric, 0b01, 0, kAnyRefCode, typeCode,
         kExprI32Const, 0,
         kExprReturn,
@@ -100,7 +100,7 @@ d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
     .addBody([
       kExprBlock, kWasmRefNull, typeCode,
         kExprLocalGet, 0,
-        kGCPrefix, kExprAnyConvertExtern,
+        kGCPrefix, kExprExternInternalize,
         kGCPrefix, kExprBrOnCastGeneric, 0b11, 0, kAnyRefCode, typeCode,
         kExprI32Const, 0,
         kExprReturn,
@@ -114,7 +114,7 @@ d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
     .addBody([
       kExprBlock, kAnyRefCode,
         kExprLocalGet, 0,
-        kGCPrefix, kExprAnyConvertExtern,
+        kGCPrefix, kExprExternInternalize,
         kGCPrefix, kExprBrOnCastFailGeneric, 0b01, 0, kAnyRefCode, typeCode,
         kExprI32Const, 0,
         kExprReturn,
@@ -128,7 +128,7 @@ d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
     .addBody([
       kExprBlock, kAnyRefCode,
         kExprLocalGet, 0,
-        kGCPrefix, kExprAnyConvertExtern,
+        kGCPrefix, kExprExternInternalize,
         kGCPrefix, kExprBrOnCastFailGeneric, 0b11, 0, kAnyRefCode, typeCode,
         kExprI32Const, 0,
         kExprReturn,

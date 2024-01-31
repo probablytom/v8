@@ -257,7 +257,7 @@ class MockArrayBufferAllocatiorWithLimit : public MockArrayBufferAllocator {
   std::atomic<size_t> space_left_;
 };
 
-#ifdef V8_OS_LINUX
+#if MULTI_MAPPED_ALLOCATOR_AVAILABLE
 
 // This is a mock allocator variant that provides a huge virtual allocation
 // backed by a small real allocation that is repeatedly mapped. If you create an
@@ -295,25 +295,8 @@ class MultiMappedAllocator : public ArrayBufferAllocatorBase {
       // Other errors may be bugs which we want to learn about.
       FATAL("mmap (real) failed with error %d: %s", errno, strerror(errno));
     }
-#ifdef V8_ENABLE_SANDBOX
-    // The backing memory must be allocated inside the sandbox as it will be
-    // used for array buffer contents.
-    // Here we go into somewhat less-well-defined territory by using the
-    // sandbox's virtual address space to essentially just reserve a number of
-    // OS pages inside the sandbox, but then using mremap to replace these
-    // pages directly afterwards. In practice, this works fine however.
-    VirtualAddressSpace* vas = i::GetProcessWideSandbox()->address_space();
-    i::Address in_sandbox_page_reservation = vas->AllocatePages(
-        VirtualAddressSpace::kNoHint, rounded_length,
-        vas->allocation_granularity(), PagePermissions::kNoAccess);
-    void* virtual_alloc =
-        in_sandbox_page_reservation != 0
-            ? reinterpret_cast<void*>(in_sandbox_page_reservation)
-            : reinterpret_cast<void*>(-1);
-#else
     void* virtual_alloc =
         mmap(nullptr, rounded_length, prot, flags | MAP_NORESERVE, -1, 0);
-#endif
     if (reinterpret_cast<intptr_t>(virtual_alloc) == -1) {
       if (errno == ENOMEM) {
         // Undo earlier, successful mappings.
@@ -336,11 +319,7 @@ class MultiMappedAllocator : public ArrayBufferAllocatorBase {
         if (errno == ENOMEM) {
           // Undo earlier, successful mappings.
           munmap(real_alloc, kChunkSize);
-#ifdef V8_ENABLE_SANDBOX
-          vas->FreePages(in_sandbox_page_reservation, rounded_length);
-#else
-          munmap(virtual_alloc, rounded_length);
-#endif
+          munmap(virtual_alloc, (to_map - virtual_base));
           return nullptr;
         }
         FATAL("mremap failed with error %d: %s", errno, strerror(errno));
@@ -359,12 +338,7 @@ class MultiMappedAllocator : public ArrayBufferAllocatorBase {
     void* real_alloc = regions_[data];
     munmap(real_alloc, kChunkSize);
     size_t rounded_length = RoundUp(length, kChunkSize);
-#ifdef V8_ENABLE_SANDBOX
-    VirtualAddressSpace* vas = i::GetProcessWideSandbox()->address_space();
-    vas->FreePages(reinterpret_cast<i::Address>(data), rounded_length);
-#else
     munmap(data, rounded_length);
-#endif
     regions_.erase(data);
   }
 
@@ -376,7 +350,7 @@ class MultiMappedAllocator : public ArrayBufferAllocatorBase {
   base::Mutex regions_mutex_;
 };
 
-#endif  // V8_OS_LINUX
+#endif  // MULTI_MAPPED_ALLOCATOR_AVAILABLE
 
 v8::Platform* g_default_platform;
 std::unique_ptr<v8::Platform> g_platform;
@@ -1558,11 +1532,10 @@ bool Shell::ExecuteModule(Isolate* isolate, const char* file_name) {
     return false;
   }
 
-  auto [stalled_modules, stalled_messages] =
-      root_module->GetStalledTopLevelAwaitMessages(isolate);
-  DCHECK_EQ(stalled_modules.size(), stalled_messages.size());
-  if (stalled_messages.size() > 0) {
-    Local<Message> message = stalled_messages[0];
+  std::vector<std::tuple<Local<Module>, Local<Message>>> stalled =
+      root_module->GetStalledTopLevelAwaitMessage(isolate);
+  if (stalled.size() > 0) {
+    Local<Message> message = std::get<1>(stalled[0]);
     ReportException(isolate, message, v8::Exception::Error(message->Get()));
     return false;
   }
@@ -3110,18 +3083,6 @@ void Shell::Fuzzilli(const v8::FunctionCallbackInfo<v8::Value>& info) {
         // Out-of-bounds access (2), likely only crashes in ASan builds.
         std::vector<int> vec(6);
         memset(vec.data(), 42, 0x100);
-        break;
-      }
-      case 7: {
-        if (i::v8_flags.hole_fuzzing) {
-          // This should crash with a segmentation fault only
-          // when --hole-fuzzing is used.
-          char* ptr = reinterpret_cast<char*>(0x414141414141ull);
-          for (int i = 0; i < 1024; i++) {
-            *ptr = 'A';
-            ptr += 1 * i::GB;
-          }
-        }
         break;
       }
       default:
@@ -5153,9 +5114,9 @@ bool Shell::SetOptions(int argc, char* argv[]) {
   options.mock_arraybuffer_allocator = i::v8_flags.mock_arraybuffer_allocator;
   options.mock_arraybuffer_allocator_limit =
       i::v8_flags.mock_arraybuffer_allocator_limit;
-#ifdef V8_OS_LINUX
+#if MULTI_MAPPED_ALLOCATOR_AVAILABLE
   options.multi_mapped_mock_allocator = i::v8_flags.multi_mapped_mock_allocator;
-#endif  // V8_OS_LINUX
+#endif
 
   if (i::v8_flags.stress_snapshot && options.expose_fast_api &&
       check_d8_flag_contradictions) {
@@ -5895,19 +5856,19 @@ int Shell::Main(int argc, char* argv[]) {
       memory_limit >= options.mock_arraybuffer_allocator_limit
           ? memory_limit
           : std::numeric_limits<size_t>::max());
-#ifdef V8_OS_LINUX
+#if MULTI_MAPPED_ALLOCATOR_AVAILABLE
   MultiMappedAllocator multi_mapped_mock_allocator;
-#endif  // V8_OS_LINUX
+#endif
   if (options.mock_arraybuffer_allocator) {
     if (memory_limit) {
       Shell::array_buffer_allocator = &mock_arraybuffer_allocator_with_limit;
     } else {
       Shell::array_buffer_allocator = &mock_arraybuffer_allocator;
     }
-#ifdef V8_OS_LINUX
+#if MULTI_MAPPED_ALLOCATOR_AVAILABLE
   } else if (options.multi_mapped_mock_allocator) {
     Shell::array_buffer_allocator = &multi_mapped_mock_allocator;
-#endif  // V8_OS_LINUX
+#endif
   } else {
     Shell::array_buffer_allocator = &shell_array_buffer_allocator;
   }
@@ -5916,7 +5877,7 @@ int Shell::Main(int argc, char* argv[]) {
   if (i::v8_flags.enable_vtunejit) {
     create_params.code_event_handler = vTune::GetVtuneCodeEventHandler();
   }
-#endif  // ENABLE_VTUNE_JIT_INTERFACE
+#endif
   create_params.constraints.ConfigureDefaults(
       base::SysInfo::AmountOfPhysicalMemory(),
       base::SysInfo::AmountOfVirtualMemory());

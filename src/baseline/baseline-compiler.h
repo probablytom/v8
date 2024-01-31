@@ -5,6 +5,11 @@
 #ifndef V8_BASELINE_BASELINE_COMPILER_H_
 #define V8_BASELINE_BASELINE_COMPILER_H_
 
+// TODO(v8:11421): Remove #if once baseline compiler is ported to other
+// architectures.
+#include "src/flags/flags.h"
+#if ENABLE_SPARKPLUG
+
 #include "src/base/logging.h"
 #include "src/base/pointer-with-payload.h"
 #include "src/base/threaded-list.h"
@@ -204,8 +209,6 @@ class BaselineCompiler {
     bool safe_to_skip = false;
 
     void MayDeopt() {
-      // If this check fails, you might need to update `BuiltinMayDeopt` if
-      // applicable.
       DCHECK(!accumulator_on_stack);
       may_have_deopted = true;
     }
@@ -237,5 +240,7 @@ class SaveAccumulatorScope final {
 }  // namespace baseline
 }  // namespace internal
 }  // namespace v8
+
+#endif  // ENABLE_SPARKPLUG
 
 #endif  // V8_BASELINE_BASELINE_COMPILER_H_

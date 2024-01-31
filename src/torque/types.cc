@@ -1245,7 +1245,7 @@ base::Optional<std::tuple<size_t, std::string>> SizeOf(const Type* type) {
     size_string = "kExternalPointerSlotSize";
   } else if (type->IsSubtypeOf(TypeOracle::GetIndirectPointerType())) {
     size = TargetArchitecture::IndirectPointerSize();
-    size_string = "kIndirectPointerSize";
+    size_string = "kIndirectPointerSlotSize";
   } else if (type->IsSubtypeOf(TypeOracle::GetVoidType())) {
     size = 0;
     size_string = "0";

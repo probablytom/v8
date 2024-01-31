@@ -5,6 +5,7 @@
 #include "src/debug/debug.h"
 
 #include <memory>
+#include <unordered_set>
 
 #include "src/api/api-inl.h"
 #include "src/base/platform/mutex.h"
@@ -49,27 +50,27 @@ class Debug::TemporaryObjectsTracker : public HeapObjectAllocationTracker {
   TemporaryObjectsTracker(const TemporaryObjectsTracker&) = delete;
   TemporaryObjectsTracker& operator=(const TemporaryObjectsTracker&) = delete;
 
-  void AllocationEvent(Address addr, int size) override {
+  void AllocationEvent(Address addr, int) override {
     if (disabled) return;
-    AddRegion(addr, addr + size);
+    objects_.insert(addr);
   }
 
-  void MoveEvent(Address from, Address to, int size) override {
+  void MoveEvent(Address from, Address to, int) override {
     if (from == to) return;
     base::MutexGuard guard(&mutex_);
-    if (RemoveFromRegions(from, from + size)) {
-      // We had the object tracked as temporary, so we will track the
-      // new location as temporary, too.
-      AddRegion(to, to + size);
-    } else {
-      // The object we moved is a non-temporary, so the new location is also
-      // non-temporary. Thus we remove everything we track there (because it
-      // must have become dead).
-      RemoveFromRegions(to, to + size);
+    auto it = objects_.find(from);
+    if (it == objects_.end()) {
+      // If temporary object was collected we can get MoveEvent which moves
+      // existing non temporary object to the address where we had temporary
+      // object. So we should mark new address as non temporary.
+      objects_.erase(to);
+      return;
     }
+    objects_.erase(it);
+    objects_.insert(to);
   }
 
-  bool HasObject(Handle<HeapObject> obj) {
+  bool HasObject(Handle<HeapObject> obj) const {
     if (IsJSObject(*obj) &&
         Handle<JSObject>::cast(obj)->GetEmbedderFieldCount()) {
       // Embedder may store any pointers using embedder fields and implements
@@ -78,91 +79,13 @@ class Debug::TemporaryObjectsTracker : public HeapObjectAllocationTracker {
       // with embedder fields as non temporary.
       return false;
     }
-    Address addr = obj->address();
-    return HasRegionContainingObject(addr, addr + obj->Size());
+    return objects_.find(obj->address()) != objects_.end();
   }
 
   bool disabled = false;
 
  private:
-  bool HasRegionContainingObject(Address start, Address end) {
-    // Check if there is a region that contains (overlaps) this object's space.
-    auto it = FindOverlappingRegion(start, end, false);
-    // If there is, we expect the region to contain the entire object.
-    DCHECK_IMPLIES(it != regions_.end(),
-                   it->second <= start && end <= it->first);
-    return it != regions_.end();
-  }
-
-  // This function returns any one of the overlapping regions (there might be
-  // multiple). If {include_adjacent} is true, it will also consider regions
-  // that have no overlap but are directly connected.
-  std::map<Address, Address>::iterator FindOverlappingRegion(
-      Address start, Address end, bool include_adjacent) {
-    // Region A = [start, end) overlaps with an existing region [existing_start,
-    // existing_end) iff (start <= existing_end) && (existing_start <= end).
-    // Since we index {regions_} by end address, we can find a candidate that
-    // satisfies the first condition using lower_bound.
-    if (include_adjacent) {
-      auto it = regions_.lower_bound(start);
-      if (it == regions_.end()) return regions_.end();
-      if (it->second <= end) return it;
-    } else {
-      auto it = regions_.upper_bound(start);
-      if (it == regions_.end()) return regions_.end();
-      if (it->second < end) return it;
-    }
-    return regions_.end();
-  }
-
-  void AddRegion(Address start, Address end) {
-    DCHECK_LT(start, end);
-
-    // Region [start, end) can be combined with an existing region if they
-    // overlap.
-    while (true) {
-      auto it = FindOverlappingRegion(start, end, true);
-      // If there is no such region, we don't need to merge anything.
-      if (it == regions_.end()) break;
-
-      // Otherwise, we found an overlapping region. We remove the old one and
-      // add the new region recursively (to handle cases where the new region
-      // overlaps multiple existing ones).
-      start = std::min(start, it->second);
-      end = std::max(end, it->first);
-      regions_.erase(it);
-    }
-
-    // Add the new (possibly combined) region.
-    regions_.emplace(end, start);
-  }
-
-  bool RemoveFromRegions(Address start, Address end) {
-    // Check if we have anything that overlaps with [start, end).
-    auto it = FindOverlappingRegion(start, end, false);
-    if (it == regions_.end()) return false;
-
-    // We need to update all overlapping regions.
-    for (; it != regions_.end();
-         it = FindOverlappingRegion(start, end, false)) {
-      Address existing_start = it->second;
-      Address existing_end = it->first;
-      // If we remove the region [start, end) from an existing region
-      // [existing_start, existing_end), there can be at most 2 regions left:
-      regions_.erase(it);
-      // The one before {start} is: [existing_start, start)
-      if (existing_start < start) AddRegion(existing_start, start);
-      // And the one after {end} is: [end, existing_end)
-      if (end < existing_end) AddRegion(end, existing_end);
-    }
-    return true;
-  }
-
-  // Tracking addresses is not enough, because a single allocation may combine
-  // multiple objects due to allocation folding. We track both start and end
-  // (exclusive) address of regions. We index by end address for faster lookup.
-  // Map: end address => start address
-  std::map<Address, Address> regions_;
+  std::unordered_set<Address> objects_;
   base::Mutex mutex_;
 };
 
@@ -225,7 +148,7 @@ MaybeHandle<FixedArray> Debug::CheckBreakPointsForLocations(
   *has_break_points = has_break_points_at_all;
   if (break_points_hit_count == 0) return {};
 
-  break_points_hit->RightTrim(isolate_, break_points_hit_count);
+  break_points_hit->Shrink(isolate_, break_points_hit_count);
   return break_points_hit;
 }
 
@@ -324,7 +247,7 @@ BreakIterator::BreakIterator(Handle<DebugInfo> debug_info)
     : debug_info_(debug_info),
       break_index_(-1),
       source_position_iterator_(
-          debug_info->DebugBytecodeArray(isolate())->SourcePositionTable()) {
+          debug_info->DebugBytecodeArray()->SourcePositionTable()) {
   position_ = debug_info->shared()->StartPosition();
   statement_position_ = position_;
   // There is at least one break location.
@@ -369,8 +292,7 @@ void BreakIterator::Next() {
 }
 
 DebugBreakType BreakIterator::GetDebugBreakType() {
-  Tagged<BytecodeArray> bytecode_array =
-      debug_info_->OriginalBytecodeArray(isolate());
+  Tagged<BytecodeArray> bytecode_array = debug_info_->OriginalBytecodeArray();
   interpreter::Bytecode bytecode =
       interpreter::Bytecodes::FromByte(bytecode_array->get(code_offset()));
 
@@ -409,8 +331,8 @@ void BreakIterator::SetDebugBreak() {
   if (debug_break_type == DEBUGGER_STATEMENT) return;
   HandleScope scope(isolate());
   DCHECK(debug_break_type >= DEBUG_BREAK_SLOT);
-  Handle<BytecodeArray> bytecode_array(
-      debug_info_->DebugBytecodeArray(isolate()), isolate());
+  Handle<BytecodeArray> bytecode_array(debug_info_->DebugBytecodeArray(),
+                                       isolate());
   interpreter::BytecodeArrayIterator(bytecode_array, code_offset())
       .ApplyDebugBreak();
 }
@@ -419,17 +341,14 @@ void BreakIterator::ClearDebugBreak() {
   DebugBreakType debug_break_type = GetDebugBreakType();
   if (debug_break_type == DEBUGGER_STATEMENT) return;
   DCHECK(debug_break_type >= DEBUG_BREAK_SLOT);
-  Tagged<BytecodeArray> bytecode_array =
-      debug_info_->DebugBytecodeArray(isolate());
-  Tagged<BytecodeArray> original =
-      debug_info_->OriginalBytecodeArray(isolate());
+  Tagged<BytecodeArray> bytecode_array = debug_info_->DebugBytecodeArray();
+  Tagged<BytecodeArray> original = debug_info_->OriginalBytecodeArray();
   bytecode_array->set(code_offset(), original->get(code_offset()));
 }
 
 BreakLocation BreakIterator::GetBreakLocation() {
   Handle<AbstractCode> code(
-      AbstractCode::cast(debug_info_->DebugBytecodeArray(isolate())),
-      isolate());
+      AbstractCode::cast(debug_info_->DebugBytecodeArray()), isolate());
   DebugBreakType type = GetDebugBreakType();
   int generator_object_reg_index = -1;
   int generator_suspend_id = -1;
@@ -439,8 +358,7 @@ BreakLocation BreakIterator::GetBreakLocation() {
     // index that holds the generator object by reading it directly off the
     // bytecode array, and we'll read the actual generator object off the
     // interpreter stack frame in GetGeneratorObjectForSuspendedFrame.
-    Tagged<BytecodeArray> bytecode_array =
-        debug_info_->OriginalBytecodeArray(isolate());
+    Tagged<BytecodeArray> bytecode_array = debug_info_->OriginalBytecodeArray();
     interpreter::BytecodeArrayIterator iterator(
         handle(bytecode_array, isolate()), code_offset());
 
@@ -1252,7 +1170,7 @@ MaybeHandle<FixedArray> Debug::GetHitBreakPoints(Handle<DebugInfo> debug_info,
     }
   }
   if (break_points_hit_count == 0) return {};
-  break_points_hit->RightTrim(isolate_, break_points_hit_count);
+  break_points_hit->Shrink(isolate_, break_points_hit_count);
   return break_points_hit;
 }
 
@@ -1485,9 +1403,9 @@ void Debug::PrepareStep(StepAction step_action) {
             Handle<WeakFixedArray> weak_fixed_array =
                 Handle<WeakFixedArray>::cast(awaited_by_holder);
             if (weak_fixed_array->length() == 1 &&
-                weak_fixed_array->get(0).IsWeak()) {
+                weak_fixed_array->Get(0).IsWeak()) {
               Handle<HeapObject> awaited_by(
-                  weak_fixed_array->get(0).GetHeapObjectAssumeWeak(isolate_),
+                  weak_fixed_array->Get(0).GetHeapObjectAssumeWeak(isolate_),
                   isolate_);
               if (IsJSGeneratorObject(*awaited_by)) {
                 DCHECK(!has_suspended_generator());
@@ -1682,7 +1600,7 @@ void Debug::DiscardBaselineCode(Tagged<SharedFunctionInfo> shared) {
   // TODO(v8:11429): Avoid this heap walk somehow.
   HeapObjectIterator iterator(isolate_->heap());
   auto trampoline = BUILTIN_CODE(isolate_, InterpreterEntryTrampoline);
-  shared->FlushBaselineCode(isolate_);
+  shared->FlushBaselineCode();
   for (Tagged<HeapObject> obj = iterator.Next(); !obj.is_null();
        obj = iterator.Next()) {
     if (IsJSFunction(obj)) {
@@ -1711,7 +1629,7 @@ void Debug::DiscardAllBaselineCode() {
     } else if (IsSharedFunctionInfo(obj)) {
       Tagged<SharedFunctionInfo> shared = SharedFunctionInfo::cast(obj);
       if (shared->HasBaselineCode()) {
-        shared->FlushBaselineCode(isolate_);
+        shared->FlushBaselineCode();
       }
     }
   }
@@ -2093,7 +2011,7 @@ bool Debug::FindSharedFunctionInfosIntersectingRange(
         script->shared_function_info_count() > 0) {
       DCHECK_LE(script->shared_function_info_count(),
                 script->shared_function_infos()->length());
-      MaybeObject maybeToplevel = script->shared_function_infos()->get(0);
+      MaybeObject maybeToplevel = script->shared_function_infos()->Get(0);
       Tagged<HeapObject> heap_object;
       const bool topLevelInfoExists =
           maybeToplevel.GetHeapObject(&heap_object) &&
@@ -2326,7 +2244,7 @@ Handle<FixedArray> Debug::GetLoadedScripts() {
       if (script->HasValidSource()) results->set(length++, script);
     }
   }
-  return FixedArray::RightTrimOrEmpty(isolate_, results, length);
+  return FixedArray::ShrinkOrEmpty(isolate_, results, length);
 }
 
 base::Optional<Tagged<DebugInfo>> Debug::TryGetDebugInfo(
@@ -2402,6 +2320,20 @@ void Debug::OnPromiseReject(Handle<Object> promise, Handle<Object> value) {
   }
 }
 
+bool Debug::IsExceptionBlackboxed(bool uncaught) {
+  RCS_SCOPE(isolate_, RuntimeCallCounterId::kDebugger);
+  // Uncaught exception is blackboxed if all current frames are blackboxed,
+  // caught exception if top frame is blackboxed.
+  DebuggableStackFrameIterator it(isolate_);
+#if V8_ENABLE_WEBASSEMBLY
+  while (!it.done() && it.is_wasm()) it.Advance();
+#endif  // V8_ENABLE_WEBASSEMBLY
+  bool is_top_frame_blackboxed =
+      !it.done() ? IsFrameBlackboxed(it.javascript_frame()) : true;
+  if (!uncaught || !is_top_frame_blackboxed) return is_top_frame_blackboxed;
+  return AllFramesOnStackAreBlackboxed();
+}
+
 bool Debug::IsFrameBlackboxed(JavaScriptFrame* frame) {
   RCS_SCOPE(isolate_, RuntimeCallCounterId::kDebugger);
   HandleScope scope(isolate_);
@@ -2462,12 +2394,9 @@ void Debug::OnException(Handle<Object> exception, Handle<Object> promise,
 
   {
     JavaScriptStackFrameIterator it(isolate_);
-    // Check whether the affected frames are blackboxed or the break location is
-    // muted.
-    if (!it.done() &&
-        (IsMutedAtCurrentLocation(it.frame()) ||
-         AllFramesOnStackAreBlackboxed(
-             exception_type == debug::kPromiseRejection, !uncaught))) {
+    // Check whether the top frame is blackboxed or the break location is muted.
+    if (!it.done() && (IsMutedAtCurrentLocation(it.frame()) ||
+                       IsExceptionBlackboxed(uncaught))) {
       return;
     }
     if (it.done()) return;  // Do not trigger an event with an empty stack.
@@ -2594,62 +2523,12 @@ bool Debug::ShouldBeSkipped() {
   }
 }
 
-namespace {
-bool ReceiverIsBlackboxed(Isolate* isolate, Handle<JSReceiver> receiver) {
-  if (!IsJSFunction(*receiver)) return true;
-
-  Handle<SharedFunctionInfo> function_info(
-      Handle<JSFunction>::cast(receiver)->shared(), isolate);
-  return isolate->debug()->IsBlackboxed(function_info);
-}
-}  // namespace
-
-bool Debug::AllFramesOnStackAreBlackboxed(bool include_async,
-                                          bool stop_at_caught) {
+bool Debug::AllFramesOnStackAreBlackboxed() {
   RCS_SCOPE(isolate_, RuntimeCallCounterId::kDebugger);
   HandleScope scope(isolate_);
-  Handle<Object> promise_stack(thread_local_.promise_stack_, isolate_);
-
-  for (StackFrameIterator it(isolate_); !it.done(); it.Advance()) {
-    StackFrame* frame = it.frame();
-    if (frame->is_java_script() &&
-        !IsFrameBlackboxed(JavaScriptFrame::cast(frame))) {
-      return false;
-    }
-    if (!stop_at_caught && !include_async) continue;
-
-    Isolate::CatchType prediction =
-        isolate_->PredictExceptionCatchAtFrame(frame);
-    if (include_async && prediction == Isolate::CAUGHT_BY_ASYNC_AWAIT) {
-      // This logic is duplicated from Isolate::GetPromiseOnStackOnThrow.
-      // In the future a more advanced version of Isolate::WalkPromiseTree
-      // could further reduce duplicated logic by walking both frames and
-      // promises.
-      if (!IsPromiseOnStack(*promise_stack)) continue;
-      Handle<PromiseOnStack> promise_on_stack =
-          Handle<PromiseOnStack>::cast(promise_stack);
-      MaybeHandle<JSObject> maybe_promise =
-          PromiseOnStack::GetPromise(promise_on_stack);
-      Handle<JSObject> object_handle;
-      if (maybe_promise.ToHandle(&object_handle) &&
-          IsJSPromise(*object_handle)) {
-        bool is_caught = false;
-        bool is_blackboxed = true;
-        isolate_->WalkPromiseTree(
-            Handle<JSPromise>::cast(object_handle),
-            [this, &is_caught,
-             &is_blackboxed](Isolate::PromiseHandler handler) {
-              is_caught = handler.catches;
-              is_blackboxed = ReceiverIsBlackboxed(isolate_, handler.receiver);
-              return is_caught || !is_blackboxed;
-            });
-        if ((stop_at_caught && is_caught) || !is_blackboxed) {
-          return is_blackboxed;
-        }
-      }
-    } else if (stop_at_caught && prediction != Isolate::NOT_CAUGHT) {
-      break;
-    }
+  for (DebuggableStackFrameIterator it(isolate_); !it.done(); it.Advance()) {
+    if (!it.is_javascript()) continue;
+    if (!IsFrameBlackboxed(it.javascript_frame())) return false;
   }
   return true;
 }
@@ -2982,19 +2861,10 @@ void Debug::StartSideEffectCheckMode() {
   DCHECK(!temporary_objects_);
   temporary_objects_.reset(new TemporaryObjectsTracker());
   isolate_->heap()->AddHeapObjectAllocationTracker(temporary_objects_.get());
-
-  Handle<RegExpMatchInfo> current_match_info(
-      isolate_->native_context()->regexp_last_match_info(), isolate_);
-  int register_count = current_match_info->number_of_capture_registers();
-  regexp_match_info_ = RegExpMatchInfo::New(
-      isolate_, JSRegExp::CaptureCountForRegisters(register_count));
-  DCHECK_EQ(regexp_match_info_->number_of_capture_registers(),
-            current_match_info->number_of_capture_registers());
-  regexp_match_info_->set_last_subject(current_match_info->last_subject());
-  regexp_match_info_->set_last_input(current_match_info->last_input());
-  RegExpMatchInfo::CopyElements(isolate_, *regexp_match_info_, 0,
-                                *current_match_info, 0, register_count,
-                                SKIP_WRITE_BARRIER);
+  Handle<FixedArray> array(isolate_->native_context()->regexp_last_match_info(),
+                           isolate_);
+  regexp_match_info_ =
+      Handle<RegExpMatchInfo>::cast(isolate_->factory()->CopyFixedArray(array));
 
   // Update debug infos to have correct execution mode.
   UpdateDebugInfosForExecutionMode();
@@ -3029,7 +2899,7 @@ void Debug::StopSideEffectCheckMode() {
 void Debug::ApplySideEffectChecks(Handle<DebugInfo> debug_info) {
   RCS_SCOPE(isolate_, RuntimeCallCounterId::kDebugger);
   DCHECK(debug_info->HasInstrumentedBytecodeArray());
-  Handle<BytecodeArray> debug_bytecode(debug_info->DebugBytecodeArray(isolate_),
+  Handle<BytecodeArray> debug_bytecode(debug_info->DebugBytecodeArray(),
                                        isolate_);
   DebugEvaluate::ApplySideEffectChecks(debug_bytecode);
   debug_info->SetDebugExecutionMode(DebugInfo::kSideEffects);
@@ -3038,10 +2908,9 @@ void Debug::ApplySideEffectChecks(Handle<DebugInfo> debug_info) {
 void Debug::ClearSideEffectChecks(Handle<DebugInfo> debug_info) {
   RCS_SCOPE(isolate_, RuntimeCallCounterId::kDebugger);
   DCHECK(debug_info->HasInstrumentedBytecodeArray());
-  Handle<BytecodeArray> debug_bytecode(debug_info->DebugBytecodeArray(isolate_),
+  Handle<BytecodeArray> debug_bytecode(debug_info->DebugBytecodeArray(),
                                        isolate_);
-  Handle<BytecodeArray> original(debug_info->OriginalBytecodeArray(isolate_),
-                                 isolate_);
+  Handle<BytecodeArray> original(debug_info->OriginalBytecodeArray(), isolate_);
   for (interpreter::BytecodeArrayIterator it(debug_bytecode); !it.done();
        it.Advance()) {
     // Restore from original. This may copy only the scaling prefix, which is

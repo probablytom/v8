@@ -36,6 +36,16 @@ namespace v8::internal::compiler::turboshaft {
 
 #include "src/compiler/turboshaft/define-assembler-macros.inc"
 
+template <bool signalling_nan_possible, class Next>
+class MachineOptimizationReducer;
+
+template <class Next>
+using MachineOptimizationReducerSignallingNanPossible =
+    MachineOptimizationReducer<true, Next>;
+template <class Next>
+using MachineOptimizationReducerSignallingNanImpossible =
+    MachineOptimizationReducer<false, Next>;
+
 // The MachineOptimizationAssembler performs basic optimizations on low-level
 // operations that can be performed on-the-fly, without requiring type analysis
 // or analyzing uses. It largely corresponds to MachineOperatorReducer in
@@ -46,7 +56,7 @@ namespace v8::internal::compiler::turboshaft {
 //    1- Reducing Phis, whose all inputs are the same, replace
 //      them with their input.
 
-template <class Next>
+template <bool signalling_nan_possible, class Next>
 class MachineOptimizationReducer : public Next {
  public:
   TURBOSHAFT_REDUCER_BOILERPLATE()
@@ -66,8 +76,8 @@ class MachineOptimizationReducer : public Next {
       input = TryRemoveWord32ToWord64Conversion(input);
     }
     if (uint64_t value;
-        from.IsWord() && matcher.MatchIntegralWordConstant(
-                             input, WordRepresentation(from), &value)) {
+        from.IsWord() &&
+        matcher.MatchWordConstant(input, WordRepresentation(from), &value)) {
       using Rep = RegisterRepresentation;
       switch (multi(kind, from, to)) {
         case multi(Kind::kSignExtend, Rep::Word32(), Rep::Word64()):
@@ -172,8 +182,8 @@ class MachineOptimizationReducer : public Next {
       return Next::ReduceBitcastWord32PairToFloat64(hi_word32, lo_word32);
     }
     uint32_t lo, hi;
-    if (matcher.MatchIntegralWord32Constant(hi_word32, &hi) &&
-        matcher.MatchIntegralWord32Constant(lo_word32, &lo)) {
+    if (matcher.MatchWord32Constant(hi_word32, &hi) &&
+        matcher.MatchWord32Constant(lo_word32, &lo)) {
       return __ Float64Constant(
           base::bit_cast<double>(uint64_t{hi} << 32 | uint64_t{lo}));
     }
@@ -358,7 +368,7 @@ class MachineOptimizationReducer : public Next {
       input = TryRemoveWord32ToWord64Conversion(input);
     }
     if (uint32_t k; rep == WordRepresentation::Word32() &&
-                    matcher.MatchIntegralWord32Constant(input, &k)) {
+                    matcher.MatchWord32Constant(input, &k)) {
       switch (kind) {
         case WordUnaryOp::Kind::kReverseBytes:
           return __ Word32Constant(base::bits::ReverseBytes(k));
@@ -374,7 +384,7 @@ class MachineOptimizationReducer : public Next {
           return __ Word32Constant(int32_t{static_cast<int16_t>(k)});
       }
     } else if (uint64_t k; rep == WordRepresentation::Word64() &&
-                           matcher.MatchIntegralWord64Constant(input, &k)) {
+                           matcher.MatchWord64Constant(input, &k)) {
       switch (kind) {
         case WordUnaryOp::Kind::kReverseBytes:
           return __ Word64Constant(base::bits::ReverseBytes(k));
@@ -593,8 +603,8 @@ class MachineOptimizationReducer : public Next {
       return ReduceWordBinop(right, left, kind, rep);
     }
     // constant folding
-    if (uint64_t k1, k2; matcher.MatchIntegralWordConstant(left, rep, &k1) &&
-                         matcher.MatchIntegralWordConstant(right, rep, &k2)) {
+    if (uint64_t k1, k2; matcher.MatchWordConstant(left, rep, &k1) &&
+                         matcher.MatchWordConstant(right, rep, &k2)) {
       switch (kind) {
         case Kind::kAdd:
           return __ WordConstant(k1 + k2, rep);
@@ -652,7 +662,7 @@ class MachineOptimizationReducer : public Next {
     // code.
 
     if (uint64_t right_value;
-        matcher.MatchIntegralWordConstant(right, rep, &right_value)) {
+        matcher.MatchWordConstant(right, rep, &right_value)) {
       int64_t right_value_signed =
           is_64 ? static_cast<int64_t>(right_value)
                 : int64_t{static_cast<int32_t>(right_value)};
@@ -661,16 +671,8 @@ class MachineOptimizationReducer : public Next {
                          matcher.MatchWordBinop(left, &a, &k1, kind, rep) &&
                          matcher.Is<ConstantOp>(k1)) {
         OpIndex k2 = right;
-        // This optimization allows to do constant folding of `k1` and `k2`.
-        // However, if (a <op> k1) has to be calculated anyways, then constant
-        // folding does not save any calculations during runtime, and it may
-        // increase register pressure because it extends the lifetime of `a`.
-        // Therefore we do the optimization only when `left = (a <op k1)` has no
-        // other uses.
-        if (matcher.Get(left).saturated_use_count.IsZero()) {
-          return ReduceWordBinop(a, ReduceWordBinop(k1, k2, kind, rep), kind,
-                                 rep);
-        }
+        return ReduceWordBinop(a, ReduceWordBinop(k1, k2, kind, rep), kind,
+                               rep);
       }
       switch (kind) {
         case Kind::kSub:
@@ -698,7 +700,7 @@ class MachineOptimizationReducer : public Next {
             int64_t k;
             if (right_value_signed == -1 &&
                 matcher.MatchBitwiseAnd(left, &x, &y, rep) &&
-                matcher.MatchIntegralWordConstant(y, rep, &k) && k == -1) {
+                matcher.MatchWordConstant(y, rep, &k) && k == -1) {
               return x;
             }
           }
@@ -719,7 +721,7 @@ class MachineOptimizationReducer : public Next {
             uint64_t k1;
             uint64_t k2 = right_value;
             if (matcher.MatchBitwiseAnd(left, &x, &y, rep) &&
-                matcher.MatchIntegralWordConstant(y, rep, &k1) &&
+                matcher.MatchWordConstant(y, rep, &k1) &&
                 (k1 | k2) == rep.MaxUnsignedValue()) {
               return __ WordBitwiseOr(x, right, rep);
             }
@@ -942,17 +944,17 @@ class MachineOptimizationReducer : public Next {
     OpIndex amount;
     uint64_t k;
     if (OpIndex a, b; matcher.MatchWordSub(high->right(), &a, &b, rep) &&
-                      matcher.MatchIntegralWordConstant(a, rep, &k) &&
+                      matcher.MatchWordConstant(a, rep, &k) &&
                       b == low->right() && k == rep.bit_width()) {
       amount = b;
     } else if (OpIndex a, b; matcher.MatchWordSub(low->right(), &a, &b, rep) &&
                              a == high->right() &&
-                             matcher.MatchIntegralWordConstant(b, rep, &k) &&
+                             matcher.MatchWordConstant(b, rep, &k) &&
                              k == rep.bit_width()) {
       amount = low->right();
     } else if (uint64_t k1, k2;
-               matcher.MatchIntegralWordConstant(high->right(), rep, &k1) &&
-               matcher.MatchIntegralWordConstant(low->right(), rep, &k2) &&
+               matcher.MatchWordConstant(high->right(), rep, &k1) &&
+               matcher.MatchWordConstant(low->right(), rep, &k2) &&
                k1 + k2 == rep.bit_width() && k1 >= 0 && k2 >= 0) {
       if (k1 == 0 || k2 == 0) {
         if (kind == WordBinopOp::Kind::kBitwiseXor) {
@@ -992,8 +994,8 @@ class MachineOptimizationReducer : public Next {
     }
     // constant folding
     if (rep == WordRepresentation::Word32()) {
-      if (int32_t k1, k2; matcher.MatchIntegralWord32Constant(left, &k1) &&
-                          matcher.MatchIntegralWord32Constant(right, &k2)) {
+      if (int32_t k1, k2; matcher.MatchWord32Constant(left, &k1) &&
+                          matcher.MatchWord32Constant(right, &k2)) {
         bool overflow;
         int32_t res;
         switch (kind) {
@@ -1011,8 +1013,8 @@ class MachineOptimizationReducer : public Next {
       }
     } else {
       DCHECK_EQ(rep, WordRepresentation::Word64());
-      if (int64_t k1, k2; matcher.MatchIntegralWord64Constant(left, &k1) &&
-                          matcher.MatchIntegralWord64Constant(right, &k2)) {
+      if (int64_t k1, k2; matcher.MatchWord64Constant(left, &k1) &&
+                          matcher.MatchWord64Constant(right, &k2)) {
         bool overflow;
         int64_t res;
         switch (kind) {
@@ -1038,7 +1040,7 @@ class MachineOptimizationReducer : public Next {
     }
 
     if (kind == Kind::kSignedMul) {
-      if (int64_t k; matcher.MatchIntegralWordConstant(right, rep, &k)) {
+      if (int64_t k; matcher.MatchWordConstant(right, rep, &k)) {
         // left * 0  =>  (0, false)
         if (k == 0) {
           return __ Tuple(__ WordConstant(0, rep), __ Word32Constant(false));
@@ -1081,10 +1083,10 @@ class MachineOptimizationReducer : public Next {
         switch (rep.value()) {
           case RegisterRepresentation::Word32():
           case RegisterRepresentation::Word64(): {
-            if (uint64_t k1, k2; matcher.MatchIntegralWordConstant(
-                                     left, WordRepresentation(rep), &k1) &&
-                                 matcher.MatchIntegralWordConstant(
-                                     right, WordRepresentation(rep), &k2)) {
+            if (uint64_t k1, k2;
+                matcher.MatchWordConstant(left, WordRepresentation(rep), &k1) &&
+                matcher.MatchWordConstant(right, WordRepresentation(rep),
+                                          &k2)) {
               return __ Word32Constant(k1 == k2);
             }
             break;
@@ -1131,8 +1133,8 @@ class MachineOptimizationReducer : public Next {
           if (matcher.MatchBitwiseAnd(left, &shift, &mask_op, rep_w) &&
               matcher.MatchConstantRightShift(shift, &x, rep_w,
                                               &shift_amount) &&
-              matcher.MatchIntegralWordConstant(mask_op, rep_w, &mask) &&
-              matcher.MatchIntegralWordConstant(right, rep_w, &k) &&
+              matcher.MatchWordConstant(mask_op, rep_w, &mask) &&
+              matcher.MatchWordConstant(right, rep_w, &k) &&
               mask <= rep.MaxUnsignedValue() >> shift_amount &&
               k <= rep.MaxUnsignedValue() >> shift_amount) {
             return ReduceEqual(
@@ -1150,7 +1152,7 @@ class MachineOptimizationReducer : public Next {
           int64_t k2;
           if (matcher.MatchConstantShiftRightArithmeticShiftOutZeros(
                   left, &x, rep_w, &k1) &&
-              matcher.MatchIntegralWordConstant(right, rep_w, &k2) &&
+              matcher.MatchWordConstant(right, rep_w, &k2) &&
               CountLeadingSignBits(k2, rep_w) > k1 &&
               matcher.Get(left).saturated_use_count.IsZero()) {
             return __ Equal(
@@ -1208,10 +1210,10 @@ class MachineOptimizationReducer : public Next {
         case RegisterRepresentation::Word64(): {
           if (kind ==
               any_of(Kind::kSignedLessThan, Kind::kSignedLessThanOrEqual)) {
-            if (int64_t k1, k2; matcher.MatchIntegralWordConstant(
-                                    left, WordRepresentation(rep), &k1) &&
-                                matcher.MatchIntegralWordConstant(
-                                    right, WordRepresentation(rep), &k2)) {
+            if (int64_t k1, k2;
+                matcher.MatchWordConstant(left, WordRepresentation(rep), &k1) &&
+                matcher.MatchWordConstant(right, WordRepresentation(rep),
+                                          &k2)) {
               switch (kind) {
                 case ComparisonOp::Kind::kSignedLessThan:
                   return __ Word32Constant(k1 < k2);
@@ -1223,10 +1225,10 @@ class MachineOptimizationReducer : public Next {
               }
             }
           } else {
-            if (uint64_t k1, k2; matcher.MatchIntegralWordConstant(
-                                     left, WordRepresentation(rep), &k1) &&
-                                 matcher.MatchIntegralWordConstant(
-                                     right, WordRepresentation(rep), &k2)) {
+            if (uint64_t k1, k2;
+                matcher.MatchWordConstant(left, WordRepresentation(rep), &k1) &&
+                matcher.MatchWordConstant(right, WordRepresentation(rep),
+                                          &k2)) {
               switch (kind) {
                 case ComparisonOp::Kind::kUnsignedLessThan:
                   return __ Word32Constant(k1 < k2);
@@ -1285,29 +1287,26 @@ class MachineOptimizationReducer : public Next {
       WordRepresentation rep_w{rep};
       if (kind == Kind::kUnsignedLessThanOrEqual) {
         // 0 <= x  =>  true
-        if (uint64_t k;
-            matcher.MatchIntegralWordConstant(left, rep_w, &k) && k == 0) {
+        if (uint64_t k; matcher.MatchWordConstant(left, rep_w, &k) && k == 0) {
           return __ Word32Constant(1);
         }
         // x <= MaxUint  =>  true
-        if (uint64_t k; matcher.MatchIntegralWordConstant(right, rep_w, &k) &&
+        if (uint64_t k; matcher.MatchWordConstant(right, rep_w, &k) &&
                         k == rep.MaxUnsignedValue()) {
           return __ Word32Constant(1);
         }
         // x <= 0  =>  x == 0
-        if (uint64_t k;
-            matcher.MatchIntegralWordConstant(right, rep_w, &k) && k == 0) {
+        if (uint64_t k; matcher.MatchWordConstant(right, rep_w, &k) && k == 0) {
           return __ Equal(left, __ WordConstant(0, rep_w), rep_w);
         }
       }
       if (kind == Kind::kUnsignedLessThan) {
         // x < 0  =>  false
-        if (uint64_t k;
-            matcher.MatchIntegralWordConstant(right, rep_w, &k) && k == 0) {
+        if (uint64_t k; matcher.MatchWordConstant(right, rep_w, &k) && k == 0) {
           return __ Word32Constant(0);
         }
         // MaxUint < x  =>  true
-        if (uint64_t k; matcher.MatchIntegralWordConstant(left, rep_w, &k) &&
+        if (uint64_t k; matcher.MatchWordConstant(left, rep_w, &k) &&
                         k == rep.MaxUnsignedValue()) {
           return __ Word32Constant(0);
         }
@@ -1333,54 +1332,24 @@ class MachineOptimizationReducer : public Next {
         int64_t k2;
         if (matcher.MatchConstantShiftRightArithmeticShiftOutZeros(
                 left, &x, rep_w, &k1) &&
-            matcher.MatchIntegralWordConstant(right, rep_w, &k2) &&
-            CountLeadingSignBits(k2, rep_w) > k1) {
-          if (matcher.Get(left).saturated_use_count.IsZero()) {
-            return __ Comparison(
-                x, __ WordConstant(base::bits::Unsigned(k2) << k1, rep_w), kind,
-                rep_w);
-          } else if constexpr (reducer_list_contains<
-                                   ReducerList, ValueNumberingReducer>::value) {
-            // If the shift has uses, we only apply the transformation if the
-            // result would be GVNed away.
-            OpIndex rhs =
-                __ WordConstant(base::bits::Unsigned(k2) << k1, rep_w);
-            static_assert(ComparisonOp::input_count == 2);
-            static_assert(sizeof(ComparisonOp) == 8);
-            base::SmallVector<OperationStorageSlot, 32> storage;
-            ComparisonOp* cmp =
-                CreateOperation<ComparisonOp>(storage, x, rhs, kind, rep_w);
-            if (__ WillGVNOp(*cmp)) {
-              return __ Comparison(x, rhs, kind, rep_w);
-            }
-          }
+            matcher.MatchWordConstant(right, rep_w, &k2) &&
+            CountLeadingSignBits(k2, rep_w) > k1 &&
+            matcher.Get(left).saturated_use_count.IsZero()) {
+          return __ Comparison(
+              x, __ WordConstant(base::bits::Unsigned(k2) << k1, rep_w), kind,
+              rep_w);
         }
         // k2 </<= (x >> k1)  =>  (k2 << k1) </<= x  if shifts reversible
         // Only perform the transformation if the shift is not used yet, to
         // avoid keeping both the shift and x alive.
         if (matcher.MatchConstantShiftRightArithmeticShiftOutZeros(
                 right, &x, rep_w, &k1) &&
-            matcher.MatchIntegralWordConstant(left, rep_w, &k2) &&
-            CountLeadingSignBits(k2, rep_w) > k1) {
-          if (matcher.Get(right).saturated_use_count.IsZero()) {
-            return __ Comparison(
-                __ WordConstant(base::bits::Unsigned(k2) << k1, rep_w), x, kind,
-                rep_w);
-          } else if constexpr (reducer_list_contains<
-                                   ReducerList, ValueNumberingReducer>::value) {
-            // If the shift has uses, we only apply the transformation if the
-            // result would be GVNed away.
-            OpIndex lhs =
-                __ WordConstant(base::bits::Unsigned(k2) << k1, rep_w);
-            static_assert(ComparisonOp::input_count == 2);
-            static_assert(sizeof(ComparisonOp) == 8);
-            base::SmallVector<OperationStorageSlot, 32> storage;
-            ComparisonOp* cmp =
-                CreateOperation<ComparisonOp>(storage, lhs, x, kind, rep_w);
-            if (__ WillGVNOp(*cmp)) {
-              return __ Comparison(lhs, x, kind, rep_w);
-            }
-          }
+            matcher.MatchWordConstant(left, rep_w, &k2) &&
+            CountLeadingSignBits(k2, rep_w) > k1 &&
+            matcher.Get(right).saturated_use_count.IsZero()) {
+          return __ Comparison(
+              __ WordConstant(base::bits::Unsigned(k2) << k1, rep_w), x, kind,
+              rep_w);
         }
       }
       // Map 64bit to 32bit comparisons.
@@ -1418,9 +1387,8 @@ class MachineOptimizationReducer : public Next {
     using Kind = ShiftOp::Kind;
     uint64_t c_unsigned;
     int64_t c_signed;
-    if (matcher.MatchIntegralWordConstant(left, rep, &c_unsigned, &c_signed)) {
-      if (uint32_t amount;
-          matcher.MatchIntegralWord32Constant(right, &amount)) {
+    if (matcher.MatchWordConstant(left, rep, &c_unsigned, &c_signed)) {
+      if (uint32_t amount; matcher.MatchWord32Constant(right, &amount)) {
         amount = amount & (rep.bit_width() - 1);
         switch (kind) {
           case Kind::kShiftRightArithmeticShiftOutZeros:
@@ -1470,7 +1438,7 @@ class MachineOptimizationReducer : public Next {
         }
       }
     }
-    if (int32_t amount; matcher.MatchIntegralWord32Constant(right, &amount) &&
+    if (int32_t amount; matcher.MatchWord32Constant(right, &amount) &&
                         0 <= amount && amount < rep.bit_width()) {
       if (amount == 0) {
         return left;
@@ -1535,8 +1503,7 @@ class MachineOptimizationReducer : public Next {
           static_assert(0x1f == WordRepresentation::Word32().bit_width() - 1);
 #endif
           if (uint32_t b_value;
-              matcher.MatchIntegralWord32Constant(b, &b_value) &&
-              b_value == 0x1f) {
+              matcher.MatchWord32Constant(b, &b_value) && b_value == 0x1f) {
             return __ Shift(left, a, kind, rep);
           }
         }
@@ -1661,7 +1628,7 @@ class MachineOptimizationReducer : public Next {
       return Next::ReduceSwitch(input, cases, default_case, default_hint);
     }
     if (ShouldSkipOptimizationStep()) goto no_change;
-    if (int32_t value; matcher.MatchIntegralWord32Constant(input, &value)) {
+    if (int32_t value; matcher.MatchWord32Constant(input, &value)) {
       for (const SwitchOp::Case& if_value : cases) {
         if (if_value.value == value) {
           __ Goto(if_value.destination);
@@ -1674,7 +1641,7 @@ class MachineOptimizationReducer : public Next {
     goto no_change;
   }
 
-  OpIndex REDUCE(Store)(OpIndex base, OptionalOpIndex index, OpIndex value,
+  OpIndex REDUCE(Store)(OpIndex base, OpIndex index, OpIndex value,
                         StoreOp::Kind kind, MemoryRepresentation stored_rep,
                         WriteBarrierKind write_barrier, int32_t offset,
                         uint8_t element_scale,
@@ -1684,8 +1651,7 @@ class MachineOptimizationReducer : public Next {
       if (stored_rep.SizeInBytes() <= 4) {
         value = TryRemoveWord32ToWord64Conversion(value);
       }
-      index =
-          ReduceMemoryIndex(index.value_or_invalid(), &offset, &element_scale);
+      index = ReduceMemoryIndex(index, &offset, &element_scale);
       switch (stored_rep) {
         case MemoryRepresentation::Uint8():
         case MemoryRepresentation::Int8():
@@ -1715,14 +1681,13 @@ class MachineOptimizationReducer : public Next {
                              maybe_indirect_pointer_tag);
   }
 
-  OpIndex REDUCE(Load)(OpIndex base_idx, OptionalOpIndex index,
-                       LoadOp::Kind kind, MemoryRepresentation loaded_rep,
+  OpIndex REDUCE(Load)(OpIndex base_idx, OpIndex index, LoadOp::Kind kind,
+                       MemoryRepresentation loaded_rep,
                        RegisterRepresentation result_rep, int32_t offset,
                        uint8_t element_scale) {
     while (true) {
       if (ShouldSkipOptimizationStep()) break;
-      index =
-          ReduceMemoryIndex(index.value_or_invalid(), &offset, &element_scale);
+      index = ReduceMemoryIndex(index, &offset, &element_scale);
       if (!kind.tagged_base && !index.valid()) {
         if (OpIndex left, right;
             matcher.MatchWordAdd(base_idx, &left, &right,
@@ -1794,8 +1759,8 @@ class MachineOptimizationReducer : public Next {
 
   bool TryAdjustElementScale(uint8_t* element_scale, OpIndex maybe_constant) {
     uint64_t diff;
-    if (!matcher.MatchIntegralWordConstant(
-            maybe_constant, WordRepresentation::PointerSized(), &diff)) {
+    if (!matcher.MatchWordConstant(maybe_constant,
+                                   WordRepresentation::PointerSized(), &diff)) {
       return false;
     }
     DCHECK_LT(*element_scale, WordRepresentation::PointerSized().bit_width());
@@ -1904,7 +1869,7 @@ class MachineOptimizationReducer : public Next {
         }
       }
     }
-    if (int64_t c; matcher.MatchIntegralWord64Constant(value, &c) &&
+    if (int64_t c; matcher.MatchWord64Constant(value, &c) &&
                    c >= std::numeric_limits<int32_t>::min()) {
       if (c < 0) {
         if (sign_extended) *sign_extended = true;
@@ -1958,7 +1923,7 @@ class MachineOptimizationReducer : public Next {
       OpIndex input, mask;
       uint64_t mask_value;
       if (matcher.MatchBitwiseAnd(value, &input, &mask, rep) &&
-          matcher.MatchIntegralWordConstant(mask, rep, &mask_value)) {
+          matcher.MatchWordConstant(mask, rep, &mask_value)) {
         if ((mask_value & truncation_mask) == truncation_mask) {
           return ReduceWithTruncation(input, truncation_mask, rep);
         }
@@ -2115,8 +2080,6 @@ class MachineOptimizationReducer : public Next {
 
   base::Optional<OpIndex> ReduceBranchCondition(OpIndex condition,
                                                 bool* negated) {
-    // TODO(dmercadier): consider generalizing this function both Word32 and
-    // Word64.
     bool reduced = false;
     while (true) {
       condition = TryRemoveWord32ToWord64Conversion(condition);
@@ -2145,30 +2108,12 @@ class MachineOptimizationReducer : public Next {
         uint32_t k1, k2;
         if (matcher.MatchBitwiseAnd(left, &x, &mask,
                                     WordRepresentation::Word32()) &&
-            matcher.MatchIntegralWord32Constant(mask, &k1) &&
-            matcher.MatchIntegralWord32Constant(right, &k2) && k1 == k2 &&
+            matcher.MatchWord32Constant(mask, &k1) &&
+            matcher.MatchWord32Constant(right, &k2) && k1 == k2 &&
             base::bits::IsPowerOfTwo(k1)) {
           reduced = true;
           condition = left;
           continue;
-        }
-      }
-      // (x >> k1) & k2   =>   x & (k2 << k1)
-      {
-        OpIndex shift, k2_index, x;
-        int k1_int;
-        uint32_t k1, k2;
-        if (matcher.MatchBitwiseAnd(condition, &shift, &k2_index,
-                                    WordRepresentation::Word32()) &&
-            matcher.MatchConstantRightShift(
-                shift, &x, WordRepresentation::Word32(), &k1_int) &&
-            matcher.MatchIntegralWord32Constant(k2_index, &k2)) {
-          k1 = static_cast<uint32_t>(k1_int);
-          if (k1 <= base::bits::CountLeadingZeros(k2) &&
-              (static_cast<uint64_t>(k2) << k1 <=
-               std::numeric_limits<uint32_t>::max())) {
-            return __ Word32BitwiseAnd(x, k2 << k1);
-          }
         }
       }
       // Select(x, true, false) => x
@@ -2186,7 +2131,6 @@ class MachineOptimizationReducer : public Next {
           }
           condition = select->cond();
           reduced = true;
-          continue;
         }
       }
       break;
@@ -2195,8 +2139,7 @@ class MachineOptimizationReducer : public Next {
   }
 
   base::Optional<bool> MatchBoolConstant(OpIndex condition) {
-    if (uint32_t value;
-        matcher.MatchIntegralWord32Constant(condition, &value)) {
+    if (uint32_t value; matcher.MatchWord32Constant(condition, &value)) {
       return value != 0;
     }
     return base::nullopt;
@@ -2208,11 +2151,6 @@ class MachineOptimizationReducer : public Next {
 
   JSHeapBroker* broker = PipelineData::Get().broker();
   const OperationMatcher& matcher = __ matcher();
-#if V8_ENABLE_WEBASSEMBLY
-  const bool signalling_nan_possible = PipelineData::Get().is_wasm();
-#else
-  static constexpr bool signalling_nan_possible = false;
-#endif  // V8_ENABLE_WEBASSEMBLY
 };
 
 #include "src/compiler/turboshaft/undef-assembler-macros.inc"

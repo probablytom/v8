@@ -887,11 +887,11 @@ class FixedArrayData : public FixedArrayBaseData {
 };
 
 // Only used in JSNativeContextSpecialization.
-class ScriptContextTableData : public FixedArrayBaseData {
+class ScriptContextTableData : public FixedArrayData {
  public:
   ScriptContextTableData(JSHeapBroker* broker, ObjectData** storage,
                          Handle<ScriptContextTable> object, ObjectDataKind kind)
-      : FixedArrayBaseData(broker, storage, object, kind) {}
+      : FixedArrayData(broker, storage, object, kind) {}
 };
 
 class JSArrayData : public JSObjectData {
@@ -1207,7 +1207,17 @@ OddballType MapRef::oddball_type(JSHeapBroker* broker) const {
   if (equals(broker->boolean_map())) {
     return OddballType::kBoolean;
   }
-  UNREACHABLE();
+  if (equals(broker->uninitialized_map())) {
+    return OddballType::kUninitialized;
+  }
+  DCHECK(equals(broker->termination_exception_map()) ||
+         equals(broker->arguments_marker_map()) ||
+         equals(broker->optimized_out_map()) ||
+         equals(broker->exception_map()) ||
+         equals(broker->self_reference_marker_map()) ||
+         equals(broker->basic_block_counters_marker_map()) ||
+         equals(broker->stale_register_map()));
+  return OddballType::kOther;
 }
 
 FeedbackCellRef FeedbackVectorRef::GetClosureFeedbackCell(JSHeapBroker* broker,
@@ -1416,7 +1426,8 @@ Handle<ByteArray> BytecodeArrayRef::SourcePositionTable(
 }
 
 Address BytecodeArrayRef::handler_table_address() const {
-  return reinterpret_cast<Address>(object()->handler_table()->begin());
+  return reinterpret_cast<Address>(
+      object()->handler_table()->GetDataStartAddress());
 }
 
 int BytecodeArrayRef::handler_table_size() const {
@@ -1480,7 +1491,6 @@ int64_t BigIntRef::AsInt64(bool* lossless) const {
   return ObjectRef::data()->AsBigInt()->AsInt64(lossless);
 }
 
-int BytecodeArrayRef::length() const { return object()->length(); }
 int BytecodeArrayRef::register_count() const {
   return object()->register_count();
 }
@@ -1544,9 +1554,7 @@ BIMODAL_ACCESSOR_C(Map, int, UnusedPropertyFields)
 HEAP_ACCESSOR_C(Map, InstanceType, instance_type)
 BIMODAL_ACCESSOR_C(Map, bool, is_abandoned_prototype_map)
 
-int ObjectBoilerplateDescriptionRef::boilerplate_properties_count() const {
-  return object()->boilerplate_properties_count();
-}
+int ObjectBoilerplateDescriptionRef::size() const { return object()->size(); }
 
 BIMODAL_ACCESSOR(PropertyCell, Object, value)
 BIMODAL_ACCESSOR_C(PropertyCell, PropertyDetails, property_details)
@@ -1864,15 +1872,15 @@ bool ObjectRef::IsHashTableHole() const {
 }
 
 HoleType ObjectRef::HoleType() const {
-#define IF_HOLE_THEN_RETURN(Name, name, Root) \
-  if (i::Is##Name(*object())) {               \
-    return HoleType::k##Name;                 \
+  if (i::IsTheHole(*object())) {
+    return HoleType::kGeneric;
+  } else if (i::IsPropertyCellHole(*object())) {
+    return HoleType::kPropertyCell;
+  } else if (i::IsHashTableHole(*object())) {
+    return HoleType::kHashTable;
+  } else {
+    return HoleType::kNone;
   }
-
-  HOLE_LIST(IF_HOLE_THEN_RETURN)
-#undef IF_HOLE_THEN_RETURN
-
-  return HoleType::kNone;
 }
 
 bool ObjectRef::IsNullOrUndefined() const { return IsNull() || IsUndefined(); }
@@ -2079,7 +2087,13 @@ OddballType GetOddballType(Isolate* isolate, Tagged<Map> map) {
   if (map == roots.boolean_map()) {
     return OddballType::kBoolean;
   }
-  UNREACHABLE();
+  if (map == roots.uninitialized_map()) {
+    return OddballType::kUninitialized;
+  }
+  DCHECK(map == roots.termination_exception_map() ||
+         map == roots.arguments_marker_map() ||
+         map == roots.optimized_out_map() || map == roots.stale_register_map());
+  return OddballType::kOther;
 }
 
 }  // namespace
@@ -2272,7 +2286,8 @@ NativeContextRef JSFunctionRef::native_context(JSHeapBroker* broker) const {
 OptionalFunctionTemplateInfoRef SharedFunctionInfoRef::function_template_info(
     JSHeapBroker* broker) const {
   if (!object()->IsApiFunction()) return {};
-  return TryMakeRef(broker, object()->api_func_data());
+  return TryMakeRef(broker, FunctionTemplateInfo::cast(
+                                object()->function_data(kAcquireLoad)));
 }
 
 int SharedFunctionInfoRef::context_header_size() const {

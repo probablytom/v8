@@ -59,7 +59,7 @@
                                                                                \
   /* Special constructor for constexpr construction which allows skipping type \
    * checks. */                                                                \
-  explicit constexpr V8_INLINE Type(Address ptr, HeapObject::SkipTypeCheckTag) \
+  explicit constexpr inline Type(Address ptr, HeapObject::SkipTypeCheckTag)    \
       : __VA_ARGS__(ptr, HeapObject::SkipTypeCheckTag()) {}                    \
                                                                                \
   explicit inline Type(Address ptr)
@@ -442,7 +442,7 @@
     TaggedField<Smi, offset>::Release_Store(*this, Smi::FromInt(value)); \
   }
 
-#define DECL_RELAXED_INT_ACCESSORS(name) \
+#define DECL_RELAXED_SMI_ACCESSORS(name) \
   inline int name(RelaxedLoadTag) const; \
   inline void set_##name(int value, RelaxedStoreTag);
 
@@ -522,42 +522,6 @@
   }                                                                           \
   EXTERNAL_POINTER_ACCESSORS_MAYBE_READ_ONLY_HOST(holder, name, type, offset, \
                                                   tag)
-#define DECL_TRUSTED_POINTER_ACCESSORS(name, type)                         \
-  /* Trusted pointers currently always have release-acquire semantics. */  \
-  /* However, we still expose explicit release-acquire accessors so it */  \
-  /* can be made clear when they are required. */                          \
-  /* If desired, we could create separate {Read|Write}TrustedPointer */    \
-  /* routines for relaxed- and release-acquire semantics in the future. */ \
-  inline Tagged<type> name(const Isolate* isolate) const;                  \
-  inline Tagged<type> name(const Isolate* isolate, AcquireLoadTag) const;  \
-  inline void set_##name(Tagged<type> value,                               \
-                         WriteBarrierMode mode = UPDATE_WRITE_BARRIER);    \
-  inline void set_##name(Tagged<type> value, ReleaseStoreTag,              \
-                         WriteBarrierMode mode = UPDATE_WRITE_BARRIER);    \
-  inline bool has_##name() const;                                          \
-  inline void clear_##name();
-
-#define TRUSTED_POINTER_ACCESSORS(holder, name, type, offset, tag)          \
-  Tagged<type> holder::name(const Isolate* isolate) const {                 \
-    return name(isolate, kAcquireLoad);                                     \
-  }                                                                         \
-  Tagged<type> holder::name(const Isolate* isolate, AcquireLoadTag) const { \
-    DCHECK(has_##name());                                                   \
-    return type::cast(ReadTrustedPointerField<tag>(offset, isolate));       \
-  }                                                                         \
-  void holder::set_##name(Tagged<type> value, WriteBarrierMode mode) {      \
-    set_##name(value, kReleaseStore, mode);                                 \
-  }                                                                         \
-  void holder::set_##name(Tagged<type> value, ReleaseStoreTag,              \
-                          WriteBarrierMode mode) {                          \
-    WriteTrustedPointerField<tag>(offset, value);                           \
-    CONDITIONAL_TRUSTED_POINTER_WRITE_BARRIER(*this, offset, tag, value,    \
-                                              mode);                        \
-  }                                                                         \
-  bool holder::has_##name() const {                                         \
-    return !IsTrustedPointerFieldCleared(offset);                           \
-  }                                                                         \
-  void holder::clear_##name() { ClearTrustedPointerField(offset); }
 
 #define BIT_FIELD_ACCESSORS2(holder, get_field, set_field, name, BitField) \
   typename BitField::FieldType holder::name() const {                      \
@@ -714,19 +678,6 @@
         object, (object).RawIndirectPointerField(offset, tag), value, mode);   \
   } while (false)
 #endif
-
-#ifdef V8_ENABLE_SANDBOX
-#define CONDITIONAL_TRUSTED_POINTER_WRITE_BARRIER(object, offset, tag, value, \
-                                                  mode)                       \
-  CONDITIONAL_INDIRECT_POINTER_WRITE_BARRIER(object, offset, tag, value, mode)
-#else
-#define CONDITIONAL_TRUSTED_POINTER_WRITE_BARRIER(object, offset, tag, value, \
-                                                  mode)                       \
-  CONDITIONAL_WRITE_BARRIER(*this, offset, value, mode);
-#endif
-#define CONDITIONAL_CODE_POINTER_WRITE_BARRIER(object, offset, value, mode) \
-  CONDITIONAL_TRUSTED_POINTER_WRITE_BARRIER(                                \
-      object, offset, kCodeIndirectPointerTag, value, mode)
 
 #define ACQUIRE_READ_INT8_FIELD(p, offset) \
   static_cast<int8_t>(base::Acquire_Load(  \

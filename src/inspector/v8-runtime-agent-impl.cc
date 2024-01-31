@@ -245,8 +245,8 @@ Response ensureContext(V8InspectorImpl* inspector, int contextGroupId,
 Response parseAdditionalSerializationParameters(
     protocol::DictionaryValue* additionalParameters, v8::Isolate* isolate,
     v8::Local<v8::Object>* result) {
-  v8::LocalVector<v8::Name> keys(isolate);
-  v8::LocalVector<v8::Value> values(isolate);
+  std::vector<v8::Local<v8::Name>> keys;
+  std::vector<v8::Local<v8::Value>> values;
 
   if (additionalParameters != nullptr) {
     for (size_t i = 0; i < additionalParameters->size(); ++i) {

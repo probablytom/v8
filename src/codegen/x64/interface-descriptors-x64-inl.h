@@ -362,12 +362,6 @@ constexpr auto InterpreterPushArgsThenConstructDescriptor::registers() {
 }
 
 // static
-constexpr auto ConstructForwardAllArgsDescriptor::registers() {
-  return RegisterArray(rdi,   // constructor to call
-                       rdx);  // new target
-}
-
-// static
 constexpr auto ResumeGeneratorDescriptor::registers() {
   return RegisterArray(
       rax,   // the value to pass to the generator

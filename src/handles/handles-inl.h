@@ -122,6 +122,15 @@ V8_INLINE const DirectHandle<T> DirectHandle<T>::cast(Handle<S> that) {
   return DirectHandle<T>(*that.location());
 }
 
+#ifdef V8_ENABLE_CAPABILITY_HANDLE
+template <typename T>
+template <typename S>
+V8_INLINE const DirectHandle<T> DirectHandle<T>::cast(CapabilityHandle<S> that) {
+  T::cast(Tagged<Object>(that.address()));
+  return DirectHandle<T>(that.address());
+}
+#endif
+
 template <typename T>
 inline std::ostream& operator<<(std::ostream& os, DirectHandle<T> handle) {
   return os << Brief(*handle);
@@ -163,6 +172,78 @@ V8_INLINE DirectHandle<T> direct_handle(T object, LocalHeap* local_heap) {
   static_assert(kTaggedCanConvertToRawObjects);
   return direct_handle(Tagged<T>(object), local_heap);
 }
+
+
+#ifdef V8_ENABLE_CAPABILITY_HANDLE
+
+template <typename T>
+V8_INLINE CapabilityHandle<T>::CapabilityHandle(Tagged<T> object)
+    : CapabilityHandle(object.ptr()) {}
+
+template <typename T>
+template <typename S>
+V8_INLINE const CapabilityHandle<T> CapabilityHandle<T>::cast(CapabilityHandle<S> that) {
+  T::cast(Tagged<Object>(that.address()));
+  return CapabilityHandle<T>(that.address());
+}
+
+template <typename T>
+template <typename S>
+V8_INLINE const CapabilityHandle<T> CapabilityHandle<T>::cast(Handle<S> that) {
+  DCHECK(that.location() != nullptr);
+  T::cast(*FullObjectSlot(that.address()));
+  return CapabilityHandle<T>(*that.location());
+}
+
+template <typename T>
+template <typename S>
+V8_INLINE const CapabilityHandle<T> CapabilityHandle<T>::cast(DirectHandle<S> that) {
+  T::cast(Tagged<Object>(that.address()));
+  return CapabilityHandle<T>(that.address());
+}
+
+template <typename T>
+inline std::ostream& operator<<(std::ostream& os, CapabilityHandle<T> handle) {
+  return os << Brief(*handle);
+}
+
+#endif  // V8_ENABLE_CAPABILITY_HANDLE
+
+template <typename T>
+V8_INLINE CapabilityHandle<T> capability_handle(Tagged<T> object, Isolate* isolate) {
+  return CapabilityHandle<T>(object, isolate);
+}
+
+template <typename T>
+V8_INLINE CapabilityHandle<T> capability_handle(Tagged<T> object,
+                                        LocalIsolate* isolate) {
+  return CapabilityHandle<T>(object, isolate);
+}
+
+template <typename T>
+V8_INLINE CapabilityHandle<T> capability_handle(Tagged<T> object,
+                                        LocalHeap* local_heap) {
+  return CapabilityHandle<T>(object, local_heap);
+}
+
+template <typename T>
+V8_INLINE CapabilityHandle<T> capability_handle(T object, Isolate* isolate) {
+  static_assert(kTaggedCanConvertToRawObjects);
+  return capability_handle(Tagged<T>(object), isolate);
+}
+
+template <typename T>
+V8_INLINE CapabilityHandle<T> capability_handle(T object, LocalIsolate* isolate) {
+  static_assert(kTaggedCanConvertToRawObjects);
+  return capability_handle(Tagged<T>(object), isolate);
+}
+
+template <typename T>
+V8_INLINE CapabilityHandle<T> capability_handle(T object, LocalHeap* local_heap) {
+  static_assert(kTaggedCanConvertToRawObjects);
+  return capability_handle(Tagged<T>(object), local_heap);
+}
+
 
 HandleScope::HandleScope(Isolate* isolate) {
   HandleScopeData* data = isolate->handle_scope_data();
@@ -302,6 +383,23 @@ bool DirectHandleBase::is_identical_to(const DirectHandleBase& that) const {
   return Tagged<Object>(this->address()) == Tagged<Object>(that.address());
 }
 #endif  // V8_ENABLE_DIRECT_HANDLE
+
+#ifdef V8_ENABLE_CAPABILITY_HANDLE
+bool CapabilityHandleBase::is_identical_to(const CapabilityHandleBase& that) const {
+  SLOW_DCHECK(
+      (this->address() == kTaggedNullAddress || this->IsDereferenceAllowed()) &&
+      (that.address() == kTaggedNullAddress || that.IsDereferenceAllowed()));
+  if (this->address() == kTaggedNullAddress &&
+      that.address() == kTaggedNullAddress)
+    return true;
+  if (this->address() == kTaggedNullAddress ||
+      that.address() == kTaggedNullAddress)
+    return false;
+  return Tagged<Object>(this->address()) == Tagged<Object>(that.address());
+}
+#endif  // V8_ENABLE_CAPABILITY_HANDLE
+
+
 
 }  // namespace internal
 }  // namespace v8

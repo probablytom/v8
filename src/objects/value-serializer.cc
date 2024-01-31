@@ -38,7 +38,6 @@
 #include "src/objects/property-details.h"
 #include "src/objects/smi.h"
 #include "src/objects/transitions-inl.h"
-#include "src/regexp/regexp.h"
 #include "src/snapshot/code-serializer.h"
 
 #if V8_ENABLE_WEBASSEMBLY
@@ -732,9 +731,8 @@ Maybe<bool> ValueSerializer::WriteJSArray(Handle<JSArray> array) {
       case PACKED_SMI_ELEMENTS: {
         DisallowGarbageCollection no_gc;
         Tagged<FixedArray> elements = FixedArray::cast(array->elements());
-        for (i = 0; i < length; i++) {
-          WriteSmi(Smi::cast(elements->get(i)));
-        }
+        for (i = 0; i < length; i++)
+          WriteSmi(Smi::cast(elements->get(cage_base, i)));
         break;
       }
       case PACKED_DOUBLE_ELEMENTS: {
@@ -758,8 +756,8 @@ Maybe<bool> ValueSerializer::WriteJSArray(Handle<JSArray> array) {
             // Fall back to slow path.
             break;
           }
-          Handle<Object> element(FixedArray::cast(array->elements())->get(i),
-                                 isolate_);
+          Handle<Object> element(
+              FixedArray::cast(array->elements())->get(cage_base, i), isolate_);
           if (!WriteObject(element).FromMaybe(false)) return Nothing<bool>();
         }
         break;
@@ -1239,8 +1237,7 @@ Maybe<bool> ValueSerializer::ThrowDataCloneError(
 
 Maybe<bool> ValueSerializer::ThrowDataCloneError(MessageTemplate index,
                                                  Handle<Object> arg0) {
-  Handle<String> message =
-      MessageFormatter::Format(isolate_, index, base::VectorOf({arg0}));
+  Handle<String> message = MessageFormatter::Format(isolate_, index, arg0);
   if (delegate_) {
     delegate_->ThrowDataCloneError(Utils::ToLocal(message));
   } else {
@@ -1963,7 +1960,6 @@ MaybeHandle<JSRegExp> ValueDeserializer::ReadJSRegExp() {
     bad_flags_mask |= JSRegExp::kLinear;
   }
   if ((raw_flags & bad_flags_mask) ||
-      !RegExp::VerifyFlags(static_cast<RegExpFlags>(raw_flags)) ||
       !JSRegExp::New(isolate_, pattern, static_cast<JSRegExp::Flags>(raw_flags))
            .ToHandle(&regexp)) {
     return MaybeHandle<JSRegExp>();

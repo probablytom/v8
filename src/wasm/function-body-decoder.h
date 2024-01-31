@@ -41,8 +41,7 @@ struct FunctionBody {
 
 enum class LoadTransformationKind : uint8_t { kSplat, kExtend, kZeroExtend };
 
-V8_EXPORT_PRIVATE DecodeResult ValidateFunctionBody(Zone* zone,
-                                                    WasmFeatures enabled,
+V8_EXPORT_PRIVATE DecodeResult ValidateFunctionBody(WasmFeatures enabled,
                                                     const WasmModule* module,
                                                     WasmFeatures* detected,
                                                     const FunctionBody& body);

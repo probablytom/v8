@@ -830,7 +830,8 @@ Handle<Object> JsonParser<Char>::BuildJsonObject(
     Address mutable_double_address =
         mutable_double_buffer.is_null()
             ? 0
-            : reinterpret_cast<Address>(mutable_double_buffer->begin());
+            : reinterpret_cast<Address>(
+                  mutable_double_buffer->GetDataStartAddress());
     Address filler_address = mutable_double_address;
     if (!V8_COMPRESS_POINTERS_8GB_BOOL && kTaggedSize != kDoubleSize) {
       if (IsAligned(mutable_double_address, kDoubleAlignment)) {
@@ -880,7 +881,8 @@ Handle<Object> JsonParser<Char>::BuildJsonObject(
     // Make all mutable HeapNumbers alive.
     if (!mutable_double_buffer.is_null()) {
 #ifdef DEBUG
-      Address end = reinterpret_cast<Address>(mutable_double_buffer->end());
+      Address end =
+          reinterpret_cast<Address>(mutable_double_buffer->GetDataEndAddress());
       if (!V8_COMPRESS_POINTERS_8GB_BOOL && kTaggedSize != kDoubleSize) {
         DCHECK_EQ(std::min(filler_address, mutable_double_address), end);
         DCHECK_GE(filler_address, end);
@@ -1373,16 +1375,7 @@ Handle<Object> JsonParser<Char>::ParseJsonNumber() {
       }
     } else {
       const Char* smi_start = cursor_;
-      static_assert(Smi::IsValid(-999999999));
-      static_assert(Smi::IsValid(999999999));
-      const int kMaxSmiLength = 9;
-      int32_t i = 0;
-      const Char* stop = cursor_ + kMaxSmiLength;
-      if (stop > end_) stop = end_;
-      while (cursor_ < stop && IsDecimalDigit(*cursor_)) {
-        i = (i * 10) + ((*cursor_) - '0');
-        cursor_++;
-      }
+      AdvanceToNonDecimal();
       if (V8_UNLIKELY(smi_start == cursor_)) {
         AllowGarbageCollection allow_before_exception;
         ReportUnexpectedToken(
@@ -1391,14 +1384,22 @@ Handle<Object> JsonParser<Char>::ParseJsonNumber() {
         return handle(Smi::FromInt(0), isolate_);
       }
       c = CurrentCharacter();
-      if (!base::IsInRange(c, 0,
-                           static_cast<int32_t>(unibrow::Latin1::kMaxChar)) ||
-          !IsNumberPart(character_json_scan_flags[c])) {
+      static_assert(Smi::IsValid(-999999999));
+      static_assert(Smi::IsValid(999999999));
+      const int kMaxSmiLength = 9;
+      if ((cursor_ - smi_start) <= kMaxSmiLength &&
+          (!base::IsInRange(c, 0,
+                            static_cast<int32_t>(unibrow::Latin1::kMaxChar)) ||
+           !IsNumberPart(character_json_scan_flags[c]))) {
         // Smi.
+        int32_t i = 0;
+        for (; smi_start != cursor_; smi_start++) {
+          DCHECK(IsDecimalDigit(*smi_start));
+          i = (i * 10) + ((*smi_start) - '0');
+        }
         // TODO(verwaest): Cache?
         return handle(Smi::FromInt(i * sign), isolate_);
       }
-      AdvanceToNonDecimal();
     }
 
     if (CurrentCharacter() == '.') {

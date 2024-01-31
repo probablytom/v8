@@ -53,7 +53,6 @@ class KeyedStoreGenericAssembler : public AccessorAssembler {
       : AccessorAssembler(state), mode_(mode) {}
 
   void KeyedStoreGeneric();
-  void KeyedStoreMegamorphic();
 
   void StoreIC_NoFeedback();
 
@@ -83,14 +82,10 @@ class KeyedStoreGenericAssembler : public AccessorAssembler {
 
   enum UseStubCache { kUseStubCache, kDontUseStubCache };
 
-  // Helper that is used by the public KeyedStoreGeneric, KeyedStoreMegamorphic
-  // and StoreProperty.
+  // Helper that is used by the public KeyedStoreGeneric and by StoreProperty.
   void KeyedStoreGeneric(TNode<Context> context, TNode<Object> receiver,
                          TNode<Object> key, TNode<Object> value,
-                         Maybe<LanguageMode> language_mode,
-                         UseStubCache use_stub_cache = kDontUseStubCache,
-                         TNode<TaggedIndex> slot = {},
-                         TNode<HeapObject> maybe_vector = {});
+                         Maybe<LanguageMode> language_mode);
 
   void EmitGenericElementStore(TNode<JSObject> receiver,
                                TNode<Map> receiver_map,
@@ -105,8 +100,7 @@ class KeyedStoreGenericAssembler : public AccessorAssembler {
                                 TNode<Uint16T> instance_type,
                                 const StoreICParameters* p,
                                 ExitPoint* exit_point, Label* slow,
-                                Maybe<LanguageMode> maybe_language_mode,
-                                UseStubCache use_stub_cache);
+                                Maybe<LanguageMode> maybe_language_mode);
 
   void EmitGenericPropertyStore(TNode<JSReceiver> receiver,
                                 TNode<Map> receiver_map,
@@ -114,8 +108,7 @@ class KeyedStoreGenericAssembler : public AccessorAssembler {
                                 const StoreICParameters* p, Label* slow) {
     ExitPoint direct_exit(this);
     EmitGenericPropertyStore(receiver, receiver_map, instance_type, p,
-                             &direct_exit, slow, Nothing<LanguageMode>(),
-                             kDontUseStubCache);
+                             &direct_exit, slow, Nothing<LanguageMode>());
   }
 
   void BranchIfPrototypesMayHaveReadOnlyElements(
@@ -196,33 +189,22 @@ class KeyedStoreGenericAssembler : public AccessorAssembler {
   }
 };
 
-// static
-void KeyedStoreMegamorphicGenerator::Generate(
-    compiler::CodeAssemblerState* state) {
-  KeyedStoreGenericAssembler assembler(state, StoreMode::kSet);
-  assembler.KeyedStoreMegamorphic();
-}
-
-// static
 void KeyedStoreGenericGenerator::Generate(compiler::CodeAssemblerState* state) {
   KeyedStoreGenericAssembler assembler(state, StoreMode::kSet);
   assembler.KeyedStoreGeneric();
 }
 
-// static
 void DefineKeyedOwnGenericGenerator::Generate(
     compiler::CodeAssemblerState* state) {
   KeyedStoreGenericAssembler assembler(state, StoreMode::kDefineKeyedOwn);
   assembler.KeyedStoreGeneric();
 }
 
-// static
 void StoreICNoFeedbackGenerator::Generate(compiler::CodeAssemblerState* state) {
   KeyedStoreGenericAssembler assembler(state, StoreMode::kSet);
   assembler.StoreIC_NoFeedback();
 }
 
-// static
 void DefineNamedOwnICNoFeedbackGenerator::Generate(
     compiler::CodeAssemblerState* state) {
   // TODO(v8:12548): it's a hack to reuse KeyedStoreGenericAssembler for
@@ -231,7 +213,6 @@ void DefineNamedOwnICNoFeedbackGenerator::Generate(
   assembler.StoreIC_NoFeedback();
 }
 
-// static
 void KeyedStoreGenericGenerator::SetProperty(
     compiler::CodeAssemblerState* state, TNode<Context> context,
     TNode<JSReceiver> receiver, TNode<BoolT> is_simple_receiver,
@@ -241,7 +222,6 @@ void KeyedStoreGenericGenerator::SetProperty(
                           language_mode);
 }
 
-// static
 void KeyedStoreGenericGenerator::SetProperty(
     compiler::CodeAssemblerState* state, TNode<Context> context,
     TNode<Object> receiver, TNode<Object> key, TNode<Object> value,
@@ -250,7 +230,6 @@ void KeyedStoreGenericGenerator::SetProperty(
   assembler.StoreProperty(context, receiver, key, value, language_mode);
 }
 
-// static
 void KeyedStoreGenericGenerator::CreateDataProperty(
     compiler::CodeAssemblerState* state, TNode<Context> context,
     TNode<JSObject> receiver, TNode<Object> key, TNode<Object> value) {
@@ -860,15 +839,15 @@ TNode<Map> KeyedStoreGenericAssembler::FindCandidateStoreICTransitionMapHandler(
 void KeyedStoreGenericAssembler::EmitGenericPropertyStore(
     TNode<JSReceiver> receiver, TNode<Map> receiver_map,
     TNode<Uint16T> instance_type, const StoreICParameters* p,
-    ExitPoint* exit_point, Label* slow, Maybe<LanguageMode> maybe_language_mode,
-    UseStubCache use_stub_cache) {
+    ExitPoint* exit_point, Label* slow,
+    Maybe<LanguageMode> maybe_language_mode) {
   CSA_DCHECK(this, IsSimpleObjectMap(receiver_map));
   // TODO(rmcilroy) Type as Struct once we use a trimmed down
   // LoadAccessorFromFastObject instead of LoadPropertyFromFastObject.
   TVARIABLE(Object, var_accessor_pair);
   TVARIABLE(HeapObject, var_accessor_holder);
   Label fast_properties(this), dictionary_properties(this), accessor(this),
-      readonly(this), try_stub_cache(this);
+      readonly(this);
   TNode<Uint32T> bitfield3 = LoadMapBitField3(receiver_map);
   TNode<Name> name = CAST(p->name());
   Branch(IsSetWord32<Map::Bits3::IsDictionaryMapBit>(bitfield3),
@@ -934,13 +913,8 @@ void KeyedStoreGenericAssembler::EmitGenericPropertyStore(
     {
       Comment("lookup transition");
       CheckForAssociatedProtector(name, slow);
-
-      DCHECK_IMPLIES(use_stub_cache == kUseStubCache, IsSet());
-      Label* if_not_found =
-          use_stub_cache == kUseStubCache ? &try_stub_cache : slow;
-
-      TNode<Map> transition_map = FindCandidateStoreICTransitionMapHandler(
-          receiver_map, name, if_not_found);
+      TNode<Map> transition_map =
+          FindCandidateStoreICTransitionMapHandler(receiver_map, name, slow);
 
       // Validate the transition handler candidate and apply the transition.
       StoreTransitionMapFlags flags = kValidateTransitionHandler;
@@ -1115,43 +1089,12 @@ void KeyedStoreGenericAssembler::EmitGenericPropertyStore(
       }
     }
   }
-
-  if (use_stub_cache == kUseStubCache) {
-    DCHECK(IsSet());
-    BIND(&try_stub_cache);
-    // Do megamorphic cache lookup only for Api objects where it definitely
-    // pays off.
-    GotoIfNot(IsJSApiObjectInstanceType(instance_type), slow);
-
-    Comment("stub cache probe");
-    TVARIABLE(MaybeObject, var_handler);
-    Label found_handler(this, &var_handler), stub_cache_miss(this);
-
-    TryProbeStubCache(isolate()->store_stub_cache(), receiver, name,
-                      &found_handler, &var_handler, &stub_cache_miss);
-
-    BIND(&found_handler);
-    {
-      Comment("KeyedStoreGeneric found handler");
-      HandleStoreICHandlerCase(p, var_handler.value(), &stub_cache_miss,
-                               ICMode::kNonGlobalIC);
-    }
-    BIND(&stub_cache_miss);
-    {
-      Comment("KeyedStoreGeneric_miss");
-      TailCallRuntime(Runtime::kKeyedStoreIC_Miss, p->context(), p->value(),
-                      p->slot(), p->vector(), p->receiver(), name);
-    }
-  }
 }
 
 // Helper that is used by the public KeyedStoreGeneric and by StoreProperty.
 void KeyedStoreGenericAssembler::KeyedStoreGeneric(
     TNode<Context> context, TNode<Object> receiver_maybe_smi, TNode<Object> key,
-    TNode<Object> value, Maybe<LanguageMode> language_mode,
-    UseStubCache use_stub_cache, TNode<TaggedIndex> slot,
-    TNode<HeapObject> maybe_vector) {
-  DCHECK_IMPLIES(use_stub_cache == kUseStubCache, IsSet());
+    TNode<Object> value, Maybe<LanguageMode> language_mode) {
   TVARIABLE(IntPtrT, var_index);
   TVARIABLE(Name, var_unique);
   Label if_index(this, &var_index), if_unique_name(this),
@@ -1179,12 +1122,11 @@ void KeyedStoreGenericAssembler::KeyedStoreGeneric(
   {
     Comment("key is unique name");
     StoreICParameters p(context, receiver, var_unique.value(), value,
-                        base::nullopt, slot, maybe_vector,
+                        base::nullopt, {}, UndefinedConstant(),
                         StoreICMode::kDefault);
     ExitPoint direct_exit(this);
     EmitGenericPropertyStore(CAST(receiver), receiver_map, instance_type, &p,
-                             &direct_exit, &slow, language_mode,
-                             use_stub_cache);
+                             &direct_exit, &slow, language_mode);
   }
 
   BIND(&not_internalized);
@@ -1212,8 +1154,8 @@ void KeyedStoreGenericAssembler::KeyedStoreGeneric(
       DCHECK(IsDefineKeyedOwnInLiteral());
       TNode<Smi> flags =
           SmiConstant(DefineKeyedOwnPropertyInLiteralFlag::kNoFlags);
-      TNode<TaggedIndex> slot =
-          TaggedIndexConstant(FeedbackSlot::Invalid().ToInt());
+      // TODO(v8:10047): Use TaggedIndexConstant here once TurboFan supports it.
+      TNode<Smi> slot = SmiConstant(FeedbackSlot::Invalid().ToInt());
       TailCallRuntime(Runtime::kDefineKeyedOwnPropertyInLiteral, context,
                       receiver, key, value, flags, UndefinedConstant(), slot);
     }
@@ -1221,7 +1163,7 @@ void KeyedStoreGenericAssembler::KeyedStoreGeneric(
 }
 
 void KeyedStoreGenericAssembler::KeyedStoreGeneric() {
-  using Descriptor = StoreNoFeedbackDescriptor;
+  using Descriptor = StoreDescriptor;
 
   auto receiver = Parameter<Object>(Descriptor::kReceiver);
   auto name = Parameter<Object>(Descriptor::kName);
@@ -1229,21 +1171,6 @@ void KeyedStoreGenericAssembler::KeyedStoreGeneric() {
   auto context = Parameter<Context>(Descriptor::kContext);
 
   KeyedStoreGeneric(context, receiver, name, value, Nothing<LanguageMode>());
-}
-
-void KeyedStoreGenericAssembler::KeyedStoreMegamorphic() {
-  DCHECK(IsSet());  // Only [[Set]] handlers are stored in the stub cache.
-  using Descriptor = StoreWithVectorDescriptor;
-
-  auto receiver = Parameter<Object>(Descriptor::kReceiver);
-  auto name = Parameter<Object>(Descriptor::kName);
-  auto value = Parameter<Object>(Descriptor::kValue);
-  auto context = Parameter<Context>(Descriptor::kContext);
-  auto slot = Parameter<TaggedIndex>(Descriptor::kSlot);
-  auto maybe_vector = Parameter<HeapObject>(Descriptor::kVector);
-
-  KeyedStoreGeneric(context, receiver, name, value, Nothing<LanguageMode>(),
-                    kUseStubCache, slot, maybe_vector);
 }
 
 void KeyedStoreGenericAssembler::StoreProperty(TNode<Context> context,
@@ -1255,11 +1182,12 @@ void KeyedStoreGenericAssembler::StoreProperty(TNode<Context> context,
 }
 
 void KeyedStoreGenericAssembler::StoreIC_NoFeedback() {
-  using Descriptor = StoreNoFeedbackDescriptor;
+  using Descriptor = StoreDescriptor;
 
   auto receiver_maybe_smi = Parameter<Object>(Descriptor::kReceiver);
   auto name = Parameter<Object>(Descriptor::kName);
   auto value = Parameter<Object>(Descriptor::kValue);
+  auto slot = Parameter<TaggedIndex>(Descriptor::kSlot);
   auto context = Parameter<Context>(Descriptor::kContext);
 
   Label miss(this, Label::kDeferred), store_property(this);
@@ -1274,7 +1202,7 @@ void KeyedStoreGenericAssembler::StoreIC_NoFeedback() {
     // checks, strings and string wrappers, proxies) are handled in the runtime.
     GotoIf(IsSpecialReceiverInstanceType(instance_type), &miss);
     {
-      StoreICParameters p(context, receiver, name, value, base::nullopt, {},
+      StoreICParameters p(context, receiver, name, value, base::nullopt, slot,
                           UndefinedConstant(),
                           IsDefineNamedOwn() ? StoreICMode::kDefineNamedOwn
                                              : StoreICMode::kDefault);
@@ -1287,8 +1215,6 @@ void KeyedStoreGenericAssembler::StoreIC_NoFeedback() {
   {
     auto runtime = IsDefineNamedOwn() ? Runtime::kDefineNamedOwnIC_Miss
                                       : Runtime::kStoreIC_Miss;
-    TNode<TaggedIndex> slot =
-        TaggedIndexConstant(FeedbackSlot::Invalid().ToInt());
     TailCallRuntime(runtime, context, value, slot, UndefinedConstant(),
                     receiver_maybe_smi, name);
   }
@@ -1313,15 +1239,15 @@ void KeyedStoreGenericAssembler::StoreProperty(TNode<Context> context,
   TNode<Map> map = LoadMap(receiver);
   TNode<Uint16T> instance_type = LoadMapInstanceType(map);
   EmitGenericPropertyStore(receiver, map, instance_type, &p, &exit_point, &slow,
-                           Just(language_mode), kDontUseStubCache);
+                           Just(language_mode));
 
   BIND(&slow);
   {
     if (IsDefineKeyedOwnInLiteral()) {
       TNode<Smi> flags =
           SmiConstant(DefineKeyedOwnPropertyInLiteralFlag::kNoFlags);
-      TNode<TaggedIndex> slot =
-          TaggedIndexConstant(FeedbackSlot::Invalid().ToInt());
+      // TODO(v8:10047): Use TaggedIndexConstant here once TurboFan supports it.
+      TNode<Smi> slot = SmiConstant(FeedbackSlot::Invalid().ToInt());
       CallRuntime(Runtime::kDefineKeyedOwnPropertyInLiteral, context, receiver,
                   unique_name, value, flags, p.vector(), slot);
     } else {

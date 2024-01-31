@@ -474,26 +474,6 @@ RUNTIME_FUNCTION(Runtime_BenchMaglev) {
 }
 #endif  // V8_ENABLE_MAGLEV
 
-RUNTIME_FUNCTION(Runtime_BenchTurbofan) {
-  HandleScope scope(isolate);
-  DCHECK_EQ(args.length(), 2);
-  Handle<JSFunction> function = args.at<JSFunction>(0);
-  int count = args.smi_value_at(1);
-
-  base::ElapsedTimer timer;
-  timer.Start();
-  Compiler::CompileOptimized(isolate, function, ConcurrencyMode::kSynchronous,
-                             CodeKind::TURBOFAN);
-  for (int i = 1; i < count; ++i) {
-    Compiler::CompileOptimized(isolate, function, ConcurrencyMode::kSynchronous,
-                               CodeKind::TURBOFAN);
-  }
-
-  double compile_time = timer.Elapsed().InMillisecondsF() / count;
-
-  return *isolate->factory()->NewNumber(compile_time);
-}
-
 RUNTIME_FUNCTION(Runtime_ActiveTierIsIgnition) {
   HandleScope scope(isolate);
   DCHECK_EQ(args.length(), 1);
@@ -551,7 +531,7 @@ RUNTIME_FUNCTION(Runtime_OptimizeMaglevOnNextCall) {
 }
 #else
 RUNTIME_FUNCTION(Runtime_OptimizeMaglevOnNextCall) {
-  if (!v8_flags.fuzzing) PrintF("Maglev is not enabled.\n");
+  PrintF("Maglev is not enabled.\n");
   return ReadOnlyRoots(isolate).undefined_value();
 }
 #endif  // V8_ENABLE_MAGLEV
@@ -975,15 +955,6 @@ RUNTIME_FUNCTION(Runtime_GetOptimizationStatus) {
   return Smi::FromInt(status);
 }
 
-RUNTIME_FUNCTION(Runtime_GetFunctionForCurrentFrame) {
-  HandleScope scope(isolate);
-  DCHECK_EQ(args.length(), 0);
-
-  JavaScriptStackFrameIterator it(isolate);
-  DCHECK(!it.done());
-  return it.frame()->function();
-}
-
 RUNTIME_FUNCTION(Runtime_DisableOptimizationFinalization) {
   if (args.length() != 0) {
     return CrashUnlessFuzzing(isolate);
@@ -1135,13 +1106,22 @@ int FixedArrayLenFromSize(int size) {
                    FixedArray::kMaxRegularLength});
 }
 
-void FillUpOneNewSpacePage(Isolate* isolate, Heap* heap,
-                           SemiSpaceNewSpace* space) {
+int GetSpaceRemainingOnCurrentPage(v8::internal::NewSpace* space) {
+  const Address top = space->heap()->NewSpaceTop();
+  if ((top & kPageAlignmentMask) == 0) {
+    // `top` points to the start of a page signifies that there is not room in
+    // the current page.
+    return 0;
+  }
+  return static_cast<int>(Page::FromAddress(top)->area_end() - top);
+}
+
+void FillUpOneNewSpacePage(Isolate* isolate, Heap* heap) {
   DCHECK(!v8_flags.single_generation);
-  heap->FreeMainThreadLinearAllocationAreas();
   PauseAllocationObserversScope pause_observers(heap);
-  while (space->GetSpaceRemainingOnCurrentPageForTesting() > 0) {
-    int space_remaining = space->GetSpaceRemainingOnCurrentPageForTesting();
+  NewSpace* space = heap->new_space();
+  int space_remaining = GetSpaceRemainingOnCurrentPage(space);
+  while (space_remaining > 0) {
     int length = FixedArrayLenFromSize(space_remaining);
     if (length > 0) {
       Handle<FixedArray> padding =
@@ -1149,10 +1129,11 @@ void FillUpOneNewSpacePage(Isolate* isolate, Heap* heap,
       DCHECK(heap->new_space()->Contains(*padding));
       space_remaining -= padding->Size();
     } else {
-      // Not enough room to create another fixed array. Create a filler instead.
-      space->FillCurrentPageForTesting();
+      // Not enough room to create another fixed array. Create a filler.
+      heap->CreateFillerObjectAt(*heap->NewSpaceAllocationTopAddress(),
+                                 space_remaining);
+      break;
     }
-    heap->FreeMainThreadLinearAllocationAreas();
   }
 }
 
@@ -1161,7 +1142,6 @@ void FillUpOneNewSpacePage(Isolate* isolate, Heap* heap,
 RUNTIME_FUNCTION(Runtime_SimulateNewspaceFull) {
   HandleScope scope(isolate);
   Heap* heap = isolate->heap();
-  heap->FreeMainThreadLinearAllocationAreas();
   AlwaysAllocateScopeForTesting always_allocate(heap);
   if (v8_flags.minor_ms) {
     if (heap->minor_sweeping_in_progress()) {
@@ -1170,11 +1150,12 @@ RUNTIME_FUNCTION(Runtime_SimulateNewspaceFull) {
     auto* space = heap->paged_new_space()->paged_space();
     while (space->AddFreshPage()) {
     }
+    space->FreeLinearAllocationArea();
     space->ResetFreeList();
   } else {
-    SemiSpaceNewSpace* space = heap->semi_space_new_space();
+    NewSpace* space = heap->new_space();
     do {
-      FillUpOneNewSpacePage(isolate, heap, space);
+      FillUpOneNewSpacePage(isolate, heap);
     } while (space->AddFreshPage());
   }
   return ReadOnlyRoots(isolate).undefined_value();
@@ -1464,10 +1445,7 @@ RUNTIME_FUNCTION(Runtime_SetForceSlowPath) {
   if (IsTrue(arg, isolate)) {
     isolate->set_force_slow_path(true);
   } else {
-    // This function is fuzzer exposed and as such we might not always have an
-    // input that IsTrue or IsFalse. In these cases we assume that if !IsTrue
-    // then it IsFalse when fuzzing.
-    DCHECK(IsFalse(arg, isolate) || v8_flags.fuzzing);
+    DCHECK(IsFalse(arg, isolate));
     isolate->set_force_slow_path(false);
   }
   return ReadOnlyRoots(isolate).undefined_value();
@@ -2031,21 +2009,6 @@ RUNTIME_FUNCTION(Runtime_IsSharedString) {
   Handle<HeapObject> obj = args.at<HeapObject>(0);
   return isolate->heap()->ToBoolean(IsString(*obj) &&
                                     Handle<String>::cast(obj)->IsShared());
-}
-
-RUNTIME_FUNCTION(Runtime_ShareObject) {
-  HandleScope scope(isolate);
-  if (args.length() != 1) {
-    return CrashUnlessFuzzing(isolate);
-  }
-  Handle<HeapObject> obj = args.at<HeapObject>(0);
-  ShouldThrow should_throw = v8_flags.fuzzing ? kDontThrow : kThrowOnError;
-  MaybeHandle<Object> maybe_shared = Object::Share(isolate, obj, should_throw);
-  Handle<Object> shared;
-  if (!maybe_shared.ToHandle(&shared)) {
-    return CrashUnlessFuzzing(isolate);
-  }
-  return *shared;
 }
 
 RUNTIME_FUNCTION(Runtime_IsInPlaceInternalizableString) {

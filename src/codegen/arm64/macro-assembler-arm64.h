@@ -33,6 +33,8 @@
 namespace v8 {
 namespace internal {
 
+// MARK CHERI CHANGE should add macros for cheri-specific instructions…
+
 #define LS_MACRO_LIST(V)                                     \
   V(Ldrb, Register&, rt, LDRB_w)                             \
   V(Strb, Register&, rt, STRB_w)                             \
@@ -1583,46 +1585,23 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
                                 ExternalPointerTag tag,
                                 Register isolate_root = Register::no_reg());
 
-  // Load a trusted pointer field.
-  // When the sandbox is enabled, these are indirect pointers using the trusted
-  // pointer table. Otherwise they are regular tagged fields.
-  void LoadTrustedPointerField(Register destination, MemOperand field_operand,
-                               IndirectPointerTag tag);
-  // Store a trusted pointer field.
-  void StoreTrustedPointerField(Register value, MemOperand dst_field_operand);
-
-  // Store a code pointer field.
-  // These are special versions of trusted pointers that, when the sandbox is
-  // enabled, reference code objects through the code pointer table.
-  void StoreCodePointerField(Register value, MemOperand dst_field_operand) {
-    StoreTrustedPointerField(value, dst_field_operand);
-  }
-
-  // Load an indirect pointer field.
-  // Only available when the sandbox is enabled, but always visible to avoid
-  // having to place the #ifdefs into the caller.
+  // Loads an indirect pointer from the heap.
   void LoadIndirectPointerField(Register destination, MemOperand field_operand,
                                 IndirectPointerTag tag);
 
-  // Store an indirect pointer field.
-  // Only available when the sandbox is enabled, but always visible to avoid
-  // having to place the #ifdefs into the caller.
+  // Store an indirect pointer to the given object in the destination field.
   void StoreIndirectPointerField(Register value, MemOperand dst_field_operand);
 
-#ifdef V8_ENABLE_SANDBOX
-  // Retrieve the heap object referenced by the given trusted pointer handle.
-  void ResolveTrustedPointerHandle(Register destination, Register handle,
-                                   IndirectPointerTag tag);
+  // Store an indirect (if the sandbox is enabled) or direct/tagged (otherwise)
+  // pointer to the given object in the destination field.
+  void StoreMaybeIndirectPointerField(Register value,
+                                      MemOperand dst_field_operand);
 
-  // Retrieve the Code object referenced by the given code pointer handle.
-  void ResolveCodePointerHandle(Register destination, Register handle);
-
-  // Load the pointer to a Code's entrypoint via a code pointer.
-  // Only available when the sandbox is enabled as it requires the code pointer
-  // table.
-  void LoadCodeEntrypointViaCodePointer(Register destination,
-                                        MemOperand field_operand);
-#endif
+  // Load the pointer to a Code's entrypoint via an indirect pointer to the
+  // Code object.
+  // Only available when the sandbox is enabled.
+  void LoadCodeEntrypointViaIndirectPointer(Register destination,
+                                            MemOperand field_operand);
 
   // Instruction set functions ------------------------------------------------
   // Logical macros.
@@ -2508,7 +2487,7 @@ void CallApiFunctionAndReturn(MacroAssembler* masm, bool with_profiling,
                               Register function_address,
                               ExternalReference thunk_ref, Register thunk_arg,
                               int stack_space, MemOperand* stack_space_operand,
-                              MemOperand return_value_operand);
+                              MemOperand return_value_operand, Label* done);
 
 }  // namespace internal
 }  // namespace v8

@@ -34,8 +34,8 @@ const result = doWork();
 
 const logString = d8.log.getAndStop();
 assertTrue(logString.length > 0);
-const useBigIntAddresses = true;
-const processor = new Processor(useBigIntAddresses);
+const useBigInts = true;
+const processor = new Processor(useBigInts);
 await processor.processChunk(logString);
 await processor.finalize();
 

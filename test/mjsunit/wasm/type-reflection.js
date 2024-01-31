@@ -348,68 +348,35 @@ d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
   print(arguments.callee.name);
   let builder = new WasmModuleBuilder();
 
-  builder.addFunction('func', kSig_i_i)
-      .addBody([...wasmI32Const(42)])
-      .exportFunc();
+  builder.addFunction('func1', kSig_v_i).addBody([]).exportFunc();
+  builder.addFunction('func2', kSig_v_v).addBody([]).exportFunc();
 
   const instance = builder.instantiate();
+  assertThrows(
+      () => new WebAssembly.Function(
+          {parameters: [], results: []}, instance.exports.func1),
+      TypeError,
+      'WebAssembly.Function(): The signature of Argument 1 (a ' +
+      'WebAssembly function) does not match the signature specified in ' +
+      'Argument 0');
 
   assertDoesNotThrow(
       () => new WebAssembly.Function(
-          {parameters: [], results: []}, instance.exports.func));
-
-  assertDoesNotThrow(() => {
-    const rewrapped = new WebAssembly.Function(
-      {parameters: ['f32'], results: ['i32']}, instance.exports.func);
-    rewrapped(1)
-    rewrapped(NaN);
-  });
-
-  assertThrows(
-    () => {
-      const rewrapped = new WebAssembly.Function(
-        {parameters: ['i64'], results: ['i32']}, instance.exports.func);
-      rewrapped(0n);
-    },
-    TypeError,
-    "Cannot convert a BigInt value to a number");
-  assertThrows(
-    () => {
-      const rewrapped = new WebAssembly.Function(
-        {parameters: ['i32'], results: ['i64']}, instance.exports.func);
-      rewrapped(0);
-    },
-    TypeError,
-    "Cannot convert 42 to a BigInt");
+          {parameters: [], results: []}, instance.exports.func2));
 })();
 
 (function TestFunctionConstructorWithWasmJSFunction() {
   print(arguments.callee.name);
-  const func = new WebAssembly.Function({parameters: ['i32'], results: ['i32']}, _ => 0);
+  const func = new WebAssembly.Function({parameters: [], results: []}, _ => 0);
 
   assertDoesNotThrow(
-      () => new WebAssembly.Function({parameters: ['i32'], results: ['i32']}, func));
-  assertDoesNotThrow(() => {
-    const rewrapped = new WebAssembly.Function({parameters: ['f32'], results: ['i32']}, func);
-    rewrapped(42);
-    rewrapped(NaN);
-  });
+      () => new WebAssembly.Function({parameters: [], results: []}, func));
   assertThrows(
-      () => {
-        const rewrapped = new WebAssembly.Function(
-          {parameters: ['i64'], results: ['i32']}, func);
-        rewrapped(0n);
-      },
+      () => new WebAssembly.Function({parameters: ['i32'], results: []}, func),
       TypeError,
-      "Cannot convert a BigInt value to a number");
-  assertThrows(
-      () => {
-        const rewrapped = new WebAssembly.Function(
-          {parameters: ['i32'], results: ['i64']}, func);
-        rewrapped(0);
-      },
-      TypeError,
-      "Cannot convert 0 to a BigInt");
+      'WebAssembly.Function(): The signature of Argument 1 (a ' +
+          'WebAssembly function) does not match the signature specified in ' +
+          'Argument 0');
 })();
 
 (function TestFunctionConstructorNonArray1() {
@@ -421,7 +388,7 @@ d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
     set: function(obj, prop, val) { assertUnreachable(); }
   });
   let fun = new WebAssembly.Function({parameters:logger, results:[]}, _ => 0);
-  assertArrayEquals(["i32", "f32"], fun.type().parameters);
+  assertArrayEquals(["i32", "f32"], WebAssembly.Function.type(fun).parameters);
   assertArrayEquals(["length", "0", "1"], log);
 })();
 
@@ -492,7 +459,7 @@ d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
   ];
   testcases.forEach(function(expected) {
     let fun = new WebAssembly.Function(expected, _ => 0);
-    let type = fun.type();
+    let type = WebAssembly.Function.type(fun);
     assertEquals(expected, type)
   });
 })();
@@ -510,7 +477,7 @@ d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
     let builder = new WasmModuleBuilder();
     builder.addFunction("fun", sig).addBody([kExprUnreachable]).exportFunc();
     let instance = builder.instantiate();
-    let type = instance.exports.fun.type();
+    let type = WebAssembly.Function.type(instance.exports.fun);
     assertEquals(expected, type)
   });
 })();

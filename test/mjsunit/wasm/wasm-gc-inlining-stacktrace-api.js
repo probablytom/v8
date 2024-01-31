@@ -31,14 +31,14 @@ function testOptimized(run, fctToOptimize) {
     .addBody([
       kExprLocalGet, 0,
       kGCPrefix, kExprStructNew, struct,
-      kGCPrefix, kExprExternConvertAny,
+      kGCPrefix, kExprExternExternalize,
     ])
     .exportFunc();
 
   builder.addFunction('getElement', makeSig([kWasmExternRef], [kWasmI32]))
     .addBody([
       kExprLocalGet, 0,
-      kGCPrefix, kExprAnyConvertExtern,
+      kGCPrefix, kExprExternInternalize,
       kGCPrefix, kExprRefCast, struct,
       kGCPrefix, kExprStructGet, struct, 0])
     .exportFunc();

@@ -386,7 +386,7 @@ TEST_F(SimplifiedOperatorReducerTest, CheckHeapObjectWithHeapConstant) {
       factory()->empty_string(), factory()->null_value(),
       factory()->species_symbol(), factory()->undefined_value()};
   TRACED_FOREACH(Handle<HeapObject>, object, kHeapObjects) {
-    Node* value = HeapConstantNoHole(object);
+    Node* value = HeapConstant(object);
     Reduction reduction = Reduce(graph()->NewNode(
         simplified()->CheckHeapObject(), value, effect, control));
     ASSERT_TRUE(reduction.Changed());
@@ -482,8 +482,8 @@ TEST_F(SimplifiedOperatorReducerTest, ObjectIsSmiWithHeapConstant) {
       factory()->empty_string(), factory()->null_value(),
       factory()->species_symbol(), factory()->undefined_value()};
   TRACED_FOREACH(Handle<HeapObject>, o, kHeapObjects) {
-    Reduction reduction = Reduce(
-        graph()->NewNode(simplified()->ObjectIsSmi(), HeapConstantNoHole(o)));
+    Reduction reduction =
+        Reduce(graph()->NewNode(simplified()->ObjectIsSmi(), HeapConstant(o)));
     ASSERT_TRUE(reduction.Changed());
     EXPECT_THAT(reduction.replacement(), IsFalseConstant());
   }

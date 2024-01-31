@@ -115,12 +115,6 @@ class VariableReducer : public Next {
           // If any of the predecessors' value is Invalid, then we shouldn't
           // merge {var}.
           return OpIndex::Invalid();
-        } else if (__ output_graph()
-                       .Get(idx)
-                       .template Is<LoadRootRegisterOp>()) {
-          // Variables that once contain the root register never contain another
-          // value.
-          return __ LoadRootRegister();
         }
       }
       return MergeOpIndices(predecessors, var.data().rep);
@@ -154,8 +148,8 @@ class VariableReducer : public Next {
     is_temporary_ = false;
   }
 
-  OpIndex REDUCE(Goto)(Block* destination, bool is_backedge) {
-    OpIndex result = Next::ReduceGoto(destination, is_backedge);
+  OpIndex REDUCE(Goto)(Block* destination) {
+    OpIndex result = Next::ReduceGoto(destination);
     if (!destination->IsBound()) {
       return result;
     }

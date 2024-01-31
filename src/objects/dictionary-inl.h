@@ -38,8 +38,8 @@ Tagged<Object> Dictionary<Derived, Shape>::ValueAt(InternalIndex entry) {
 template <typename Derived, typename Shape>
 Tagged<Object> Dictionary<Derived, Shape>::ValueAt(PtrComprCageBase cage_base,
                                                    InternalIndex entry) {
-  return this->get(DerivedHashTable::EntryToIndex(entry) +
-                   Derived::kEntryValueIndex);
+  return this->get(cage_base, DerivedHashTable::EntryToIndex(entry) +
+                                  Derived::kEntryValueIndex);
 }
 
 template <typename Derived, typename Shape>
@@ -54,6 +54,7 @@ Tagged<Object> Dictionary<Derived, Shape>::ValueAt(PtrComprCageBase cage_base,
                                                    InternalIndex entry,
                                                    SeqCstAccessTag tag) {
   return this->get(
+      cage_base,
       DerivedHashTable::EntryToIndex(entry) + Derived::kEntryValueIndex, tag);
 }
 

@@ -76,7 +76,9 @@ void CheckPreconditionsForPatching(Isolate* isolate,
 void BuiltinsConstantsTableBuilder::PatchSelfReference(
     Handle<Object> self_reference, Handle<InstructionStream> code_object) {
   CheckPreconditionsForPatching(isolate_, code_object);
-  DCHECK_EQ(*self_reference, ReadOnlyRoots(isolate_).self_reference_marker());
+  DCHECK(IsOddball(*self_reference));
+  DCHECK(Oddball::cast(*self_reference)->kind() ==
+         Oddball::kSelfReferenceMarker);
 
   uint32_t key;
   if (map_.Delete(self_reference, &key)) {

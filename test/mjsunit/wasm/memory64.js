@@ -253,9 +253,7 @@ function allowOOM(fn) {
   // Cannot grow by 2^32 pages.
   assertEquals(-1n, instance.exports.grow(1n << 32n));
   // Grow by one more page to the maximum.
-  grow_big_result = instance.exports.grow(1n);
-  if (grow_big_result == -1) return;
-  assertEquals(BigInt(max_pages) - 1n, grow_big_result);
+  assertEquals(BigInt(max_pages) - 1n, instance.exports.grow(1n));
   // Cannot grow further.
   assertEquals(-1n, instance.exports.grow(1n));
 })();

@@ -162,14 +162,6 @@ class CallArguments {
     DCHECK_IMPLIES(mode == kWithArrayLike, args_.size() == 2);
   }
 
-  CallArguments(ConvertReceiverMode receiver_mode,
-                base::SmallVector<ValueNode*, 8>&& args, Mode mode = kDefault)
-      : receiver_mode_(receiver_mode), args_(std::move(args)), mode_(mode) {
-    DCHECK_IMPLIES(mode != kDefault,
-                   receiver_mode == ConvertReceiverMode::kAny);
-    DCHECK_IMPLIES(mode == kWithArrayLike, args_.size() == 2);
-  }
-
   ValueNode* receiver() const {
     if (receiver_mode_ == ConvertReceiverMode::kNullOrUndefined) {
       return nullptr;
@@ -263,24 +255,6 @@ class V8_NODISCARD MaglevGraphBuilder::CallSpeculationScope {
   }
 
  private:
-  MaglevGraphBuilder* builder_;
-};
-
-class V8_NODISCARD MaglevGraphBuilder::SaveCallSpeculationScope {
- public:
-  explicit SaveCallSpeculationScope(MaglevGraphBuilder* builder)
-      : builder_(builder) {
-    saved_ = builder_->current_speculation_feedback_;
-    builder_->current_speculation_feedback_ = compiler::FeedbackSource();
-  }
-  ~SaveCallSpeculationScope() {
-    builder_->current_speculation_feedback_ = saved_;
-  }
-
-  const compiler::FeedbackSource& value() { return saved_; }
-
- private:
-  compiler::FeedbackSource saved_;
   MaglevGraphBuilder* builder_;
 };
 
@@ -3025,11 +2999,6 @@ bool MaglevGraphBuilder::CheckType(ValueNode* node, NodeType type,
 
 ValueNode* MaglevGraphBuilder::BuildSmiUntag(ValueNode* node) {
   if (EnsureType(node, NodeType::kSmi)) {
-    if (SmiValuesAre31Bits()) {
-      if (auto phi = node->TryCast<Phi>()) {
-        phi->SetUseRequires31BitValue();
-      }
-    }
     return AddNewNode<UnsafeSmiUntag>({node});
   } else {
     return AddNewNode<CheckedSmiUntag>({node});
@@ -4386,15 +4355,11 @@ ReduceResult MaglevGraphBuilder::TryBuildElementAccess(
   const compiler::KeyedAccessMode& keyed_mode = feedback.keyed_mode();
   // Check for the megamorphic case.
   if (feedback.transition_groups().empty()) {
-    if (keyed_mode.access_mode() == compiler::AccessMode::kLoad) {
-      return BuildCallBuiltin<Builtin::kKeyedLoadIC_Megamorphic>(
-          {object, GetTaggedValue(index_object)}, feedback_source);
-    } else if (keyed_mode.access_mode() == compiler::AccessMode::kStore) {
-      return BuildCallBuiltin<Builtin::kKeyedStoreIC_Megamorphic>(
-          {object, GetTaggedValue(index_object), GetAccumulatorTagged()},
-          feedback_source);
+    if (keyed_mode.access_mode() != compiler::AccessMode::kLoad) {
+      return ReduceResult::Fail();
     }
-    return ReduceResult::Fail();
+    return BuildCallBuiltin<Builtin::kKeyedLoadIC_Megamorphic>(
+        {object, GetTaggedValue(index_object)}, feedback_source);
   }
 
   // TODO(leszeks): Add non-deopting bounds check (has to support undefined
@@ -4919,7 +4884,7 @@ void MaglevGraphBuilder::VisitSetKeyedProperty() {
 
   const compiler::ProcessedFeedback& processed_feedback =
       broker()->GetFeedbackForPropertyAccess(
-          feedback_source, compiler::AccessMode::kStore, base::nullopt);
+          feedback_source, compiler::AccessMode::kLoad, base::nullopt);
 
   switch (processed_feedback.kind()) {
     case compiler::ProcessedFeedback::kInsufficient:
@@ -5701,9 +5666,11 @@ ReduceResult MaglevGraphBuilder::TryReduceArrayForEach(
             : CallArguments(ConvertReceiverMode::kAny,
                             {this_arg, element, index_tagged, receiver});
 
-    SaveCallSpeculationScope saved(this);
-    result = ReduceCall(callback, call_args, saved.value(),
+    compiler::FeedbackSource feedback_source = std::exchange(
+        current_speculation_feedback_, compiler::FeedbackSource());
+    result = ReduceCall(callback, call_args, feedback_source,
                         SpeculationMode::kAllowSpeculation);
+    current_speculation_feedback_ = feedback_source;
   }
 
   // ```
@@ -6204,8 +6171,7 @@ ReduceResult MaglevGraphBuilder::TryReduceArrayPrototypePush(
     do_return.emplace(&sub_graph, unique_kind_count);
   }
 
-  ValueNode* old_array_length_smi =
-      GetSmiValue(BuildLoadJSArrayLength(receiver).value());
+  ValueNode* old_array_length_smi = BuildLoadJSArrayLength(receiver).value();
   ValueNode* old_array_length =
       AddNewNode<UnsafeSmiUntag>({old_array_length_smi});
   ValueNode* new_array_length_smi =
@@ -6354,8 +6320,7 @@ ReduceResult MaglevGraphBuilder::TryReduceArrayPrototypePop(
               &var_value, &var_new_array_length});
   MaglevSubGraphBuilder::Label empty_array(&sub_graph, 1);
 
-  ValueNode* old_array_length_smi =
-      GetSmiValue(BuildLoadJSArrayLength(receiver).value());
+  ValueNode* old_array_length_smi = BuildLoadJSArrayLength(receiver).value();
 
   // If the array is empty, skip the pop and return undefined.
   sub_graph.GotoIfTrue<BranchIfReferenceEqual>(
@@ -7722,30 +7687,6 @@ void MaglevGraphBuilder::VisitConstructWithSpread() {
   SetAccumulator(construct);
 }
 
-void MaglevGraphBuilder::VisitConstructForwardAllArgs() {
-  ValueNode* new_target = GetAccumulatorTagged();
-  ValueNode* target = LoadRegisterTagged(0);
-  FeedbackSlot slot = GetSlotOperand(1);
-  compiler::FeedbackSource feedback_source{feedback(), slot};
-
-  if (is_inline()) {
-    int argc = inlined_arguments_ ? static_cast<int>(inlined_arguments_->size())
-                                  : parameter_count();
-    base::SmallVector<ValueNode*, 8> forwarded_args(argc);
-    for (int i = 1 /* skip receiver */; i < argc; ++i) {
-      forwarded_args[i] = GetTaggedArgument(i);
-    }
-    CallArguments args(ConvertReceiverMode::kNullOrUndefined,
-                       std::move(forwarded_args));
-    BuildConstruct(target, new_target, args, feedback_source);
-  } else {
-    // TODO(syg): Add ConstructForwardAllArgs reductions and support inlining.
-    SetAccumulator(
-        BuildCallBuiltin<Builtin::kConstructForwardAllArgs_WithFeedback>(
-            {target, new_target}, feedback_source));
-  }
-}
-
 void MaglevGraphBuilder::VisitTestEqual() {
   VisitCompareOperation<Operation::kEqual>();
 }
@@ -8019,7 +7960,6 @@ ReduceResult MaglevGraphBuilder::TryBuildFastInstanceOf(
           this, Builtin::kToBooleanLazyDeoptContinuation);
 
       if (has_instance_field->IsJSFunction()) {
-        SaveCallSpeculationScope saved(this);
         ReduceResult result =
             ReduceCallForConstant(has_instance_field->AsJSFunction(), args);
         DCHECK(!result.IsDoneWithAbort());

@@ -331,8 +331,6 @@ void WasmTableObject::Set(Isolate* isolate, Handle<WasmTableObject> table,
     case wasm::HeapType::kNone:
     case wasm::HeapType::kNoFunc:
     case wasm::HeapType::kNoExtern:
-    case wasm::HeapType::kExn:
-    case wasm::HeapType::kNoExn:
       entries->set(entry_index, *entry);
       return;
     case wasm::HeapType::kFunc:
@@ -383,8 +381,6 @@ Handle<Object> WasmTableObject::Get(Isolate* isolate,
     case wasm::HeapType::kNone:
     case wasm::HeapType::kNoFunc:
     case wasm::HeapType::kNoExtern:
-    case wasm::HeapType::kExn:
-    case wasm::HeapType::kNoExn:
       return entry;
     case wasm::HeapType::kFunc:
       if (IsWasmInternalFunction(*entry)) return entry;
@@ -557,8 +553,8 @@ void WasmTableObject::UpdateDispatchTables(
     }
     instance->GetIndirectFunctionTable(isolate, table_index)
         ->Set(entry_index, canonical_type_index, wasm_code->instruction_start(),
-              capi_function->shared()
-                  ->wasm_capi_function_data()
+              WasmCapiFunctionData::cast(
+                  capi_function->shared()->function_data(kAcquireLoad))
                   ->internal()
                   ->ref());
   }
@@ -698,8 +694,8 @@ void WasmIndirectFunctionTable::Resize(Isolate* isolate,
 
   Handle<FixedUInt32Array> new_sig_ids =
       FixedUInt32Array::New(isolate, new_capacity);
-  MemCopy(new_sig_ids->begin(), old_sig_ids->begin(),
-          old_capacity * kUInt32Size);
+  new_sig_ids->copy_in(0, old_sig_ids->GetDataStartAddress(),
+                       old_capacity * kUInt32Size);
   table->set_sig_ids(*new_sig_ids);
 
   Handle<ExternalPointerArray> new_targets =
@@ -1250,6 +1246,10 @@ Handle<WasmInstanceObject> WasmInstanceObject::New(
     instance->set_data_segment_sizes(*data_segment_sizes);
     instance->set_element_segments(empty_fixed_array);
     instance->set_imported_function_refs(*imported_function_refs);
+    instance->set_stack_limit_address(
+        isolate->stack_guard()->address_of_jslimit());
+    instance->set_real_stack_limit_address(
+        isolate->stack_guard()->address_of_real_jslimit());
     instance->set_new_allocation_limit_address(
         isolate->heap()->NewSpaceAllocationLimitAddress());
     instance->set_new_allocation_top_address(
@@ -1531,9 +1531,6 @@ Handle<JSFunction> WasmInternalFunction::GetOrCreateExternal(
   // {entry} can be cleared, {undefined}, or a ready {Code}.
   if (entry.IsStrongOrWeak() && IsCode(entry.GetHeapObject())) {
     wrapper = handle(Code::cast(entry.GetHeapObject()), isolate);
-  } else if (!function.imported &&
-             CanUseGenericJsToWasmWrapper(module, function.sig)) {
-    wrapper = isolate->builtins()->code_handle(Builtin::kJSToWasmWrapper);
   } else {
     // The wrapper may not exist yet if no function in the exports section has
     // this signature. We compile it and store the wrapper in the module for
@@ -1890,8 +1887,16 @@ Handle<WasmExceptionPackage> WasmExceptionPackage::New(
   Handle<JSFunction> exception_cons(
       isolate->native_context()->wasm_exception_constructor(), isolate);
   Handle<JSObject> exception = isolate->factory()->NewJSObject(exception_cons);
-  exception->InObjectPropertyAtPut(kTagIndex, *exception_tag);
-  exception->InObjectPropertyAtPut(kValuesIndex, *values);
+  CHECK(!Object::SetProperty(isolate, exception,
+                             isolate->factory()->wasm_exception_tag_symbol(),
+                             exception_tag, StoreOrigin::kMaybeKeyed,
+                             Just(ShouldThrow::kThrowOnError))
+             .is_null());
+  CHECK(!Object::SetProperty(isolate, exception,
+                             isolate->factory()->wasm_exception_values_symbol(),
+                             values, StoreOrigin::kMaybeKeyed,
+                             Just(ShouldThrow::kThrowOnError))
+             .is_null());
   return Handle<WasmExceptionPackage>::cast(exception);
 }
 
@@ -1978,8 +1983,7 @@ bool UseGenericWasmToJSWrapper(wasm::ImportCallKind kind,
     return false;
   }
 #if !V8_TARGET_ARCH_X64 && !V8_TARGET_ARCH_ARM64 && !V8_TARGET_ARCH_ARM && \
-    !V8_TARGET_ARCH_IA32 && !V8_TARGET_ARCH_RISCV64 &&                     \
-    !V8_TARGET_ARCH_RISCV32 && !V8_TARGET_ARCH_PPC64 && !V8_TARGET_ARCH_S390X
+    !V8_TARGET_ARCH_IA32
   return false;
 #else
   if (suspend == wasm::kSuspend) return false;
@@ -2423,8 +2427,9 @@ MaybeHandle<WasmInternalFunction> WasmInternalFunction::FromExternal(
   if (WasmExportedFunction::IsWasmExportedFunction(*external) ||
       WasmJSFunction::IsWasmJSFunction(*external) ||
       WasmCapiFunction::IsWasmCapiFunction(*external)) {
-    Tagged<WasmFunctionData> data =
-        Handle<JSFunction>::cast(external)->shared()->wasm_function_data();
+    Tagged<WasmFunctionData> data = WasmFunctionData::cast(
+        Handle<JSFunction>::cast(external)->shared()->function_data(
+            kAcquireLoad));
     return handle(data->internal(), isolate);
   }
   return MaybeHandle<WasmInternalFunction>();
@@ -2541,10 +2546,6 @@ MaybeHandle<Object> JSToWasmObject(Isolate* isolate, Handle<Object> value,
       *error_message = "null is not allowed for (ref any)";
       return {};
     }
-    case HeapType::kExn:
-      if (!IsNull(*value, isolate)) return value;
-      *error_message = "null is not allowed for (ref exn)";
-      return {};
     case HeapType::kStruct: {
       if (IsWasmStruct(*value)) {
         return value;

@@ -493,46 +493,37 @@ void MacroAssembler::LoadExternalPointerField(
 #endif  // V8_ENABLE_SANDBOX
 }
 
-void MacroAssembler::LoadTrustedPointerField(Register destination,
-                                             Operand field_operand,
-                                             IndirectPointerTag tag,
-                                             Register scratch) {
-#ifdef V8_ENABLE_SANDBOX
-  LoadIndirectPointerField(destination, field_operand, tag, scratch);
-#else
-  LoadTaggedField(destination, field_operand);
-#endif  // V8_ENABLE_SANDBOX
-}
-
-void MacroAssembler::StoreTrustedPointerField(Operand dst_field_operand,
-                                              Register value) {
-#ifdef V8_ENABLE_SANDBOX
-  StoreIndirectPointerField(dst_field_operand, value);
-#else
-  StoreTaggedField(dst_field_operand, value);
-#endif  // V8_ENABLE_SANDBOX
-}
-
 void MacroAssembler::LoadIndirectPointerField(Register destination,
                                               Operand field_operand,
                                               IndirectPointerTag tag,
                                               Register scratch) {
 #ifdef V8_ENABLE_SANDBOX
   DCHECK(!AreAliased(destination, scratch));
+  DCHECK(!field_operand.AddressUsesRegister(scratch));
 
-  // Move the IndirectPointerHandle into the scratch register.
-  Register handle = scratch;
-  movl(handle, field_operand);
+  // Move the IndirectPointerHandle into destination
+  movl(destination, field_operand);
 
-  // Resolve the handle. The tag implies the pointer table to use.
-  if (tag == kUnknownIndirectPointerTag) {
-    // TODO(saelo): implement once needed.
-    UNIMPLEMENTED();
-  } else if (tag == kCodeIndirectPointerTag) {
-    ResolveCodePointerHandle(destination, handle);
+  if (tag == kCodeIndirectPointerTag) {
+    LoadAddress(scratch, ExternalReference::code_pointer_table_address());
+    shrl(destination, Immediate(kCodePointerHandleShift));
+    // The code pointer table entry size is 16 bytes, so we have to do an
+    // explicit shift first (times_16 doesn't exist).
+    shll(destination, Immediate(kCodePointerTableEntrySizeLog2));
+    movq(destination, Operand(scratch, destination, times_1,
+                              kCodePointerTableEntryCodeObjectOffset));
   } else {
-    ResolveTrustedPointerHandle(destination, handle, tag);
+    CHECK(root_array_available_);
+    LoadAddress(scratch, ExternalReference::indirect_pointer_table_base_address(
+                             isolate()));
+    shrl(destination, Immediate(kIndirectPointerHandleShift));
+    static_assert(kIndirectPointerTableEntrySize == 8);
+    movq(destination, Operand(scratch, destination, times_8, 0));
   }
+
+  // The LSB is used as marking bit by the code pointer table, so here we have
+  // to set it using a bitwise OR as it may or may not be set.
+  orq(destination, Immediate(kHeapObjectTag));
 #else
   UNREACHABLE();
 #endif  // V8_ENABLE_SANDBOX
@@ -546,47 +537,22 @@ void MacroAssembler::StoreIndirectPointerField(Operand dst_field_operand,
   movl(dst_field_operand, kScratchRegister);
 #else
   UNREACHABLE();
+#endif
+}
+
+void MacroAssembler::StoreMaybeIndirectPointerField(Operand dst_field_operand,
+                                                    Register value) {
+#ifdef V8_ENABLE_SANDBOX
+  StoreIndirectPointerField(dst_field_operand, value);
+#else
+  StoreTaggedField(dst_field_operand, value);
 #endif  // V8_ENABLE_SANDBOX
 }
 
-#ifdef V8_ENABLE_SANDBOX
-void MacroAssembler::ResolveTrustedPointerHandle(Register destination,
-                                                 Register handle,
-                                                 IndirectPointerTag tag) {
-  DCHECK_NE(tag, kCodeIndirectPointerTag);
-  DCHECK_NE(tag, kUnknownIndirectPointerTag);
-  DCHECK(!AreAliased(handle, destination));
-  CHECK(root_array_available_);
-  Register table = destination;
-  LoadAddress(table,
-              ExternalReference::trusted_pointer_table_base_address(isolate()));
-  shrl(handle, Immediate(kTrustedPointerHandleShift));
-  static_assert(kTrustedPointerTableEntrySize == 8);
-  movq(destination, Operand(table, handle, times_8, 0));
-  // The LSB is used as marking bit by the trusted pointer table, so here we
-  // have to set it using a bitwise OR as it may or may not be set.
-  orq(destination, Immediate(kHeapObjectTag));
-}
-
-void MacroAssembler::ResolveCodePointerHandle(Register destination,
-                                              Register handle) {
-  DCHECK(!AreAliased(handle, destination));
-  Register table = destination;
-  LoadAddress(table, ExternalReference::code_pointer_table_address());
-  shrl(handle, Immediate(kCodePointerHandleShift));
-  // The code pointer table entry size is 16 bytes, so we have to do an
-  // explicit shift first (times_16 doesn't exist).
-  shll(handle, Immediate(kCodePointerTableEntrySizeLog2));
-  movq(destination,
-       Operand(table, handle, times_1, kCodePointerTableEntryCodeObjectOffset));
-  // The LSB is used as marking bit by the code pointer table, so here we have
-  // to set it using a bitwise OR as it may or may not be set.
-  orq(destination, Immediate(kHeapObjectTag));
-}
-
-void MacroAssembler::LoadCodeEntrypointViaCodePointer(Register destination,
-                                                      Operand field_operand) {
+void MacroAssembler::LoadCodeEntrypointViaIndirectPointer(
+    Register destination, Operand field_operand) {
   DCHECK(!AreAliased(destination, kScratchRegister));
+#ifdef V8_ENABLE_SANDBOX
   DCHECK(!field_operand.AddressUsesRegister(kScratchRegister));
   LoadAddress(kScratchRegister,
               ExternalReference::code_pointer_table_address());
@@ -594,8 +560,10 @@ void MacroAssembler::LoadCodeEntrypointViaCodePointer(Register destination,
   shrl(destination, Immediate(kCodePointerHandleShift));
   shll(destination, Immediate(kCodePointerTableEntrySizeLog2));
   movq(destination, Operand(kScratchRegister, destination, times_1, 0));
-}
+#else
+  UNREACHABLE();
 #endif  // V8_ENABLE_SANDBOX
+}
 
 void MacroAssembler::CallEphemeronKeyBarrier(Register object,
                                              Register slot_address,
@@ -1079,16 +1047,17 @@ void MacroAssembler::ReplaceClosureCodeWithOptimizedCode(
   DCHECK_EQ(closure, kJSFunctionRegister);
   // Store the optimized code in the closure.
   AssertCode(optimized_code);
-  StoreCodePointerField(FieldOperand(closure, JSFunction::kCodeOffset),
-                        optimized_code);
+  StoreMaybeIndirectPointerField(FieldOperand(closure, JSFunction::kCodeOffset),
+                                 optimized_code);
 
   // Write barrier clobbers scratch1 below.
   Register value = scratch1;
   movq(value, optimized_code);
 
-  RecordWriteField(closure, JSFunction::kCodeOffset, value, slot_address,
-                   SaveFPRegsMode::kIgnore, SmiCheck::kOmit,
-                   SlotDescriptor::ForCodePointerSlot());
+  RecordWriteField(
+      closure, JSFunction::kCodeOffset, value, slot_address,
+      SaveFPRegsMode::kIgnore, SmiCheck::kOmit,
+      SlotDescriptor::ForMaybeIndirectPointerSlot(kCodeIndirectPointerTag));
 }
 
 // Read off the flags in the feedback vector and check if there
@@ -2740,7 +2709,7 @@ void MacroAssembler::LoadCodeInstructionStart(Register destination,
                                               Register code_object) {
   ASM_CODE_COMMENT(this);
 #ifdef V8_ENABLE_SANDBOX
-  LoadCodeEntrypointViaCodePointer(
+  LoadCodeEntrypointViaIndirectPointer(
       destination, FieldOperand(code_object, Code::kSelfIndirectPointerOffset));
 #else
   movq(destination, FieldOperand(code_object, Code::kInstructionStartOffset));
@@ -2771,7 +2740,7 @@ void MacroAssembler::CallJSFunction(Register function_object) {
   // When the sandbox is enabled, we can directly fetch the entrypoint pointer
   // from the code pointer table instead of going through the Code object. In
   // this way, we avoid one memory load on this code path.
-  LoadCodeEntrypointViaCodePointer(
+  LoadCodeEntrypointViaIndirectPointer(
       rcx, FieldOperand(function_object, JSFunction::kCodeOffset));
   call(rcx);
 #else
@@ -2787,7 +2756,7 @@ void MacroAssembler::JumpJSFunction(Register function_object,
   // When the sandbox is enabled, we can directly fetch the entrypoint pointer
   // from the code pointer table instead of going through the Code object. In
   // this way, we avoid one memory load on this code path.
-  LoadCodeEntrypointViaCodePointer(
+  LoadCodeEntrypointViaIndirectPointer(
       rcx, FieldOperand(function_object, JSFunction::kCodeOffset));
   DCHECK_EQ(jump_mode, JumpMode::kJump);
   jmp(rcx);
@@ -3463,10 +3432,15 @@ void MacroAssembler::InvokeFunctionCode(Register function, Register new_target,
 
 Operand MacroAssembler::StackLimitAsOperand(StackLimitKind kind) {
   DCHECK(root_array_available());
-  intptr_t offset = kind == StackLimitKind::kRealStackLimit
-                        ? IsolateData::real_jslimit_offset()
-                        : IsolateData::jslimit_offset();
+  Isolate* isolate = this->isolate();
+  ExternalReference limit =
+      kind == StackLimitKind::kRealStackLimit
+          ? ExternalReference::address_of_real_jslimit(isolate)
+          : ExternalReference::address_of_jslimit(isolate);
+  DCHECK(MacroAssembler::IsAddressableThroughRootRegister(isolate, limit));
 
+  intptr_t offset =
+      MacroAssembler::RootRegisterOffsetForExternalReference(isolate, limit);
   CHECK(is_int32(offset));
   return Operand(kRootRegister, static_cast<int32_t>(offset));
 }
@@ -3977,7 +3951,7 @@ void CallApiFunctionAndReturn(MacroAssembler* masm, bool with_profiling,
                               Register function_address,
                               ExternalReference thunk_ref, Register thunk_arg,
                               int stack_space, Operand* stack_space_operand,
-                              Operand return_value_operand) {
+                              Operand return_value_operand, Label* done) {
   ASM_CODE_COMMENT(masm);
   Label promote_scheduled_exception;
   Label delete_allocated_handles;
@@ -4092,9 +4066,16 @@ void CallApiFunctionAndReturn(MacroAssembler* masm, bool with_profiling,
 
   if (stack_space_operand == nullptr) {
     DCHECK_NE(stack_space, 0);
-    __ ret(stack_space * kSystemPointerSize);
+    if (done) {
+      __ addq(rsp, Immediate(stack_space * kSystemPointerSize));
+      __ jmp(done);
+
+    } else {
+      __ ret(stack_space * kSystemPointerSize);
+    }
   } else {
     DCHECK_EQ(stack_space, 0);
+    DCHECK_NULL(done);
     __ PopReturnAddressTo(scratch);
     // {stack_space_operand} was loaded into {stack_space_reg} above.
     __ addq(rsp, stack_space_reg);

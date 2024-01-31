@@ -1237,6 +1237,7 @@ static void AdvanceBytecodeOffsetOrReturn(MacroAssembler* masm,
   __ bind(&end);
 }
 
+#if ENABLE_SPARKPLUG
 // static
 void Builtins::Generate_BaselineOutOfLinePrologue(MacroAssembler* masm) {
   // UseScratchRegisterScope temps(masm);
@@ -1365,6 +1366,7 @@ void Builtins::Generate_BaselineOutOfLinePrologue(MacroAssembler* masm) {
   __ LoadRoot(kInterpreterAccumulatorRegister, RootIndex::kUndefinedValue);
   __ Ret();
 }
+#endif
 
 // static
 void Builtins::Generate_BaselineOutOfLinePrologueDeopt(MacroAssembler* masm) {
@@ -1769,55 +1771,6 @@ void Builtins::Generate_InterpreterPushArgsThenConstructImpl(
     // Call the constructor with r2, r3, and r5 unmodified.
     __ Jump(BUILTIN_CODE(masm->isolate(), Construct), RelocInfo::CODE_TARGET);
   }
-
-  __ bind(&stack_overflow);
-  {
-    __ TailCallRuntime(Runtime::kThrowStackOverflow);
-    // Unreachable Code.
-    __ bkpt(0);
-  }
-}
-
-// static
-void Builtins::Generate_ConstructForwardAllArgsImpl(
-    MacroAssembler* masm, ForwardWhichFrame which_frame) {
-  // ----------- S t a t e -------------
-  // -- r5 : new target
-  // -- r3 : constructor to call
-  // -----------------------------------
-  Label stack_overflow;
-
-  // Load the frame pointer into r6.
-  switch (which_frame) {
-    case ForwardWhichFrame::kCurrentFrame:
-      __ mov(r6, fp);
-      break;
-    case ForwardWhichFrame::kParentFrame:
-      __ LoadU64(r6, MemOperand(fp, StandardFrameConstants::kCallerFPOffset));
-      break;
-  }
-
-  // Load the argument count into r2.
-  __ LoadU64(r2, MemOperand(r6, StandardFrameConstants::kArgCOffset));
-  __ StackOverflowCheck(r2, ip, &stack_overflow);
-
-  // Point r6 to the base of the argument list to forward, excluding the
-  // receiver.
-  __ AddS64(r6, r6,
-            Operand((StandardFrameConstants::kFixedSlotCountAboveFp + 1) *
-                    kSystemPointerSize));
-
-  // Copy arguments on the stack. r5 is a scratch register.
-  Register argc_without_receiver = ip;
-  __ SubS64(argc_without_receiver, r2, Operand(kJSArgcReceiverSlots));
-  __ PushArray(r6, argc_without_receiver, r1, r7);
-
-  // Push a slot for the receiver.
-  __ mov(r0, Operand::Zero());
-  __ push(r0);
-
-  // Call the constructor with r2, r5, and r3 unmodifdied.
-  __ Jump(BUILTIN_CODE(masm->isolate(), Construct), RelocInfo::CODE_TARGET);
 
   __ bind(&stack_overflow);
   {
@@ -3134,31 +3087,7 @@ void Builtins::Generate_WasmReturnPromiseOnSuspendAsm(MacroAssembler* masm) {
   __ Trap();
 }
 
-void Builtins::Generate_WasmToJsWrapperAsm(MacroAssembler* masm) {
-  // Push registers in reverse order so that they are on the stack like
-  // in an array, with the first item being at the lowest address.
-  DoubleRegList fp_regs;
-  for (DoubleRegister fp_param_reg : wasm::kFpParamRegisters) {
-    fp_regs.set(fp_param_reg);
-  }
-  __ MultiPushDoubles(fp_regs);
-
-  // Push the GP registers in reverse order so that they are on the stack like
-  // in an array, with the first item being at the lowest address.
-  RegList gp_regs;
-  for (size_t i = arraysize(wasm::kGpParamRegisters) - 1; i > 0; --i) {
-    gp_regs.set(wasm::kGpParamRegisters[i]);
-  }
-  __ MultiPush(gp_regs);
-  // Push an arbitrary register to reserve stack space for the signature which
-  // will be spilled on the stack in Torque.
-  __ Push(r0);
-  __ TailCallBuiltin(Builtin::kWasmToJsWrapperCSA);
-}
-
-void Builtins::Generate_WasmTrapHandlerLandingPad(MacroAssembler* masm) {
-  __ Trap();
-}
+void Builtins::Generate_WasmToJsWrapperAsm(MacroAssembler* masm) { __ Trap(); }
 
 void Builtins::Generate_WasmSuspend(MacroAssembler* masm) {
   // TODO(v8:12191): Implement for this platform.
@@ -4056,6 +3985,7 @@ void Builtins::Generate_InterpreterOnStackReplacement(MacroAssembler* masm) {
                      D::MaybeTargetCodeRegister());
 }
 
+#if ENABLE_SPARKPLUG
 void Builtins::Generate_BaselineOnStackReplacement(MacroAssembler* masm) {
   using D = OnStackReplacementDescriptor;
   static_assert(D::kParameterCount == 1);
@@ -4065,6 +3995,7 @@ void Builtins::Generate_BaselineOnStackReplacement(MacroAssembler* masm) {
   OnStackReplacement(masm, OsrSourceTier::kBaseline,
                      D::MaybeTargetCodeRegister());
 }
+#endif
 
 void Builtins::Generate_BaselineOrInterpreterEnterAtBytecode(
     MacroAssembler* masm) {

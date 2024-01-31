@@ -49,14 +49,14 @@ struct PerfectKeywordHashTableEntry {
   Token::Value value;
 };
 enum {
-  TOTAL_KEYWORDS = 50,
+  TOTAL_KEYWORDS = 49,
   MIN_WORD_LENGTH = 2,
   MAX_WORD_LENGTH = 10,
   MIN_HASH_VALUE = 2,
-  MAX_HASH_VALUE = 53
+  MAX_HASH_VALUE = 55
 };
 
-/* maximum key range = 52, duplicates = 0 */
+/* maximum key range = 54, duplicates = 0 */
 
 class PerfectKeywordHash {
  private:
@@ -70,22 +70,22 @@ inline unsigned int PerfectKeywordHash::Hash(const char* str, int len) {
   DCHECK_LT(str[1], 128);
   DCHECK_LT(str[0], 128);
   static const unsigned char asso_values[128] = {
-      54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54,
-      54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54,
-      54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54,
-      54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54,
-      54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54,
-      54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54,
-      54, 9,  27, 11, 0,  0,  9,  24, 21, 0,  54, 54, 37, 40, 0,  3,
-      10, 54, 15, 14, 17, 14, 37, 25, 6,  15, 54, 54, 54, 54, 54, 54};
+      56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56,
+      56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56,
+      56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56,
+      56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56,
+      56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56,
+      56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56, 56,
+      56, 8,  0,  6,  0,  0,  9,  9,  9,  0,  56, 56, 34, 41, 0,  3,
+      6,  56, 19, 10, 13, 16, 39, 26, 37, 36, 56, 56, 56, 56, 56, 56};
   return len + asso_values[static_cast<unsigned char>(str[1])] +
          asso_values[static_cast<unsigned char>(str[0])];
 }
 
 static const unsigned char kPerfectKeywordLengthTable[64] = {
-    0, 0, 2, 3, 4, 2, 6,  7, 8, 9, 10, 2, 6, 7, 2, 3, 7, 3, 4, 5, 5, 6,
-    8, 5, 4, 5, 7, 3, 5,  4, 6, 8, 7,  5, 9, 3, 4, 6, 6, 5, 3, 4, 4, 5,
-    4, 6, 6, 5, 0, 3, 10, 5, 0, 5, 0,  0, 0, 0, 0, 0, 0, 0, 0, 0};
+    0, 0, 2, 3, 4, 2, 6, 7,  8, 9, 10, 2, 3, 3, 5, 3, 7, 8, 4, 5, 4, 7,
+    5, 5, 5, 6, 4, 5, 6, 6,  4, 5, 7,  8, 9, 3, 4, 3, 4, 5, 5, 5, 6, 6,
+    7, 5, 4, 6, 0, 0, 3, 10, 0, 0, 0,  6, 0, 0, 0, 0, 0, 0, 0, 0};
 
 static const struct PerfectKeywordHashTableEntry kPerfectKeywordHashTable[64] =
     {{"", Token::IDENTIFIER},
@@ -100,50 +100,50 @@ static const struct PerfectKeywordHashTableEntry kPerfectKeywordHashTable[64] =
      {"interface", Token::FUTURE_STRICT_RESERVED_WORD},
      {"instanceof", Token::INSTANCEOF},
      {"if", Token::IF},
-     {"export", Token::EXPORT},
-     {"extends", Token::EXTENDS},
-     {"of", Token::OF},
+     {"get", Token::GET},
+     {"set", Token::SET},
+     {"const", Token::CONST},
      {"for", Token::FOR},
      {"finally", Token::FINALLY},
-     {"set", Token::SET},
-     {"null", Token::NULL_LITERAL},
-     {"const", Token::CONST},
-     {"yield", Token::YIELD},
-     {"return", Token::RETURN},
      {"continue", Token::CONTINUE},
-     {"false", Token::FALSE_LITERAL},
      {"case", Token::CASE},
      {"catch", Token::CATCH},
+     {"null", Token::NULL_LITERAL},
      {"package", Token::FUTURE_STRICT_RESERVED_WORD},
-     {"get", Token::GET},
+     {"false", Token::FALSE_LITERAL},
      {"async", Token::ASYNC},
-     {"with", Token::WITH},
+     {"break", Token::BREAK},
+     {"return", Token::RETURN},
+     {"this", Token::THIS},
+     {"throw", Token::THROW},
      {"public", Token::FUTURE_STRICT_RESERVED_WORD},
-     {"function", Token::FUNCTION},
-     {"private", Token::FUTURE_STRICT_RESERVED_WORD},
+     {"static", Token::STATIC},
+     {"with", Token::WITH},
      {"super", Token::SUPER},
+     {"private", Token::FUTURE_STRICT_RESERVED_WORD},
+     {"function", Token::FUNCTION},
      {"protected", Token::FUTURE_STRICT_RESERVED_WORD},
      {"try", Token::TRY},
      {"true", Token::TRUE_LITERAL},
-     {"static", Token::STATIC},
-     {"typeof", Token::TYPEOF},
-     {"await", Token::AWAIT},
      {"let", Token::LET},
      {"else", Token::ELSE},
-     {"this", Token::THIS},
-     {"throw", Token::THROW},
-     {"void", Token::VOID},
+     {"await", Token::AWAIT},
+     {"while", Token::WHILE},
+     {"yield", Token::YIELD},
      {"switch", Token::SWITCH},
+     {"export", Token::EXPORT},
+     {"extends", Token::EXTENDS},
+     {"class", Token::CLASS},
+     {"void", Token::VOID},
      {"import", Token::IMPORT},
-     {"break", Token::BREAK},
+     {"", Token::IDENTIFIER},
      {"", Token::IDENTIFIER},
      {"var", Token::VAR},
      {"implements", Token::FUTURE_STRICT_RESERVED_WORD},
-     {"while", Token::WHILE},
-     {"", Token::IDENTIFIER},
-     {"class", Token::CLASS},
      {"", Token::IDENTIFIER},
      {"", Token::IDENTIFIER},
+     {"", Token::IDENTIFIER},
+     {"typeof", Token::TYPEOF},
      {"", Token::IDENTIFIER},
      {"", Token::IDENTIFIER},
      {"", Token::IDENTIFIER},

@@ -42,7 +42,6 @@ load(":bazel/v8-non-pointer-compression.bzl", "v8_binary_non_pointer_compression
 # v8_enable_conservative_stack_scanning
 # v8_enable_direct_handle
 # v8_enable_direct_local
-# v8_enable_local_off_stack_check
 # v8_enable_ignition_dispatch_counting
 # v8_enable_builtins_optimization
 # v8_enable_builtins_profiling
@@ -84,6 +83,8 @@ load(":bazel/v8-non-pointer-compression.bzl", "v8_binary_non_pointer_compression
 # v8_enable_javascript_promise_hooks
 # v8_enable_allocation_folding
 # v8_allocation_site_tracking
+# v8_enable_cheri_sandbox
+# v8_enable_capability_handle
 
 v8_flag(name = "v8_android_log_stdout")
 
@@ -364,7 +365,6 @@ v8_config(
         "GOOGLE3",
         "V8_ADVANCED_BIGINT_ALGORITHMS",
         "V8_CONCURRENT_MARKING",
-        "V8_ENABLE_SPARKPLUG",
     ] + select({
         "@v8//bazel/config:is_debug": [
             "DEBUG",
@@ -624,8 +624,6 @@ filegroup(
 filegroup(
     name = "v8_libbase_files",
     srcs = [
-        "src/base/abort-mode.cc",
-        "src/base/abort-mode.h",
         "src/base/address-region.h",
         "src/base/atomic-utils.h",
         "src/base/atomicops.h",
@@ -940,7 +938,6 @@ filegroup(
         "src/builtins/string-substring.tq",
         "src/builtins/string-towellformed.tq",
         "src/builtins/string-trim.tq",
-        "src/builtins/suppressed-error.tq",
         "src/builtins/symbol.tq",
         "src/builtins/torque-internal.tq",
         "src/builtins/typed-array.tq",
@@ -1493,8 +1490,6 @@ filegroup(
         "src/heap/basic-memory-chunk.h",
         "src/heap/code-range.cc",
         "src/heap/code-range.h",
-        "src/heap/trusted-range.cc",
-        "src/heap/trusted-range.h",
         "src/heap/code-stats.cc",
         "src/heap/code-stats.h",
         "src/heap/collection-barrier.cc",
@@ -1957,8 +1952,6 @@ filegroup(
         "src/objects/objects-inl.h",
         "src/objects/oddball.h",
         "src/objects/oddball-inl.h",
-        "src/objects/off-heap-hash-table.h",
-        "src/objects/off-heap-hash-table-inl.h",
         "src/objects/hole.h",
         "src/objects/trusted-object.h",
         "src/objects/trusted-object-inl.h",
@@ -1987,7 +1980,6 @@ filegroup(
         "src/objects/prototype-info.h",
         "src/objects/prototype-info-inl.h",
         "src/objects/prototype-inl.h",
-        "src/objects/regexp-match-info.cc",
         "src/objects/regexp-match-info.h",
         "src/objects/regexp-match-info-inl.h",
         "src/objects/scope-info.cc",
@@ -2215,9 +2207,9 @@ filegroup(
         "src/sandbox/code-pointer-table.cc",
         "src/sandbox/code-pointer-table.h",
         "src/sandbox/code-pointer-table-inl.h",
-        "src/sandbox/trusted-pointer-table.cc",
-        "src/sandbox/trusted-pointer-table.h",
-        "src/sandbox/trusted-pointer-table-inl.h",
+        "src/sandbox/indirect-pointer-table.cc",
+        "src/sandbox/indirect-pointer-table.h",
+        "src/sandbox/indirect-pointer-table-inl.h",
         "src/sandbox/code-pointer.h",
         "src/sandbox/code-pointer-inl.h",
         "src/sandbox/indirect-pointer.h",
@@ -2390,7 +2382,7 @@ filegroup(
             "src/execution/ia32/frame-constants-ia32.h",
             "src/regexp/ia32/regexp-macro-assembler-ia32.cc",
             "src/regexp/ia32/regexp-macro-assembler-ia32.h",
-            "src/wasm/baseline/ia32/liftoff-assembler-ia32-inl.h",
+            "src/wasm/baseline/ia32/liftoff-assembler-ia32.h",
         ],
         "@v8//bazel/config:v8_target_x64": [
             "src/baseline/x64/baseline-assembler-x64-inl.h",
@@ -2417,7 +2409,7 @@ filegroup(
             "src/execution/x64/frame-constants-x64.h",
             "src/regexp/x64/regexp-macro-assembler-x64.cc",
             "src/regexp/x64/regexp-macro-assembler-x64.h",
-            "src/wasm/baseline/x64/liftoff-assembler-x64-inl.h",
+            "src/wasm/baseline/x64/liftoff-assembler-x64.h",
         ],
         "@v8//bazel/config:v8_target_arm": [
             "src/baseline/arm/baseline-assembler-arm-inl.h",
@@ -2443,7 +2435,7 @@ filegroup(
             "src/execution/arm/simulator-arm.h",
             "src/regexp/arm/regexp-macro-assembler-arm.cc",
             "src/regexp/arm/regexp-macro-assembler-arm.h",
-            "src/wasm/baseline/arm/liftoff-assembler-arm-inl.h",
+            "src/wasm/baseline/arm/liftoff-assembler-arm.h",
         ],
         "@v8//bazel/config:v8_target_arm64": [
             "src/baseline/arm64/baseline-assembler-arm64-inl.h",
@@ -2481,7 +2473,7 @@ filegroup(
             "src/execution/arm64/simulator-logic-arm64.cc",
             "src/regexp/arm64/regexp-macro-assembler-arm64.cc",
             "src/regexp/arm64/regexp-macro-assembler-arm64.h",
-            "src/wasm/baseline/arm64/liftoff-assembler-arm64-inl.h",
+            "src/wasm/baseline/arm64/liftoff-assembler-arm64.h",
         ],
         "@v8//bazel/config:v8_target_s390x": [
             "src/baseline/s390/baseline-assembler-s390-inl.h",
@@ -2507,7 +2499,7 @@ filegroup(
             "src/execution/s390/simulator-s390.h",
             "src/regexp/s390/regexp-macro-assembler-s390.cc",
             "src/regexp/s390/regexp-macro-assembler-s390.h",
-            "src/wasm/baseline/s390/liftoff-assembler-s390-inl.h",
+            "src/wasm/baseline/s390/liftoff-assembler-s390.h",
         ],
         "@v8//bazel/config:v8_target_riscv64": [
             "src/baseline/riscv64/baseline-assembler-riscv64-inl.h",
@@ -2532,7 +2524,7 @@ filegroup(
             "src/execution/riscv64/simulator-riscv64.h",
             "src/regexp/riscv64/regexp-macro-assembler-riscv64.cc",
             "src/regexp/riscv64/regexp-macro-assembler-riscv64.h",
-            "src/wasm/baseline/riscv64/liftoff-assembler-riscv64-inl.h",
+            "src/wasm/baseline/riscv64/liftoff-assembler-riscv64.h",
         ],
         "@v8//bazel/config:v8_target_ppc64le": [
             "src/baseline/ppc/baseline-assembler-ppc-inl.h",
@@ -2558,7 +2550,7 @@ filegroup(
             "src/execution/ppc/simulator-ppc.h",
             "src/regexp/ppc/regexp-macro-assembler-ppc.cc",
             "src/regexp/ppc/regexp-macro-assembler-ppc.h",
-            "src/wasm/baseline/ppc/liftoff-assembler-ppc-inl.h",
+            "src/wasm/baseline/ppc/liftoff-assembler-ppc.h",
         ],
     }) + select({
         # Only for x64 builds and for arm64 with x64 host simulator.
@@ -2617,13 +2609,9 @@ filegroup(
             "src/wasm/baseline/liftoff-assembler.cc",
             "src/wasm/baseline/liftoff-assembler.h",
             "src/wasm/baseline/liftoff-assembler-defs.h",
-            "src/wasm/baseline/liftoff-assembler-inl.h",
             "src/wasm/baseline/liftoff-compiler.cc",
             "src/wasm/baseline/liftoff-compiler.h",
             "src/wasm/baseline/liftoff-register.h",
-            "src/wasm/baseline/parallel-move.cc",
-            "src/wasm/baseline/parallel-move.h",
-            "src/wasm/baseline/parallel-move-inl.h",
             "src/wasm/branch-hint-map.h",
             "src/wasm/canonical-types.cc",
             "src/wasm/canonical-types.h",
@@ -2642,7 +2630,6 @@ filegroup(
             "src/wasm/function-compiler.h",
             "src/wasm/graph-builder-interface.cc",
             "src/wasm/graph-builder-interface.h",
-            "src/wasm/inlining-tree.h",
             "src/wasm/jump-table-assembler.cc",
             "src/wasm/jump-table-assembler.h",
             "src/wasm/leb-helper.h",
@@ -2810,6 +2797,8 @@ filegroup(
         "src/compiler/backend/instruction-selector-impl.h",
         "src/compiler/backend/jump-threading.cc",
         "src/compiler/backend/jump-threading.h",
+        "src/compiler/backend/mid-tier-register-allocator.cc",
+        "src/compiler/backend/mid-tier-register-allocator.h",
         "src/compiler/backend/move-optimizer.cc",
         "src/compiler/backend/move-optimizer.h",
         "src/compiler/backend/register-allocation.h",
@@ -3011,17 +3000,13 @@ filegroup(
         "src/compiler/string-builder-optimizer.h",
         "src/compiler/turbofan.h",
         "src/compiler/turbofan-enabled.cc",
-        "src/compiler/turboshaft/analyzer-iterator.cc",
-        "src/compiler/turboshaft/analyzer-iterator.h",
         "src/compiler/turboshaft/assembler.cc",
         "src/compiler/turboshaft/assembler.h",
         "src/compiler/turboshaft/assert-types-reducer.h",
-        "src/compiler/turboshaft/branch-condition-duplication-reducer.h",
         "src/compiler/turboshaft/branch-elimination-reducer.h",
         "src/compiler/turboshaft/build-graph-phase.cc",
         "src/compiler/turboshaft/build-graph-phase.h",
         "src/compiler/turboshaft/builtin-call-descriptors.h",
-        "src/compiler/turboshaft/dataview-reducer.h",
         "src/compiler/turboshaft/dead-code-elimination-phase.cc",
         "src/compiler/turboshaft/dead-code-elimination-phase.h",
         "src/compiler/turboshaft/dead-code-elimination-reducer.h",
@@ -3052,25 +3037,19 @@ filegroup(
         "src/compiler/turboshaft/late-load-elimination-reducer.cc",
         "src/compiler/turboshaft/late-load-elimination-reducer.h",
         "src/compiler/turboshaft/layered-hash-map.h",
-        "src/compiler/turboshaft/loop-finder.cc",
-        "src/compiler/turboshaft/loop-finder.h",
-        "src/compiler/turboshaft/loop-peeling-phase.cc",
-        "src/compiler/turboshaft/loop-peeling-phase.h",
-        "src/compiler/turboshaft/loop-peeling-reducer.h",
         "src/compiler/turboshaft/loop-unrolling-phase.cc",
         "src/compiler/turboshaft/loop-unrolling-phase.h",
         "src/compiler/turboshaft/loop-unrolling-reducer.cc",
         "src/compiler/turboshaft/loop-unrolling-reducer.h",
         "src/compiler/turboshaft/machine-lowering-phase.cc",
         "src/compiler/turboshaft/machine-lowering-phase.h",
-        "src/compiler/turboshaft/machine-lowering-reducer-inl.h",
+        "src/compiler/turboshaft/machine-lowering-reducer.h",
         "src/compiler/turboshaft/machine-optimization-reducer.h",
         "src/compiler/turboshaft/memory-optimization-reducer.cc",
         "src/compiler/turboshaft/memory-optimization-reducer.h",
         "src/compiler/turboshaft/operation-matcher.h",
         "src/compiler/turboshaft/operations.cc",
         "src/compiler/turboshaft/operations.h",
-        "src/compiler/turboshaft/opmasks.h",
         "src/compiler/turboshaft/optimization-phase.cc",
         "src/compiler/turboshaft/optimization-phase.h",
         "src/compiler/turboshaft/optimize-phase.cc",
@@ -3090,10 +3069,7 @@ filegroup(
         "src/compiler/turboshaft/required-optimization-reducer.h",
         "src/compiler/turboshaft/runtime-call-descriptors.h",
         "src/compiler/turboshaft/select-lowering-reducer.h",
-        "src/compiler/turboshaft/sidetable.cc",
         "src/compiler/turboshaft/sidetable.h",
-        "src/compiler/turboshaft/simplified-lowering-phase.cc",
-        "src/compiler/turboshaft/simplified-lowering-phase.h",
         "src/compiler/turboshaft/simplify-tf-loops.cc",
         "src/compiler/turboshaft/simplify-tf-loops.h",
         "src/compiler/turboshaft/snapshot-table.h",
@@ -3204,15 +3180,11 @@ filegroup(
             "src/compiler/turboshaft/int64-lowering-phase.cc",
             "src/compiler/turboshaft/int64-lowering-phase.h",
             "src/compiler/turboshaft/int64-lowering-reducer.h",
-            "src/compiler/turboshaft/wasm-assembler-helpers.h",
+            "src/compiler/turboshaft/wasm-lowering-reducer.h",
             "src/compiler/turboshaft/wasm-gc-optimize-phase.cc",
             "src/compiler/turboshaft/wasm-gc-optimize-phase.h",
             "src/compiler/turboshaft/wasm-gc-type-reducer.cc",
             "src/compiler/turboshaft/wasm-gc-type-reducer.h",
-            "src/compiler/turboshaft/wasm-load-elimination-reducer.h",
-            "src/compiler/turboshaft/wasm-lowering-phase.cc",
-            "src/compiler/turboshaft/wasm-lowering-phase.h",
-            "src/compiler/turboshaft/wasm-lowering-reducer.h",
             "src/compiler/turboshaft/wasm-optimize-phase.cc",
             "src/compiler/turboshaft/wasm-optimize-phase.h",
             "src/compiler/turboshaft/wasm-turboshaft-compiler.cc",
@@ -3970,8 +3942,6 @@ v8_library(
     deps = [
         ":v8_libbase",
         "//external:base_trace_event_common",
-        "//external:absl_flat_hash_map",
-        "//external:absl_flat_hash_set",
     ],
 )
 

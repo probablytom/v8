@@ -115,18 +115,6 @@ struct TurbofanAdapter {
       DCHECK(is_number());
       return OpParameter<double>(node_->op());
     }
-    bool is_float() const {
-      return node_->opcode() == IrOpcode::kFloat32Constant ||
-             node_->opcode() == IrOpcode::kFloat64Constant;
-    }
-    double float_value() const {
-      DCHECK(is_float());
-      if (node_->opcode() == IrOpcode::kFloat32Constant) {
-        return OpParameter<float>(node_->op());
-      } else {
-        return OpParameter<double>(node_->op());
-      }
-    }
 
     operator node_t() const { return node_; }
 
@@ -567,8 +555,7 @@ struct TurboshaftAdapter : public turboshaft::OperationMatcher {
   using inputs_t = base::Vector<const node_t>;
   using opcode_t = turboshaft::Opcode;
   using id_t = uint32_t;
-  using source_position_table_t =
-      turboshaft::GrowingOpIndexSidetable<SourcePosition>;
+  using source_position_table_t = turboshaft::GrowingSidetable<SourcePosition>;
 
   explicit TurboshaftAdapter(turboshaft::Graph* graph)
       : turboshaft::OperationMatcher(*graph), graph_(graph) {}
@@ -612,17 +599,6 @@ struct TurboshaftAdapter : public turboshaft::OperationMatcher {
     double number_value() const {
       DCHECK(is_number());
       return op_->number();
-    }
-    bool is_float() const {
-      return op_->kind == Kind::kFloat32 || op_->kind == Kind::kFloat64;
-    }
-    double float_value() const {
-      DCHECK(is_float());
-      if (op_->kind == Kind::kFloat32) {
-        return op_->float32();
-      } else {
-        return op_->float64();
-      }
     }
 
     operator node_t() const { return node_; }
@@ -734,15 +710,7 @@ struct TurboshaftAdapter : public turboshaft::OperationMatcher {
     }
 
     LoadRepresentation loaded_rep() const {
-      MachineType loaded_rep = op_->loaded_rep.ToMachineType();
-      if (op_->result_rep == turboshaft::RegisterRepresentation::Compressed()) {
-        if (loaded_rep == MachineType::AnyTagged()) {
-          return MachineType::AnyCompressed();
-        } else if (loaded_rep == MachineType::TaggedPointer()) {
-          return MachineType::CompressedPointer();
-        }
-      }
-      return loaded_rep;
+      return op_->loaded_rep.ToMachineType();
     }
     bool is_protected(bool* traps_on_null) const {
       if (op_->kind.with_trap_handler) {
@@ -754,7 +722,7 @@ struct TurboshaftAdapter : public turboshaft::OperationMatcher {
     bool is_atomic() const { return op_->kind.is_atomic; }
 
     node_t base() const { return op_->base(); }
-    node_t index() const { return op_->index().value_or_invalid(); }
+    node_t index() const { return op_->index(); }
     int32_t displacement() const {
       static_assert(
           std::is_same_v<decltype(turboshaft::StoreOp::offset), int32_t>);
@@ -800,7 +768,7 @@ struct TurboshaftAdapter : public turboshaft::OperationMatcher {
     }
 
     node_t base() const { return op_->base(); }
-    node_t index() const { return op_->index().value_or_invalid(); }
+    node_t index() const { return op_->index(); }
     node_t value() const { return op_->value(); }
     node_t indirect_pointer_tag() const { UNREACHABLE(); }
     int32_t displacement() const {
@@ -885,7 +853,7 @@ struct TurboshaftAdapter : public turboshaft::OperationMatcher {
     node_t value() const { return op_->value(); }
     node_t expected() const {
       DCHECK_EQ(op_->bin_op, turboshaft::AtomicRMWOp::BinOp::kCompareExchange);
-      return op_->expected().value_or_invalid();
+      return op_->expected();
     }
 
     operator node_t() const { return node_; }

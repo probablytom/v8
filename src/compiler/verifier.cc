@@ -838,7 +838,6 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
     }
 
     case IrOpcode::kJSConstructForwardVarargs:
-    case IrOpcode::kJSConstructForwardAllArgs:
     case IrOpcode::kJSConstruct:
     case IrOpcode::kJSConstructWithArrayLike:
     case IrOpcode::kJSConstructWithSpread:
@@ -1715,8 +1714,8 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
     case IrOpcode::kIsNull:
     case IrOpcode::kIsNotNull:
     case IrOpcode::kAssertNotNull:
-    case IrOpcode::kWasmAnyConvertExtern:
-    case IrOpcode::kWasmExternConvertAny:
+    case IrOpcode::kWasmExternInternalize:
+    case IrOpcode::kWasmExternExternalize:
     case IrOpcode::kWasmStructGet:
     case IrOpcode::kWasmStructSet:
     case IrOpcode::kWasmArrayGet:

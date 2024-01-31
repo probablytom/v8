@@ -21,10 +21,10 @@ extern class FixedDoubleArray extends FixedArrayBase {
   floats[length]: float64_or_hole;
 }
 
-@cppObjectDefinition
+@generateBodyDescriptor
 extern class WeakFixedArray extends HeapObject {
   const length: Smi;
-  objects[length]: MaybeObject;
+  @cppRelaxedLoad objects[length]: MaybeObject;
 }
 
 @cppObjectDefinition
@@ -40,11 +40,9 @@ extern class ExternalPointerArray extends FixedArrayBase {
 extern macro CodeStubAssembler::AllocateByteArray(uintptr): ByteArray;
 
 @cppObjectDefinition
-extern class ArrayList extends HeapObject {
-  const capacity: Smi;
-  length: Smi;
-  objects[capacity]: Object;
-}
+@hasSameInstanceTypeAsParent
+@doNotGenerateCast
+extern class ArrayList extends FixedArray {}
 
 @generateBodyDescriptor
 extern class WeakArrayList extends HeapObject {
@@ -134,14 +132,14 @@ extern macro CopyFixedArrayElements(
     intptr, intptr, intptr): void;
 
 macro ExtractFixedArray(
-    source: FixedArray, first: intptr, count: intptr, capacity: intptr,
-    initialElement: Hole): FixedArray {
+    source: FixedArray, first: intptr, count: intptr,
+    capacity: intptr): FixedArray {
   // TODO(turbofan): This should be optimized to use memcpy for initialization.
   return NewFixedArray(
       capacity,
       IteratorSequence<Object>(
           (&source.objects).Iterator(first, first + count),
-          ConstantIterator(initialElement)));
+          ConstantIterator(TheHole)));
 }
 macro ExtractFixedDoubleArray(
     source: FixedDoubleArray, first: intptr, count: intptr,

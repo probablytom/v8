@@ -1469,56 +1469,6 @@ void Builtins::Generate_InterpreterPushArgsThenConstructImpl(
   }
 }
 
-// static
-void Builtins::Generate_ConstructForwardAllArgsImpl(
-    MacroAssembler* masm, ForwardWhichFrame which_frame) {
-  // ----------- S t a t e -------------
-  // -- r3 : new target
-  // -- r1 : constructor to call
-  // -----------------------------------
-  Label stack_overflow;
-
-  // Load the frame pointer into r4.
-  switch (which_frame) {
-    case ForwardWhichFrame::kCurrentFrame:
-      __ mov(r4, fp);
-      break;
-    case ForwardWhichFrame::kParentFrame:
-      __ ldr(r4, MemOperand(fp, StandardFrameConstants::kCallerFPOffset));
-      break;
-  }
-
-  // Load the argument count into r0.
-  __ ldr(r0, MemOperand(r4, StandardFrameConstants::kArgCOffset));
-
-  __ StackOverflowCheck(r0, r6, &stack_overflow);
-
-  // Point r4 to the base of the argument list to forward, excluding the
-  // receiver.
-  __ add(r4, r4,
-         Operand((StandardFrameConstants::kFixedSlotCountAboveFp + 1) *
-                 kSystemPointerSize));
-
-  // Copy arguments on the stack. r5 is a scratch register.
-  Register argc_without_receiver = r6;
-  __ sub(argc_without_receiver, r0, Operand(kJSArgcReceiverSlots));
-  __ PushArray(r4, argc_without_receiver, r5);
-
-  // Push a slot for the receiver to be constructed.
-  __ mov(r5, Operand::Zero());
-  __ push(r5);
-
-  // Call the constructor with r0, r1, and r3 unmodified.
-  __ Jump(BUILTIN_CODE(masm->isolate(), Construct), RelocInfo::CODE_TARGET);
-
-  __ bind(&stack_overflow);
-  {
-    __ TailCallRuntime(Runtime::kThrowStackOverflow);
-    // Unreachable code.
-    __ bkpt(0);
-  }
-}
-
 namespace {
 
 void NewImplicitReceiver(MacroAssembler* masm) {
@@ -2958,10 +2908,6 @@ void Builtins::Generate_WasmToJsWrapperAsm(MacroAssembler* masm) {
   __ TailCallBuiltin(Builtin::kWasmToJsWrapperCSA);
 }
 
-void Builtins::Generate_WasmTrapHandlerLandingPad(MacroAssembler* masm) {
-  __ Trap();
-}
-
 void Builtins::Generate_WasmSuspend(MacroAssembler* masm) {
   // TODO(v8:12191): Implement for this platform.
   __ Trap();
@@ -3579,9 +3525,10 @@ void Builtins::Generate_CallApiCallbackImpl(MacroAssembler* masm,
 
   const bool with_profiling =
       mode != CallApiCallbackMode::kOptimizedNoProfiling;
+  Label* no_done = nullptr;
   CallApiFunctionAndReturn(masm, with_profiling, api_function_address,
                            thunk_ref, thunk_arg, kUseStackSpaceOperand,
-                           &stack_space_operand, return_value_operand);
+                           &stack_space_operand, return_value_operand, no_done);
 }
 
 void Builtins::Generate_CallApiGetter(MacroAssembler* masm) {
@@ -3677,9 +3624,10 @@ void Builtins::Generate_CallApiGetter(MacroAssembler* masm) {
   MemOperand* const kUseStackSpaceConstant = nullptr;
 
   const bool with_profiling = true;
-  CallApiFunctionAndReturn(masm, with_profiling, api_function_address,
-                           thunk_ref, thunk_arg, kStackUnwindSpace,
-                           kUseStackSpaceConstant, return_value_operand);
+  Label* no_done = nullptr;
+  CallApiFunctionAndReturn(
+      masm, with_profiling, api_function_address, thunk_ref, thunk_arg,
+      kStackUnwindSpace, kUseStackSpaceConstant, return_value_operand, no_done);
 }
 
 void Builtins::Generate_DirectCEntry(MacroAssembler* masm) {

@@ -200,7 +200,7 @@ bool WasmGraphBuilder::TryWasmInlining(int fct_index,
   // If the inlinee was not validated before, do that now.
   if (V8_UNLIKELY(!module->function_was_validated(fct_index))) {
     wasm::WasmFeatures unused_detected_features;
-    if (ValidateFunctionBody(graph()->zone(), enabled_features_, module,
+    if (ValidateFunctionBody(enabled_features_, module,
                              &unused_detected_features, inlinee_body)
             .failed()) {
       // At this point we cannot easily raise a compilation error any more.
@@ -427,9 +427,11 @@ void WasmGraphBuilder::StackCheck(
   DCHECK_NOT_NULL(env_);  // Wrappers don't get stack checks.
   if (!v8_flags.wasm_stack_checks) return;
 
-  Node* limit =
-      gasm_->Load(MachineType::Pointer(), gasm_->LoadRootRegister(),
-                  mcgraph()->IntPtrConstant(IsolateData::jslimit_offset()));
+  Node* limit_address =
+      LOAD_INSTANCE_FIELD(StackLimitAddress, MachineType::Pointer());
+  // Since the limit can be mutated by a trap handler, we cannot use load
+  // elimination.
+  Node* limit = gasm_->Load(MachineType::Pointer(), limit_address, 0);
 
   Node* check = SetEffect(graph()->NewNode(
       mcgraph()->machine()->StackPointerGreaterThan(StackCheckKind::kWasm),
@@ -1100,11 +1102,11 @@ Node* WasmGraphBuilder::Unop(wasm::WasmOpcode opcode, Node* input,
       return BuildAsmjsLoadMem(MachineType::Float32(), input);
     case wasm::kExprF64AsmjsLoadMem:
       return BuildAsmjsLoadMem(MachineType::Float64(), input);
-    case wasm::kExprAnyConvertExtern: {
-      return gasm_->WasmAnyConvertExtern(input);
+    case wasm::kExprExternInternalize: {
+      return gasm_->WasmExternInternalize(input);
     }
-    case wasm::kExprExternConvertAny:
-      return gasm_->WasmExternConvertAny(input);
+    case wasm::kExprExternExternalize:
+      return gasm_->WasmExternExternalize(input);
     default:
       FATAL_UNSUPPORTED_OPCODE(opcode);
   }
@@ -3476,7 +3478,7 @@ void WasmGraphBuilder::GetGlobalBaseAndOffset(const wasm::WasmGlobal& global,
       *offset = gasm_->IntAdd(
           gasm_->IntMul(index, gasm_->IntPtrConstant(kTaggedSize)),
           gasm_->IntPtrConstant(
-              wasm::ObjectAccess::ToTagged(FixedArray::OffsetOfElementAt(0))));
+              wasm::ObjectAccess::ToTagged(FixedArray::kObjectsOffset)));
     } else {
       *base = gasm_->LoadFromObject(kMaybeSandboxedPointer,
                                     imported_mutable_globals, field_offset);
@@ -4018,10 +4020,7 @@ Node* WasmGraphBuilder::BuildAsmjsLoadMem(MachineType type, Node* index) {
   // Note that we check against the memory size ignoring the size of the
   // stored value, which is conservative if misaligned. Technically, asm.js
   // should never have misaligned accesses.
-  // Perform a signed extension to intptr so that the bounds check technique
-  // (a single unsigned comparison covering both negative and too-large indices)
-  // correctly works for buffers larger than 2 GiB.
-  index = gasm_->BuildChangeInt32ToIntPtr(index);
+  index = gasm_->BuildChangeUint32ToUintPtr(index);
   Diamond bounds_check(graph(), mcgraph()->common(),
                        gasm_->UintLessThan(index, mem_size), BranchHint::kTrue);
   bounds_check.Chain(control());
@@ -4064,14 +4063,12 @@ Node* WasmGraphBuilder::BuildAsmjsStoreMem(MachineType type, Node* index,
   // Note that we check against the memory size ignoring the size of the
   // stored value, which is conservative if misaligned. Technically, asm.js
   // should never have misaligned accesses.
-  // Perform a signed extension to intptr so that the bounds check technique
-  // (a single unsigned comparison covering both negative and too-large indices)
-  // correctly works for buffers larger than 2 GiB.
-  index = gasm_->BuildChangeInt32ToIntPtr(index);
   Diamond bounds_check(graph(), mcgraph()->common(),
-                       gasm_->UintLessThan(index, mem_size), BranchHint::kTrue);
+                       gasm_->Uint32LessThan(index, mem_size),
+                       BranchHint::kTrue);
   bounds_check.Chain(control());
 
+  index = gasm_->BuildChangeUint32ToUintPtr(index);
   const Operator* store_op = mcgraph()->machine()->Store(StoreRepresentation(
       type.representation(), WriteBarrierKind::kNoWriteBarrier));
   Node* store = graph()->NewNode(store_op, mem_start, index, val, effect(),
@@ -5149,17 +5146,10 @@ Node* WasmGraphBuilder::AtomicOp(const wasm::WasmMemory* memory,
   Node* effective_offset = gasm_->IntAdd(gasm_->UintPtrConstant(offset), index);
 
   switch (opcode) {
-    case wasm::kExprAtomicNotify: {
-      Node* function =
-          gasm_->ExternalConstant(ExternalReference::wasm_atomic_notify());
-      auto sig = FixedSizeSignature<MachineType>::Returns(MachineType::Int32())
-                     .Params(MachineType::Pointer(), MachineType::Uint32());
-
-      Node* addr = gasm_->IntAdd(MemStart(memory->index), effective_offset);
-      Node* num_waiters_to_wake = inputs[1];
-
-      return BuildCCall(&sig, function, addr, num_waiters_to_wake);
-    }
+    case wasm::kExprAtomicNotify:
+      return gasm_->CallBuiltinThroughJumptable(
+          Builtin::kWasmAtomicNotify, Operator::kNoThrow, memory_index,
+          effective_offset, inputs[1]);
 
     case wasm::kExprI32AtomicWait: {
       constexpr StubCallMode kStubMode = StubCallMode::kCallWasmRuntimeStub;
@@ -6721,7 +6711,7 @@ Node* WasmGraphBuilder::WellKnown_StringToLocaleLowerCaseStringref(
     // JS null, so we must externalize any Wasm null here.
     // Externalizing the {locale} is not required, because
     // {Object::ConvertToString} has been taught how to deal with WasmNull.
-    string = gasm_->WasmExternConvertAny(string);
+    string = gasm_->WasmExternExternalize(string);
   }
   int param_count = 2;  // String, locale.
   CallDescriptor* call_descriptor = Linkage::GetJSCallDescriptor(
@@ -7100,8 +7090,6 @@ class WasmWrapperGraphBuilder : public WasmGraphBuilder {
           case wasm::HeapType::kNone:
           case wasm::HeapType::kNoFunc:
           case wasm::HeapType::kNoExtern:
-          case wasm::HeapType::kExn:
-          case wasm::HeapType::kNoExn:
             return node;
           case wasm::HeapType::kBottom:
           case wasm::HeapType::kStringViewWtf8:
@@ -7136,8 +7124,6 @@ class WasmWrapperGraphBuilder : public WasmGraphBuilder {
         switch (type.heap_representation()) {
           case wasm::HeapType::kExtern:
           case wasm::HeapType::kNoExtern:
-          case wasm::HeapType::kExn:
-          case wasm::HeapType::kNoExn:
             return node;
           case wasm::HeapType::kNone:
           case wasm::HeapType::kNoFunc:
@@ -7271,9 +7257,6 @@ class WasmWrapperGraphBuilder : public WasmGraphBuilder {
             return input;
           case wasm::HeapType::kString:
             return BuildCheckString(input, js_context, type);
-          case wasm::HeapType::kExn:
-          case wasm::HeapType::kNoExn:
-            return input;
           case wasm::HeapType::kNone:
           case wasm::HeapType::kNoFunc:
           case wasm::HeapType::kI31:
@@ -8189,21 +8172,12 @@ class WasmWrapperGraphBuilder : public WasmGraphBuilder {
         },
         // Initialize wasm-specific callback options fields
         [this](Node* options_stack_slot) {
-          Node* mem_start;
-          Node* mem_size;
-          if (module_->memories.empty()) {
-            mem_start = gasm_->UintPtrConstant(0);
-            mem_size = gasm_->UintPtrConstant(0);
-          } else if (module_->memories.size() == 1) {
-            mem_start = LOAD_INSTANCE_FIELD_NO_ELIMINATION(
-                Memory0Start, kMaybeSandboxedPointer);
-            mem_size = LOAD_INSTANCE_FIELD_NO_ELIMINATION(
-                Memory0Size, MachineType::UintPtr());
-          } else {
-            FATAL(
-                "Fast API does not support multiple memories yet "
-                "(https://crbug.com/v8/14260)");
-          }
+          // TODO(14260): Do we need to support multiple memories for the fast
+          // API?
+          Node* mem_start = LOAD_INSTANCE_FIELD_NO_ELIMINATION(
+              Memory0Start, kMaybeSandboxedPointer);
+          Node* mem_size = LOAD_INSTANCE_FIELD_NO_ELIMINATION(
+              Memory0Size, MachineType::UintPtr());
 
           constexpr int kSize = sizeof(FastApiTypedArray<uint8_t>);
           constexpr int kAlign = alignof(FastApiTypedArray<uint8_t>);

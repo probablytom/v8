@@ -13,9 +13,8 @@
 namespace v8 {
 namespace internal {
 
-class AccessCheckInfo;
-class FastKeyAccumulator;
 class JSProxy;
+class FastKeyAccumulator;
 
 enum AddKeyConversion { DO_NOT_CONVERT, CONVERT_TO_ARRAY_INDEX };
 

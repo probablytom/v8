@@ -102,10 +102,6 @@ TQ_OBJECT_CONSTRUCTORS_IMPL(UncompiledDataWithoutPreparseDataWithJob)
 TQ_OBJECT_CONSTRUCTORS_IMPL(UncompiledDataWithPreparseDataAndJob)
 
 TQ_OBJECT_CONSTRUCTORS_IMPL(InterpreterData)
-TRUSTED_POINTER_ACCESSORS(InterpreterData, bytecode_array, BytecodeArray,
-                          kBytecodeArrayOffset,
-                          kBytecodeArrayIndirectPointerTag)
-
 TQ_OBJECT_CONSTRUCTORS_IMPL(SharedFunctionInfo)
 DEFINE_DEOPT_ELEMENT_ACCESSORS(SharedFunctionInfo, Tagged<Object>)
 
@@ -117,10 +113,6 @@ RELEASE_ACQUIRE_ACCESSORS(SharedFunctionInfo, script, Tagged<HeapObject>,
                           kScriptOffset)
 RELEASE_ACQUIRE_ACCESSORS(SharedFunctionInfo, raw_script, Tagged<Object>,
                           kScriptOffset)
-
-Tagged<Object> SharedFunctionInfo::GetData() const {
-  return function_data(kAcquireLoad);
-}
 
 DEF_GETTER(SharedFunctionInfo, script, Tagged<HeapObject>) {
   return script(cage_base, kAcquireLoad);
@@ -622,28 +614,27 @@ Tagged<BytecodeArray> SharedFunctionInfo::GetBytecodeArray(
 
   DCHECK(HasBytecodeArray());
 
-  Isolate* main_isolate = isolate->GetMainThreadIsolateUnsafe();
-  base::Optional<Tagged<DebugInfo>> debug_info = TryGetDebugInfo(main_isolate);
+  base::Optional<Tagged<DebugInfo>> debug_info =
+      TryGetDebugInfo(isolate->GetMainThreadIsolateUnsafe());
   if (debug_info.has_value() &&
       debug_info.value()->HasInstrumentedBytecodeArray()) {
-    return debug_info.value()->OriginalBytecodeArray(main_isolate);
+    return debug_info.value()->OriginalBytecodeArray();
   }
 
-  return GetActiveBytecodeArray(main_isolate);
+  return GetActiveBytecodeArray();
 }
 
-Tagged<BytecodeArray> SharedFunctionInfo::GetActiveBytecodeArray(
-    const Isolate* isolate) const {
+DEF_GETTER(SharedFunctionInfo, GetActiveBytecodeArray, Tagged<BytecodeArray>) {
   Tagged<Object> data = function_data(kAcquireLoad);
   if (IsCode(data)) {
     Tagged<Code> baseline_code = Code::cast(data);
-    data = baseline_code->bytecode_or_interpreter_data(isolate);
+    data = baseline_code->bytecode_or_interpreter_data(cage_base);
   }
   if (IsBytecodeArray(data)) {
     return BytecodeArray::cast(data);
   } else {
     DCHECK(IsInterpreterData(data));
-    return InterpreterData::cast(data)->bytecode_array(isolate);
+    return InterpreterData::cast(data)->bytecode_array();
   }
 }
 
@@ -653,22 +644,18 @@ void SharedFunctionInfo::SetActiveBytecodeArray(
   // functions. They should have been flushed earlier.
   DCHECK(!HasBaselineCode());
 
-  if (HasInterpreterData()) {
-    interpreter_data()->set_bytecode_array(bytecode);
+  Tagged<Object> data = function_data(kAcquireLoad);
+  if (IsBytecodeArray(data)) {
+    set_function_data(bytecode, kReleaseStore);
   } else {
-    DCHECK(HasBytecodeArray());
-    overwrite_bytecode_array(bytecode);
+    DCHECK(IsInterpreterData(data));
+    interpreter_data()->set_bytecode_array(bytecode);
   }
 }
 
 void SharedFunctionInfo::set_bytecode_array(Tagged<BytecodeArray> bytecode) {
   DCHECK(function_data(kAcquireLoad) == Smi::FromEnum(Builtin::kCompileLazy) ||
          HasUncompiledData());
-  set_function_data(bytecode, kReleaseStore);
-}
-
-void SharedFunctionInfo::overwrite_bytecode_array(
-    Tagged<BytecodeArray> bytecode) {
   set_function_data(bytecode, kReleaseStore);
 }
 
@@ -682,8 +669,7 @@ DEF_GETTER(SharedFunctionInfo, HasInterpreterData, bool) {
   if (IsCode(data, cage_base)) {
     Tagged<Code> baseline_code = Code::cast(data);
     DCHECK_EQ(baseline_code->kind(), CodeKind::BASELINE);
-    data = baseline_code->bytecode_or_interpreter_data(
-        GetIsolateForSandbox(*this));
+    data = baseline_code->bytecode_or_interpreter_data(cage_base);
   }
   return IsInterpreterData(data, cage_base);
 }
@@ -694,8 +680,7 @@ DEF_GETTER(SharedFunctionInfo, interpreter_data, Tagged<InterpreterData>) {
   if (IsCode(data, cage_base)) {
     Tagged<Code> baseline_code = Code::cast(data);
     DCHECK_EQ(baseline_code->kind(), CodeKind::BASELINE);
-    data = baseline_code->bytecode_or_interpreter_data(
-        GetIsolateForSandbox(*this));
+    data = baseline_code->bytecode_or_interpreter_data(cage_base);
   }
   return InterpreterData::cast(data);
 }
@@ -728,11 +713,10 @@ void SharedFunctionInfo::set_baseline_code(Tagged<Code> baseline_code,
   set_function_data(baseline_code, tag, mode);
 }
 
-void SharedFunctionInfo::FlushBaselineCode(const Isolate* isolate) {
+void SharedFunctionInfo::FlushBaselineCode() {
   DCHECK(HasBaselineCode());
-  set_function_data(
-      baseline_code(kAcquireLoad)->bytecode_or_interpreter_data(isolate),
-      kReleaseStore);
+  set_function_data(baseline_code(kAcquireLoad)->bytecode_or_interpreter_data(),
+                    kReleaseStore);
 }
 
 #if V8_ENABLE_WEBASSEMBLY
@@ -858,7 +842,7 @@ DEF_GETTER(SharedFunctionInfo, uncompiled_data, Tagged<UncompiledData>) {
 void SharedFunctionInfo::set_uncompiled_data(
     Tagged<UncompiledData> uncompiled_data, WriteBarrierMode mode) {
   DCHECK(function_data(kAcquireLoad) == Smi::FromEnum(Builtin::kCompileLazy) ||
-         HasUncompiledData() || HasBytecodeArray() || HasBaselineCode());
+         HasUncompiledData());
   DCHECK(IsUncompiledData(uncompiled_data));
   set_function_data(uncompiled_data, kReleaseStore);
 }
@@ -908,8 +892,7 @@ void SharedFunctionInfo::ClearPreparseData() {
 
   // We are basically trimming that object to its supertype, so recorded slots
   // within the object don't need to be invalidated.
-  heap->NotifyObjectLayoutChange(data, no_gc, InvalidateRecordedSlots::kNo,
-                                 InvalidateExternalPointerSlots::kNo);
+  heap->NotifyObjectLayoutChange(data, no_gc, InvalidateRecordedSlots::kNo);
   static_assert(UncompiledDataWithoutPreparseData::kSize <
                 UncompiledDataWithPreparseData::kSize);
   static_assert(UncompiledDataWithoutPreparseData::kSize ==

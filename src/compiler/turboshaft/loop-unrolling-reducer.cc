@@ -5,9 +5,74 @@
 #include "src/compiler/turboshaft/loop-unrolling-reducer.h"
 
 #include "src/compiler/turboshaft/index.h"
-#include "src/compiler/turboshaft/loop-finder.h"
 
 namespace v8::internal::compiler::turboshaft {
+
+void LoopFinder::Run() {
+  ZoneVector<Block*> all_loops(phase_zone_);
+  for (Block& block : base::Reversed(input_graph_->blocks())) {
+    if (block.IsLoop()) {
+      LoopInfo info = VisitLoop(&block);
+      loop_header_info_.insert({&block, info});
+    }
+  }
+}
+
+// Update the `parent_loops_` of all of the blocks that are inside of the loop
+// that starts on `header`.
+LoopFinder::LoopInfo LoopFinder::VisitLoop(Block* header) {
+  Block* backedge = header->LastPredecessor();
+  DCHECK(backedge->LastOperation(*input_graph_).Is<GotoOp>());
+  DCHECK_EQ(backedge->LastOperation(*input_graph_).Cast<GotoOp>().destination,
+            header);
+  DCHECK_GE(backedge->index().id(), header->index().id());
+
+  LoopInfo info;
+
+  queue_.clear();
+  queue_.push_back(backedge);
+  while (!queue_.empty()) {
+    const Block* curr = queue_.back();
+    queue_.pop_back();
+    if (curr == header) continue;
+    if (loop_headers_[curr->index()] != nullptr) {
+      Block* curr_parent = loop_headers_[curr->index()];
+      if (curr_parent == header) {
+        // If {curr}'s parent is already marked as being {header}, then we've
+        // already visited {curr}.
+        continue;
+      } else {
+        // If {curr}'s parent is not {header}, then {curr} is part of an inner
+        // loop. We should continue the search on the loop header: the
+        // predecessors of {curr} will all be in this inner loop.
+        queue_.push_back(curr_parent);
+        info.has_inner_loops = true;
+        continue;
+      }
+    }
+    info.block_count++;
+    info.op_count += curr->end().id() - curr->begin().id();
+    loop_headers_[curr->index()] = header;
+    Block* pred_start = curr->LastPredecessor();
+    if (curr->IsLoop()) {
+      // Skipping the backedge of inner loops since we don't want to visit inner
+      // loops now (they should already have been visited).
+      DCHECK_NOT_NULL(pred_start);
+      pred_start = pred_start->NeighboringPredecessor();
+      info.has_inner_loops = true;
+    }
+    for (Block* pred : NeighboringPredecessorIterable(pred_start)) {
+      queue_.push_back(pred);
+    }
+  }
+
+  info.start = header;
+  info.end = backedge;
+  // We increment the `block_count` by 1 to account for the loop header.
+  info.block_count += 1;
+
+  return info;
+}
 
 void LoopUnrollingAnalyzer::DetectUnrollableLoops() {
   for (const auto& [start, info] : loop_finder_.LoopHeaders()) {
@@ -44,19 +109,13 @@ bool LoopUnrollingAnalyzer::CanFullyUnrollLoop(const LoopFinder::LoopInfo& info,
   // Checking that one of the successor of the loop header is indeed not in the
   // loop (otherwise, the Branch that ends the loop header is not the Branch
   // that decides to exit the loop).
-  const Block* if_true_header = loop_finder_.GetLoopHeader(branch->if_true);
-  const Block* if_false_header = loop_finder_.GetLoopHeader(branch->if_false);
-  if (if_true_header == if_false_header) {
+  if (loop_finder_.GetLoopHeader(branch->if_true) ==
+      loop_finder_.GetLoopHeader(branch->if_false)) {
     return false;
   }
 
-  // If {if_true} is in the loop, then we're looping if the condition is true,
-  // but if {if_false} is in the loop, then we're looping if the condition is
-  // false.
-  bool loop_if_cond_is = if_true_header == start;
-
   return canonical_loop_matcher_.MatchStaticCanonicalForLoop(
-      branch->condition(), loop_if_cond_is, iter_count);
+      branch->condition(), iter_count);
 }
 
 // Tries to match `phi cmp cst` (or `cst cmp phi`).
@@ -121,7 +180,7 @@ bool StaticCanonicalForLoopMatcher::MatchWordBinop(
 }
 
 bool StaticCanonicalForLoopMatcher::MatchStaticCanonicalForLoop(
-    OpIndex cond_idx, bool loop_if_cond_is, int* iter_count) const {
+    OpIndex cond_idx, int* iter_count) const {
   CmpOp cmp_op;
   OpIndex phi_idx;
   uint64_t cmp_cst;
@@ -152,7 +211,7 @@ bool StaticCanonicalForLoopMatcher::MatchStaticCanonicalForLoop(
           // We have: phi(phi_cst, phi binop_op binop_cst) cmp_op cmp_cst
           // eg, for (i = 0; i < 42; i = i + 2)
           return HasFewIterations(cmp_cst, cmp_op, phi_cst, binop_cst, binop_op,
-                                  binop_rep, loop_if_cond_is, iter_count);
+                                  binop_rep, iter_count);
         }
       } else if (right == phi_idx) {
         // We have: phi(phi_cst, ... binop_op phi) cmp_op cmp_cst
@@ -162,7 +221,7 @@ bool StaticCanonicalForLoopMatcher::MatchStaticCanonicalForLoop(
           // We have: phi(phi_cst, binop_cst binop_op phi) cmp_op cmp_cst
           // eg, for (i = 0; i < 42; i = 2 + i)
           return HasFewIterations(cmp_cst, cmp_op, phi_cst, binop_cst, binop_op,
-                                  binop_rep, loop_if_cond_is, iter_count);
+                                  binop_rep, iter_count);
         }
       }
     }
@@ -284,7 +343,7 @@ bool Cmp(Int val, Int max, CmpOp cmp_op) {
     case CmpOp::kUnsignedGreaterThanOrEqual:
       return val >= max;
     case CmpOp::kEqual:
-      return val == max;
+      return val != max;
   }
 }
 
@@ -294,7 +353,7 @@ template <class Int>
 bool HasFewerIterationsThan(Int init, Int max, CmpOp cmp_op, Int binop_cst,
                             StaticCanonicalForLoopMatcher::BinOp binop_op,
                             WordRepresentation binop_rep, const int max_iter_,
-                            bool loop_if_cond_is, int* iter_count) {
+                            int* iter_count) {
   static_assert(std::is_integral_v<Int>);
   DCHECK_EQ(std::is_unsigned_v<Int>,
             (cmp_op == CmpOp::kUnsignedLessThan ||
@@ -310,7 +369,7 @@ bool HasFewerIterationsThan(Int init, Int max, CmpOp cmp_op, Int binop_cst,
 
   Int curr = init;
   for (int i = 0; i < max_iter_; i++) {
-    if (Cmp(curr, max, cmp_op) != loop_if_cond_is) {
+    if (!Cmp(curr, max, cmp_op)) {
       *iter_count = i;
       return true;
     }
@@ -330,42 +389,47 @@ bool HasFewerIterationsThan(Int init, Int max, CmpOp cmp_op, Int binop_cst,
 bool StaticCanonicalForLoopMatcher::HasFewIterations(
     uint64_t cmp_cst, CmpOp cmp_op, uint64_t initial_input, uint64_t binop_cst,
     StaticCanonicalForLoopMatcher::BinOp binop_op, WordRepresentation binop_rep,
-    bool loop_if_cond_is, int* iter_count) const {
+    int* iter_count) const {
   switch (cmp_op) {
     case CmpOp::kSignedLessThan:
     case CmpOp::kSignedLessThanOrEqual:
     case CmpOp::kSignedGreaterThan:
     case CmpOp::kSignedGreaterThanOrEqual:
     case CmpOp::kEqual:
-      if (binop_rep == WordRepresentation::Word32()) {
-        return HasFewerIterationsThan<int32_t>(
-            static_cast<int32_t>(initial_input), static_cast<int32_t>(cmp_cst),
-            cmp_op, static_cast<int32_t>(binop_cst), binop_op, binop_rep,
-            max_iter_, loop_if_cond_is, iter_count);
-      } else {
-        DCHECK_EQ(binop_rep, WordRepresentation::Word64());
-        return HasFewerIterationsThan<int64_t>(
-            static_cast<int64_t>(initial_input), static_cast<int64_t>(cmp_cst),
-            cmp_op, static_cast<int64_t>(binop_cst), binop_op, binop_rep,
-            max_iter_, loop_if_cond_is, iter_count);
-      }
+      return HasFewerIterationsThan(static_cast<int64_t>(initial_input),
+                                    static_cast<int64_t>(cmp_cst), cmp_op,
+                                    static_cast<int64_t>(binop_cst), binop_op,
+                                    binop_rep, max_iter_, iter_count);
     case CmpOp::kUnsignedLessThan:
     case CmpOp::kUnsignedLessThanOrEqual:
     case CmpOp::kUnsignedGreaterThan:
     case CmpOp::kUnsignedGreaterThanOrEqual:
-      if (binop_rep == WordRepresentation::Word32()) {
-        return HasFewerIterationsThan<uint32_t>(
-            static_cast<uint32_t>(initial_input),
-            static_cast<uint32_t>(cmp_cst), cmp_op,
-            static_cast<uint32_t>(binop_cst), binop_op, binop_rep, max_iter_,
-            loop_if_cond_is, iter_count);
-      } else {
-        DCHECK_EQ(binop_rep, WordRepresentation::Word64());
-        return HasFewerIterationsThan<uint64_t>(
-            initial_input, cmp_cst, cmp_op, binop_cst, binop_op, binop_rep,
-            max_iter_, loop_if_cond_is, iter_count);
-      }
+      return HasFewerIterationsThan(initial_input, cmp_cst, cmp_op, binop_cst,
+                                    binop_op, binop_rep, max_iter_, iter_count);
   }
+}
+
+ZoneSet<Block*, LoopUnrollingAnalyzer::BlockCmp>
+LoopUnrollingAnalyzer::GetLoopBody(Block* loop_header) {
+  DCHECK(!loop_finder_.GetLoopInfo(loop_header).has_inner_loops);
+  ZoneSet<Block*, BlockCmp> body(phase_zone_);
+  body.insert(loop_header);
+
+  ZoneVector<Block*> queue(phase_zone_);
+  queue.push_back(loop_header->LastPredecessor());
+  while (!queue.empty()) {
+    Block* curr = queue.back();
+    queue.pop_back();
+    if (body.find(curr) != body.end()) continue;
+    body.insert(curr);
+    for (Block* pred = curr->LastPredecessor(); pred != nullptr;
+         pred = pred->NeighboringPredecessor()) {
+      if (pred == loop_header) continue;
+      queue.push_back(pred);
+    }
+  }
+
+  return body;
 }
 
 constexpr StaticCanonicalForLoopMatcher::CmpOp
@@ -387,21 +451,21 @@ StaticCanonicalForLoopMatcher::InvertComparisonOp(CmpOp op) {
     case CmpOp::kEqual:
       return CmpOp::kEqual;
     case CmpOp::kSignedLessThan:
-      return CmpOp::kSignedGreaterThan;
-    case CmpOp::kSignedLessThanOrEqual:
       return CmpOp::kSignedGreaterThanOrEqual;
+    case CmpOp::kSignedLessThanOrEqual:
+      return CmpOp::kSignedGreaterThan;
     case CmpOp::kUnsignedLessThan:
-      return CmpOp::kUnsignedGreaterThan;
-    case CmpOp::kUnsignedLessThanOrEqual:
       return CmpOp::kUnsignedGreaterThanOrEqual;
+    case CmpOp::kUnsignedLessThanOrEqual:
+      return CmpOp::kUnsignedGreaterThan;
     case CmpOp::kSignedGreaterThan:
-      return CmpOp::kSignedLessThan;
-    case CmpOp::kSignedGreaterThanOrEqual:
       return CmpOp::kSignedLessThanOrEqual;
+    case CmpOp::kSignedGreaterThanOrEqual:
+      return CmpOp::kSignedLessThan;
     case CmpOp::kUnsignedGreaterThan:
-      return CmpOp::kUnsignedLessThan;
-    case CmpOp::kUnsignedGreaterThanOrEqual:
       return CmpOp::kUnsignedLessThanOrEqual;
+    case CmpOp::kUnsignedGreaterThanOrEqual:
+      return CmpOp::kUnsignedLessThan;
   }
 }
 

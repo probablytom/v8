@@ -353,18 +353,18 @@ class ExternalPointerSlot
   ExternalPointerTag tag() const { return tag_; }
 #else
   ExternalPointerTag tag() const { return kExternalPointerNullTag; }
-#endif  // V8_ENABLE_SANDBOX
-
-#ifdef V8_ENABLE_SANDBOX
-  inline const ExternalPointerTable& GetOwningTable(const Isolate* isolate);
-  inline ExternalPointerTable& GetOwningTable(Isolate* isolate);
-  inline ExternalPointerTable::Space* GetOwningSpace(Isolate* isolate);
-#endif  // V8_ENABLE_SANDBOX
+#endif
 
  private:
 #ifdef V8_ENABLE_SANDBOX
   // The tag associated with this slot.
   ExternalPointerTag tag_;
+
+  inline const ExternalPointerTable& GetExternalPointerTable(
+      const Isolate* isolate);
+  inline ExternalPointerTable& GetExternalPointerTable(Isolate* isolate);
+  inline ExternalPointerTable::Space* GetDefaultExternalPointerSpace(
+      Isolate* isolate);
 #endif  // V8_ENABLE_SANDBOX
 };
 
@@ -423,27 +423,14 @@ class IndirectPointerSlot
   IndirectPointerTag tag() const { return kIndirectPointerNullTag; }
 #endif
 
-  // Retrieve the object referenced by the given handle by determining the
-  // appropriate pointer table to use and loading the referenced entry in it.
-  // This method is used internally by load() and related functions but can
-  // also be used to manually implement indirect pointer accessors.
-  inline Tagged<Object> ResolveHandle(IndirectPointerHandle handle,
-                                      const Isolate* isolate) const;
-
  private:
 #ifdef V8_ENABLE_SANDBOX
-  // Retrieve the object referenced through the given trusted pointer handle
-  // from the trusted pointer table.
-  inline Tagged<Object> ResolveTrustedPointerHandle(
-      IndirectPointerHandle handle, const Isolate* isolate) const;
-  // Retrieve the Code object referenced through the given code pointer handle
-  // from the code pointer table.
-  inline Tagged<Object> ResolveCodePointerHandle(
-      IndirectPointerHandle handle) const;
-
   // The tag associated with this slot.
   IndirectPointerTag tag_;
 #endif  // V8_ENABLE_SANDBOX
+
+  inline Tagged<Object> ResolveHandle(IndirectPointerHandle handle,
+                                      const Isolate* isolate) const;
 };
 
 }  // namespace internal

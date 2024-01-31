@@ -138,6 +138,8 @@ namespace base {
 
 namespace {
 
+bool g_hard_abort = false;
+
 }  // namespace
 
 class WindowsTimezoneCache : public TimezoneCache {
@@ -751,8 +753,8 @@ DEFINE_LAZY_LEAKY_OBJECT_GETTER(RandomNumberGenerator,
                                 GetPlatformRandomNumberGenerator)
 static LazyMutex rng_mutex = LAZY_MUTEX_INITIALIZER;
 
-void OS::Initialize(AbortMode abort_mode, const char* const gc_fake_mmap) {
-  g_abort_mode = abort_mode;
+void OS::Initialize(bool hard_abort, const char* const gc_fake_mmap) {
+  g_hard_abort = hard_abort;
 }
 
 typedef PVOID(__stdcall* VirtualAlloc2_t)(HANDLE, PVOID, SIZE_T, ULONG, ULONG,
@@ -1203,15 +1205,9 @@ void OS::Abort() {
   fflush(stdout);
   fflush(stderr);
 
-  switch (g_abort_mode) {
-    case AbortMode::kSoft:
-      _exit(-1);
-    case AbortMode::kHard:
-      IMMEDIATE_CRASH();
-    case AbortMode::kDefault:
-      break;
+  if (g_hard_abort) {
+    IMMEDIATE_CRASH();
   }
-
   // Make the MSVCRT do a silent abort.
   raise(SIGABRT);
 

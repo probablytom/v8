@@ -119,7 +119,8 @@ void DecodeEntry(base::Vector<const uint8_t> bytes, int* index,
 }
 
 base::Vector<const uint8_t> VectorFromByteArray(Tagged<ByteArray> byte_array) {
-  return base::Vector<const uint8_t>(byte_array->begin(), byte_array->length());
+  return base::Vector<const uint8_t>(byte_array->GetDataStartAddress(),
+                                     byte_array->length());
 }
 
 #ifdef ENABLE_SLOW_DCHECKS
@@ -178,7 +179,7 @@ Handle<ByteArray> SourcePositionTableBuilder::ToSourcePositionTable(
 
   Handle<ByteArray> table = isolate->factory()->NewByteArray(
       static_cast<int>(bytes_.size()), AllocationType::kOld);
-  MemCopy(table->begin(), bytes_.data(), bytes_.size());
+  MemCopy(table->GetDataStartAddress(), bytes_.data(), bytes_.size());
 
 #ifdef ENABLE_SLOW_DCHECKS
   // Brute force testing: Record all positions and decode

@@ -271,6 +271,7 @@ bool Linkage::NeedsFrameStateInput(Runtime::FunctionId function) {
     case Runtime::kCreateIterResultObject:
     case Runtime::kGrowableSharedArrayBufferByteLength:
     case Runtime::kIncBlockCounter:
+    case Runtime::kIsFunction:
     case Runtime::kNewClosure:
     case Runtime::kNewClosure_Tenured:
     case Runtime::kNewFunctionContext:

@@ -150,11 +150,10 @@ void MeasureMemoryDelegate::MeasurementComplete(Result result) {
   v8::Context::Scope scope(v8_context);
   size_t total_size = 0;
   size_t current_size = 0;
-  DCHECK_EQ(result.contexts.size(), result.sizes_in_bytes.size());
-  for (size_t i = 0; i < result.contexts.size(); ++i) {
-    total_size += result.sizes_in_bytes[i];
-    if (*Utils::OpenHandle(*result.contexts[i]) == *context_) {
-      current_size = result.sizes_in_bytes[i];
+  for (const auto& context_and_size : result.context_sizes_in_bytes) {
+    total_size += context_and_size.second;
+    if (*Utils::OpenHandle(*context_and_size.first) == *context_) {
+      current_size = context_and_size.second;
     }
   }
   MemoryMeasurementResultBuilder result_builder(isolate_, isolate_->factory());
@@ -166,9 +165,9 @@ void MeasureMemoryDelegate::MeasurementComplete(Result result) {
   if (mode_ == v8::MeasureMemoryMode::kDetailed) {
     result_builder.AddCurrent(current_size, current_size,
                               current_size + shared_size);
-    for (size_t i = 0; i < result.contexts.size(); ++i) {
-      if (*Utils::OpenHandle(*result.contexts[i]) != *context_) {
-        size_t other_size = result.sizes_in_bytes[i];
+    for (const auto& context_and_size : result.context_sizes_in_bytes) {
+      if (*Utils::OpenHandle(*context_and_size.first) != *context_) {
+        size_t other_size = context_and_size.second;
         result_builder.AddOther(other_size, other_size,
                                 other_size + shared_size);
       }
@@ -196,7 +195,7 @@ bool MemoryMeasurement::EnqueueRequest(
   Handle<WeakFixedArray> weak_contexts =
       isolate_->factory()->NewWeakFixedArray(length);
   for (int i = 0; i < length; ++i) {
-    weak_contexts->set(i, HeapObjectReference::Weak(*contexts[i]));
+    weak_contexts->Set(i, HeapObjectReference::Weak(*contexts[i]));
   }
   Handle<WeakFixedArray> global_weak_contexts =
       isolate_->global_handles()->Create(*weak_contexts);
@@ -222,7 +221,7 @@ std::vector<Address> MemoryMeasurement::StartProcessing() {
     Handle<WeakFixedArray> contexts = request.contexts;
     for (int i = 0; i < contexts->length(); i++) {
       Tagged<HeapObject> context;
-      if (contexts->get(i).GetHeapObject(&context)) {
+      if (contexts->Get(i).GetHeapObject(&context)) {
         unique_contexts.insert(context.ptr());
       }
     }
@@ -245,7 +244,7 @@ void MemoryMeasurement::FinishProcessing(const NativeContextStats& stats) {
     processing_.pop_front();
     for (int i = 0; i < static_cast<int>(request.sizes.size()); i++) {
       Tagged<HeapObject> context;
-      if (!request.contexts->get(i).GetHeapObject(&context)) {
+      if (!request.contexts->Get(i).GetHeapObject(&context)) {
         continue;
       }
       request.sizes[i] = stats.Get(context.ptr());
@@ -337,37 +336,24 @@ void MemoryMeasurement::ReportResults() {
     Request request = std::move(done_.front());
     done_.pop_front();
     HandleScope handle_scope(isolate_);
-    v8::LocalVector<v8::Context> contexts(
-        reinterpret_cast<v8::Isolate*>(isolate_));
-    std::vector<size_t> size_in_bytes;
-    // TODO(chromium:1454114): The vector of pairs will be removed when
-    // deprecation is complete.
     std::vector<std::pair<v8::Local<v8::Context>, size_t>> sizes;
     DCHECK_EQ(request.sizes.size(),
               static_cast<size_t>(request.contexts->length()));
     for (int i = 0; i < request.contexts->length(); i++) {
       Tagged<HeapObject> raw_context;
-      if (!request.contexts->get(i).GetHeapObject(&raw_context)) {
+      if (!request.contexts->Get(i).GetHeapObject(&raw_context)) {
         continue;
       }
-      Local<v8::Context> context = Utils::Convert<HeapObject, v8::Context>(
-          direct_handle(raw_context, isolate_), isolate_);
-      contexts.push_back(context);
-      size_in_bytes.push_back(request.sizes[i]);
-      sizes.emplace_back(context, request.sizes[i]);
+      v8::Local<v8::Context> context = Utils::Convert<HeapObject, v8::Context>(
+          handle(raw_context, isolate_));
+      sizes.push_back(std::make_pair(context, request.sizes[i]));
     }
-    // Temporarily call both old and new callbacks.
     START_ALLOW_USE_DEPRECATED()
+    // Temporarily call both old and new callbacks.
     request.delegate->MeasurementComplete(sizes, request.shared);
-    request.delegate->MeasurementComplete(
-        {sizes,  // TODO(chromium:1454114): This will be removed when
-                 // deprecation is complete.
-         {contexts.begin(), contexts.end()},
-         {size_in_bytes.begin(), size_in_bytes.end()},
-         request.shared,
-         request.wasm_code,
-         request.wasm_metadata});
     END_ALLOW_USE_DEPRECATED()
+    request.delegate->MeasurementComplete(
+        {sizes, request.shared, request.wasm_code, request.wasm_metadata});
     isolate_->counters()->measure_memory_delay_ms()->AddSample(
         static_cast<int>(request.timer.Elapsed().InMilliseconds()));
   }

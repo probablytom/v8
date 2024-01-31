@@ -90,6 +90,10 @@ class MaybeHandle final {
   template <typename>
   friend class MaybeDirectHandle;
 #endif
+#ifdef V8_ENABLE_CAPABILITY_HANDLE
+  template <typename>
+  friend class MaybeCapabilityHandle;
+#endif
 };
 
 template <typename T>
@@ -237,6 +241,137 @@ class MaybeObjectDirectHandle {
 };
 
 #endif  // V8_ENABLE_DIRECT_HANDLE
+
+
+#ifdef V8_ENABLE_CAPABILITY_HANDLE
+
+template <typename T>
+class MaybeCapabilityHandle final {
+ public:
+  V8_INLINE MaybeCapabilityHandle() = default;
+
+  V8_INLINE MaybeCapabilityHandle(NullMaybeHandleType) {}
+
+  // Constructor for handling automatic up casting from CapabilityHandle.
+  // Ex. CapabilityHandle<JSArray> can be passed when MaybeCapabilityHandle<Object> is
+  // expected.
+  template <typename S, typename = std::enable_if_t<is_subtype_v<S, T>>>
+  V8_INLINE MaybeCapabilityHandle(CapabilityHandle<S> handle)
+      : location_(handle.address()) {}
+
+  // Constructor for handling automatic up casting from Handle.
+  // Ex. Handle<JSArray> can be passed when MaybeCapabilityHandle<Object> is
+  // expected.
+  template <typename S, typename = std::enable_if_t<is_subtype_v<S, T>>>
+  V8_INLINE MaybeCapabilityHandle(Handle<S> handle)
+      : MaybeCapabilityHandle(CapabilityHandle<S>(handle)) {}
+
+  // Constructor for handling automatic up casting.
+  // Ex. MaybeCapabilityHandle<JSArray> can be passed when MaybeCapabilityHandle<Object>
+  // is expected.
+  template <typename S, typename = std::enable_if_t<is_subtype_v<S, T>>>
+  V8_INLINE MaybeCapabilityHandle(MaybeCapabilityHandle<S> maybe_handle)
+      : location_(maybe_handle.location_) {}
+
+  // Constructor for handling automatic up casting from MaybeHandle.
+  // Ex. MaybeHandle<JSArray> can be passed when
+  // MaybeCapabilityHandle<Object> is expected.
+  template <typename S, typename = std::enable_if_t<is_subtype_v<S, T>>>
+  V8_INLINE MaybeCapabilityHandle(MaybeHandle<S> maybe_handle)
+      : location_(maybe_handle.location_ == nullptr ? kTaggedNullAddress
+                                                    : *maybe_handle.location_) {
+  }
+
+  V8_INLINE MaybeCapabilityHandle(Tagged<T> object, Isolate* isolate);
+  V8_INLINE MaybeCapabilityHandle(Tagged<T> object, LocalHeap* local_heap);
+
+  V8_INLINE void Assert() const { DCHECK_NE(location_, kTaggedNullAddress); }
+  V8_INLINE void Check() const { CHECK_NE(location_, kTaggedNullAddress); }
+
+  V8_INLINE CapabilityHandle<T> ToHandleChecked() const {
+    Check();
+    return CapabilityHandle<T>(location_);
+  }
+
+  // Convert to a CapabilityHandle with a type that can be upcasted to.
+  template <typename S>
+  V8_WARN_UNUSED_RESULT V8_INLINE bool ToHandle(CapabilityHandle<S>* out) const {
+    if (location_ == kTaggedNullAddress) {
+      *out = CapabilityHandle<T>::null();
+      return false;
+    } else {
+      *out = CapabilityHandle<T>(location_);
+      return true;
+    }
+  }
+
+  // Returns the raw address where this capability handle is stored.
+  V8_INLINE Address address() const { return location_; }
+
+  bool is_null() const { return location_ == kTaggedNullAddress; }
+
+ protected:
+
+  // TODO: I suspect I'm breaking a C++ idiom by making a class for this.
+  // Consider removing if there are no other methods I'd actually need.
+  class UnderlyingCapability {
+    public:
+      V8_INLINE UnderlyingCapability(Address object) : cap((void* __capability)object){}
+      V8_INLINE UnderlyingCapability(void *object) : cap((void* __capability)object){}
+      V8_INLINE UnderlyingCapability(void *__capability object) : cap(object){}
+
+      V8_INLINE Address addr() const {return cheri_address_get(cap);}
+
+      V8_INLINE bool isValid() {return cheri_is_valid(cap);}
+
+    private:
+      void *__capability cap;
+  };
+
+  UnderlyingCapability location_ = kTaggedNullAddress;
+
+  // MaybeCapabilityHandles of different classes are allowed to access each
+  // other's location_.
+  template <typename>
+  friend class MaybeCapabilityHandle;
+};
+
+class MaybeObjectCapabilityHandle {
+ public:
+  inline MaybeObjectCapabilityHandle()
+      : reference_type_(HeapObjectReferenceType::STRONG) {}
+  inline MaybeObjectCapabilityHandle(MaybeObject object, Isolate* isolate);
+  inline MaybeObjectCapabilityHandle(Tagged<Object> object, Isolate* isolate);
+  inline MaybeObjectCapabilityHandle(MaybeObject object, LocalHeap* local_heap);
+  inline MaybeObjectCapabilityHandle(Tagged<Object> object, LocalHeap* local_heap);
+  inline explicit MaybeObjectCapabilityHandle(CapabilityHandle<Object> object);
+
+  static inline MaybeObjectCapabilityHandle Weak(Tagged<Object> object,
+                                             Isolate* isolate);
+  static inline MaybeObjectCapabilityHandle Weak(CapabilityHandle<Object> object);
+
+  inline MaybeObject operator*() const;
+  inline MaybeObject operator->() const;
+  inline CapabilityHandle<Object> object() const;
+
+  inline bool is_identical_to(const MaybeObjectCapabilityHandle& other) const;
+  bool is_null() const { return handle_.is_null(); }
+
+ private:
+  inline MaybeObjectCapabilityHandle(Tagged<Object> object,
+                                 HeapObjectReferenceType reference_type,
+                                 Isolate* isolate);
+  inline MaybeObjectCapabilityHandle(CapabilityHandle<Object> object,
+                                 HeapObjectReferenceType reference_type);
+
+  HeapObjectReferenceType reference_type_;
+  MaybeCapabilityHandle<Object> handle_;
+};
+
+#endif  // V8_ENABLE_CAPABILITY_HANDLE
+
+
+
 
 }  // namespace internal
 }  // namespace v8

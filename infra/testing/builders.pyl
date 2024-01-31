@@ -34,7 +34,7 @@
   # Android
   'v8_android_arm64_n5x_rel': {
     'swarming_dimensions' : {
-      'device_os': 'OPR4.170623.020',
+      'device_os': 'MMB29Q',
       'device_type': 'bullhead',
       'os': 'Android',
     },
@@ -188,6 +188,11 @@
       'os': 'Ubuntu-22.04',
     },
     'tests': [
+      # Code serializer.
+      {'name': 'benchmarks', 'variant': 'code_serializer', 'shards': 1},
+      {'name': 'd8testing', 'variant': 'code_serializer', 'shards': 1},
+      {'name': 'mozilla', 'variant': 'code_serializer', 'shards': 1},
+      {'name': 'test262', 'variant': 'code_serializer', 'shards': 1},
       # No SSE3.
       {
         'name': 'mozilla',
@@ -430,11 +435,6 @@
       {'name': 'v8testing', 'variant': 'maglev_future'},
       {'name': 'v8testing', 'variant': 'stress_maglev'},
       {'name': 'v8testing', 'variant': 'stress_maglev_future'},
-      # Code serializer.
-      {'name': 'benchmarks', 'variant': 'code_serializer', 'shards': 1},
-      {'name': 'd8testing', 'variant': 'code_serializer', 'shards': 1},
-      {'name': 'mozilla', 'variant': 'code_serializer', 'shards': 1},
-      {'name': 'test262', 'variant': 'code_serializer', 'shards': 3},
       # GC stress
       {
         'name': 'd8testing',
@@ -662,8 +662,8 @@
       'os': 'Ubuntu-22.04',
     },
     'tests': [
-      {'name': 'benchmarks', 'shards': 1},
-      {'name': 'mozilla', 'shards': 1},
+      # TODO(machenbach): Add benchmarks.
+      # TODO(machenbach): Add mozilla tests.
       {'name': 'optimize_for_size'},
       {'name': 'test262', 'shards': 4},
       {'name': 'test262', 'variant': 'extra', 'shards': 4},
@@ -679,11 +679,6 @@
       {'name': 'v8testing', 'variant': 'maglev_future'},
       {'name': 'v8testing', 'variant': 'stress_maglev'},
       {'name': 'v8testing', 'variant': 'stress_maglev_future'},
-      # Code serializer.
-      {'name': 'benchmarks', 'variant': 'code_serializer', 'shards': 1},
-      {'name': 'd8testing', 'variant': 'code_serializer', 'shards': 1},
-      {'name': 'mozilla', 'variant': 'code_serializer', 'shards': 1},
-      {'name': 'test262', 'variant': 'code_serializer', 'shards': 2},
       # GCMole.
       {'name': 'gcmole_v3', 'variant': 'x64', 'shards': 4},
       {
@@ -768,10 +763,7 @@
       'os': 'Ubuntu-22.04',
     },
     'tests': [
-      {'name': 'mozilla'},
-      {'name': 'test262', 'variant': 'default', 'shards': 2},
       {'name': 'v8testing', 'shards': 2},
-      {'name': 'v8testing', 'variant': 'extra', 'shards': 2},
     ],
   },
   'v8_linux64_verify_csa_rel': {
@@ -1200,11 +1192,15 @@
     },
     'tests': [
       {'name': 'benchmarks'},
+      {'name': 'benchmarks', 'variant': 'code_serializer', 'shards': 1},
       {'name': 'benchmarks', 'variant': 'extra'},
+      {'name': 'd8testing', 'variant': 'code_serializer', 'shards': 1},
       {'name': 'mozilla'},
+      {'name': 'mozilla', 'variant': 'code_serializer', 'shards': 1},
       {'name': 'mozilla', 'variant': 'extra'},
       {'name': 'optimize_for_size'},
       {'name': 'test262', 'shards': 10},
+      {'name': 'test262', 'variant': 'code_serializer', 'shards': 2},
       {'name': 'test262', 'variant': 'extra', 'shards': 12},
       {'name': 'v8testing', 'shards': 3},
       {
@@ -1521,11 +1517,6 @@
         'test_args': ['--extra-flags', '--noenable-avx'],
         'shards': 2
       },
-      # Code serializer.
-      {'name': 'benchmarks', 'variant': 'code_serializer', 'shards': 1},
-      {'name': 'd8testing', 'variant': 'code_serializer', 'shards': 1},
-      {'name': 'mozilla', 'variant': 'code_serializer', 'shards': 1},
-      {'name': 'test262', 'variant': 'code_serializer', 'shards': 2},
     ],
   },
   'V8 Linux64 - minor mc - debug': {
@@ -2086,7 +2077,7 @@
   # Ports.
   'V8 Android Arm64 - N5X': {
     'swarming_dimensions': {
-      'device_os': 'OPR4.170623.020',
+      'device_os': 'MMB29Q',
       'device_type': 'bullhead',
       'os': 'Android',
     },

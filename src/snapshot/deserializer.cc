@@ -76,16 +76,22 @@ class SlotAccessorForHeapObject {
   }
 
   int WriteIndirect(Tagged<HeapObject> value) {
-    // Only ExposedTrustedObjects can be referenced via indirect pointers, so
-    // we must have one of these objects here. See the comments in
-    // trusted-object.h for more details.
-    CHECK(IsExposedTrustedObject(value));
-    Tagged<ExposedTrustedObject> object = ExposedTrustedObject::cast(value);
-
+    // TODO(saelo): currently, only Code objects can be referenced indirectly
+    // through a pointer table, and so here we directly downcast to Code
+    // because we need to know the offset at which the object has its pointer
+    // table entry index. However, in the future we might have other types of
+    // objects be referenced through the table. In that case, we should
+    // probably introduce some kind of "ExternalHeapObject" class which, in
+    // sandbox builds, owns a pointer table entry and contains the handle for
+    // it. Then we can unify this handling here to expect an ExternalHeapObject
+    // and simply copy the handle into the slot. For that we don't even need to
+    // know which table the object uses.
+    CHECK(IsCode(value));
+    Tagged<Code> code = Code::cast(value);
     InstanceType instance_type = value->map()->instance_type();
     IndirectPointerTag tag = IndirectPointerTagFromInstanceType(instance_type);
     IndirectPointerSlot dest = object_->RawIndirectPointerField(offset_, tag);
-    dest.store(object);
+    dest.store(code);
 
     IndirectPointerWriteBarrier(*object_, dest, value, UPDATE_WRITE_BARRIER);
     return 1;
@@ -531,6 +537,7 @@ void Deserializer<IsolateT>::PostProcessNewObject(Handle<Map> map,
     }
   } else if (InstanceTypeChecker::IsCode(instance_type)) {
     Tagged<Code> code = Code::cast(raw_obj);
+    code->init_instruction_start(main_thread_isolate(), kNullAddress);
     if (!code->has_instruction_stream()) {
       code->SetInstructionStartForOffHeapBuiltin(
           main_thread_isolate(), EmbeddedData::FromBlob(main_thread_isolate())
@@ -732,13 +739,6 @@ Handle<HeapObject> Deserializer<IsolateT>::ReadObject(SnapshotSpace space) {
   } else {
     DCHECK_NE(space, SnapshotSpace::kCode);
   }
-  // TODO(saelo): some trusted objects are not yet in trusted space.
-  if (IsTrustedObject(*obj, cage_base) && !IsCode(*obj, cage_base) &&
-      !IsBytecodeArray(*obj, cage_base)) {
-    DCHECK_EQ(space, SnapshotSpace::kTrusted);
-  } else {
-    DCHECK_NE(space, SnapshotSpace::kTrusted);
-  }
 #endif  // DEBUG
 
   return obj;
@@ -894,8 +894,6 @@ int Deserializer<IsolateT>::ReadSingleBytecodeData(uint8_t data,
       return ReadWeakPrefix(data, slot_accessor);
     case kIndirectPointerPrefix:
       return ReadIndirectPointerPrefix(data, slot_accessor);
-    case kInitializeSelfIndirectPointer:
-      return ReadInitializeSelfIndirectPointer(data, slot_accessor);
     case CASE_RANGE(kRootArrayConstants, 32):
       return ReadRootArrayConstants(data, slot_accessor);
     case CASE_RANGE(kHotObject, 8):
@@ -1204,26 +1202,6 @@ int Deserializer<IsolateT>::ReadIndirectPointerPrefix(
   DCHECK_NE(slot_accessor.object()->address(), kNullAddress);
   next_reference_is_indirect_pointer_ = true;
   return 0;
-}
-
-template <typename IsolateT>
-template <typename SlotAccessor>
-int Deserializer<IsolateT>::ReadInitializeSelfIndirectPointer(
-    uint8_t data, SlotAccessor slot_accessor) {
-#ifdef V8_ENABLE_SANDBOX
-  DCHECK_NE(slot_accessor.object()->address(), kNullAddress);
-  DCHECK(IsExposedTrustedObject(*slot_accessor.object()));
-  DCHECK_EQ(slot_accessor.offset(),
-            ExposedTrustedObject::kSelfIndirectPointerOffset);
-
-  Tagged<ExposedTrustedObject> host =
-      ExposedTrustedObject::cast(*slot_accessor.object());
-  host->init_self_indirect_pointer(isolate()->AsLocalIsolate());
-
-  return 1;
-#else
-  UNREACHABLE();
-#endif  // V8_ENABLE_SANDBOX
 }
 
 template <typename IsolateT>

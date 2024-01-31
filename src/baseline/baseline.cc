@@ -7,7 +7,10 @@
 #include "src/handles/maybe-handles.h"
 #include "src/objects/shared-function-info-inl.h"
 
-#ifdef V8_ENABLE_SPARKPLUG
+// TODO(v8:11421): Remove #if once baseline compiler is ported to other
+// architectures.
+#include "src/flags/flags.h"
+#if ENABLE_SPARKPLUG
 
 #include "src/baseline/baseline-assembler-inl.h"
 #include "src/baseline/baseline-compiler.h"
@@ -79,8 +82,7 @@ void EmitReturnBaseline(MacroAssembler* masm) {
 namespace v8 {
 namespace internal {
 
-bool CanCompileWithBaseline(Isolate* isolate,
-                            Tagged<SharedFunctionInfo> shared) {
+bool CanCompileWithBaseline(Isolate* isolate, SharedFunctionInfo shared) {
   return false;
 }
 

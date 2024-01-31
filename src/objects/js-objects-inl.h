@@ -224,7 +224,7 @@ void JSObject::EnsureCanContainElements(Handle<JSObject> object,
       mode = DONT_ALLOW_DOUBLE_ELEMENTS;
     }
     ObjectSlot objects =
-        Handle<FixedArray>::cast(elements)->RawFieldOfFirstElement();
+        Handle<FixedArray>::cast(elements)->GetFirstElementAddress();
     EnsureCanContainElements(object, objects, length, mode);
     return;
   }
@@ -345,15 +345,10 @@ void JSObject::SetEmbedderField(int index, Tagged<Smi> value) {
   EmbedderDataSlot(Tagged(*this), index).store_smi(value);
 }
 
-// static
-bool JSObject::IsDroppableApiObject(const Tagged<Map> map) {
-  auto instance_type = map->instance_type();
+bool JSObject::IsDroppableApiObject() const {
+  auto instance_type = map()->instance_type();
   return InstanceTypeChecker::IsJSApiObject(instance_type) ||
          instance_type == JS_SPECIAL_API_OBJECT_TYPE;
-}
-
-bool JSObject::IsDroppableApiObject() const {
-  return IsDroppableApiObject(map());
 }
 
 // Access fast-case object properties at index. The use of these routines

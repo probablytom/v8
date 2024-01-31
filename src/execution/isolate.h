@@ -45,7 +45,7 @@
 #include "src/runtime/runtime.h"
 #include "src/sandbox/code-pointer-table.h"
 #include "src/sandbox/external-pointer-table.h"
-#include "src/sandbox/trusted-pointer-table.h"
+#include "src/sandbox/indirect-pointer-table.h"
 #include "src/utils/allocation.h"
 
 #ifdef DEBUG
@@ -141,7 +141,6 @@ class RootVisitor;
 class SetupIsolateDelegate;
 class Simulator;
 class SnapshotData;
-class StackFrame;
 class StringForwardingTable;
 class StringTable;
 class StubCache;
@@ -626,12 +625,6 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
     friend class EntryStackItem;
   };
 
-  // Used for walking the promise tree for catch prediction.
-  struct PromiseHandler {
-    Handle<JSReceiver> receiver;
-    bool catches;
-  };
-
   static void InitializeOncePerProcess();
 
   // Creates Isolate object. Must be used instead of constructing Isolate with
@@ -925,12 +918,6 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
   // Heuristically guess whether a Promise is handled by user catch handler
   bool PromiseHasUserDefinedRejectHandler(Handle<JSPromise> promise);
 
-  // Walks the promise tree and calls a callback on every handler an exception
-  // is likely to hit. Used in catch prediction. Will end the walk and return
-  // true if a callback returns true, otherwise returns false.
-  bool WalkPromiseTree(Handle<JSPromise> promise,
-                       std::function<bool(PromiseHandler)> callback);
-
   class V8_NODISCARD ExceptionScope {
    public:
     // Scope currently can only be used for regular exceptions,
@@ -1055,7 +1042,6 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
     CAUGHT_BY_ASYNC_AWAIT
   };
   CatchType PredictExceptionCatcher();
-  CatchType PredictExceptionCatchAtFrame(v8::internal::StackFrame* frame);
 
   void ScheduleThrow(Tagged<Object> exception);
   // Re-set pending message, script and positions reported to the TryCatch
@@ -1585,12 +1571,10 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
   bool IsDeferredHandle(Address* location);
 #endif  // DEBUG
 
-#ifdef V8_ENABLE_SPARKPLUG
   baseline::BaselineBatchCompiler* baseline_batch_compiler() const {
     DCHECK_NOT_NULL(baseline_batch_compiler_);
     return baseline_batch_compiler_;
   }
-#endif  // V8_ENABLE_SPARKPLUG
 
 #ifdef V8_ENABLE_MAGLEV
   maglev::MaglevConcurrentDispatcher* maglev_concurrent_dispatcher() {
@@ -1696,9 +1680,7 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
 
   void SetUseCounterCallback(v8::Isolate::UseCounterCallback callback);
   void CountUsage(v8::Isolate::UseCounterFeature feature);
-  // Count multiple usages at once; cheaper than calling the {CountUsage}
-  // separately for each feature.
-  void CountUsage(base::Vector<const v8::Isolate::UseCounterFeature> features);
+  void CountUsage(v8::Isolate::UseCounterFeature feature, int count);
 
   static std::string GetTurboCfgFileName(Isolate* isolate);
 
@@ -2048,16 +2030,16 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
 
   ExternalPointerHandle GetOrCreateWaiterQueueNodeExternalPointer();
 
-  TrustedPointerTable& trusted_pointer_table() {
-    return isolate_data_.trusted_pointer_table_;
+  IndirectPointerTable& indirect_pointer_table() {
+    return isolate_data_.indirect_pointer_table_;
   }
 
-  const TrustedPointerTable& trusted_pointer_table() const {
-    return isolate_data_.trusted_pointer_table_;
+  const IndirectPointerTable& indirect_pointer_table() const {
+    return isolate_data_.indirect_pointer_table_;
   }
 
-  Address trusted_pointer_table_base_address() const {
-    return isolate_data_.trusted_pointer_table_.base_address();
+  Address indirect_pointer_table_base_address() const {
+    return isolate_data_.indirect_pointer_table_.base_address();
   }
 #endif  // V8_COMPRESS_POINTERS
 
@@ -2418,9 +2400,7 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
   Zone* compiler_zone_ = nullptr;
 
   std::unique_ptr<LazyCompileDispatcher> lazy_compile_dispatcher_;
-#ifdef V8_ENABLE_SPARKPLUG
   baseline::BaselineBatchCompiler* baseline_batch_compiler_ = nullptr;
-#endif  // V8_ENABLE_SPARKPLUG
 #ifdef V8_ENABLE_MAGLEV
   maglev::MaglevConcurrentDispatcher* maglev_concurrent_dispatcher_ = nullptr;
 #endif  // V8_ENABLE_MAGLEV

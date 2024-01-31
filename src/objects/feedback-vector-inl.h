@@ -27,8 +27,7 @@ namespace internal {
 
 TQ_OBJECT_CONSTRUCTORS_IMPL(FeedbackVector)
 OBJECT_CONSTRUCTORS_IMPL(FeedbackMetadata, HeapObject)
-OBJECT_CONSTRUCTORS_IMPL(ClosureFeedbackCellArray,
-                         ClosureFeedbackCellArray::Super)
+OBJECT_CONSTRUCTORS_IMPL(ClosureFeedbackCellArray, FixedArray)
 
 NEVER_READ_ONLY_SPACE_IMPL(FeedbackVector)
 NEVER_READ_ONLY_SPACE_IMPL(ClosureFeedbackCellArray)
@@ -95,6 +94,14 @@ int FeedbackMetadata::GetSlotSize(FeedbackSlotKind kind) {
     case FeedbackSlotKind::kInvalid:
       UNREACHABLE();
   }
+}
+
+Handle<FeedbackCell> ClosureFeedbackCellArray::GetFeedbackCell(int index) {
+  return handle(FeedbackCell::cast(get(index)), GetIsolate());
+}
+
+Tagged<FeedbackCell> ClosureFeedbackCellArray::cell(int index) {
+  return FeedbackCell::cast(get(index));
 }
 
 bool FeedbackVector::is_empty() const { return length() == 0; }
@@ -229,9 +236,6 @@ base::Optional<Tagged<Code>> FeedbackVector::GetOptimizedOsrCode(
 // Conversion from an integer index to either a slot or an ic slot.
 // static
 FeedbackSlot FeedbackVector::ToSlot(intptr_t index) {
-  if (index == static_cast<intptr_t>(FeedbackSlot::Invalid().ToInt())) {
-    return FeedbackSlot();
-  }
   DCHECK_LE(static_cast<uintptr_t>(index),
             static_cast<uintptr_t>(std::numeric_limits<int>::max()));
   return FeedbackSlot(static_cast<int>(index));
@@ -263,15 +267,14 @@ MaybeObject FeedbackVector::Get(PtrComprCageBase cage_base,
   return value;
 }
 
-Handle<FeedbackCell> FeedbackVector::GetClosureFeedbackCell(Isolate* isolate,
-                                                            int index) const {
+Handle<FeedbackCell> FeedbackVector::GetClosureFeedbackCell(int index) const {
   DCHECK_GE(index, 0);
-  return handle(closure_feedback_cell_array()->get(index), isolate);
+  return closure_feedback_cell_array()->GetFeedbackCell(index);
 }
 
 Tagged<FeedbackCell> FeedbackVector::closure_feedback_cell(int index) const {
   DCHECK_GE(index, 0);
-  return closure_feedback_cell_array()->get(index);
+  return closure_feedback_cell_array()->cell(index);
 }
 
 MaybeObject FeedbackVector::SynchronizedGet(FeedbackSlot slot) const {

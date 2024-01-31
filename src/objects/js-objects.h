@@ -27,12 +27,10 @@ enum InstanceType : uint16_t;
 class JSGlobalObject;
 class JSGlobalProxy;
 class LookupIterator;
-class PropertyDescriptor;
 class PropertyKey;
 class NativeContext;
 class IsCompiledScope;
 class SwissNameDictionary;
-class ElementsAccessor;
 
 #include "torque-generated/src/objects/js-objects-tq.inc"
 
@@ -638,7 +636,6 @@ class JSObject : public TorqueGeneratedJSObject<JSObject, JSReceiver> {
 
   // Returns true if this object is an Api object which can, if unmodified, be
   // dropped during minor GC because the embedder can recreate it again later.
-  static inline bool IsDroppableApiObject(Tagged<Map>);
   inline bool IsDroppableApiObject() const;
 
   // Returns a new map with all transitions dropped from the object's current
@@ -899,6 +896,9 @@ class JSObject : public TorqueGeneratedJSObject<JSObject, JSReceiver> {
 
   // Gets the number of currently used elements.
   int GetFastElementsUsage();
+
+  static bool AllCanRead(LookupIterator* it);
+  static bool AllCanWrite(LookupIterator* it);
 
   template <typename Dictionary>
   static void ApplyAttributesToDictionary(Isolate* isolate, ReadOnlyRoots roots,

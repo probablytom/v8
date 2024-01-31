@@ -1483,54 +1483,6 @@ void Builtins::Generate_InterpreterPushArgsThenConstructImpl(
   }
 }
 
-// static
-void Builtins::Generate_ConstructForwardAllArgsImpl(
-    MacroAssembler* masm, ForwardWhichFrame which_frame) {
-  // ----------- S t a t e -------------
-  // -- a3 : new target
-  // -- a1 : constructor to call
-  // -----------------------------------
-  Label stack_overflow;
-
-  // Load the frame pointer into a4.
-  switch (which_frame) {
-    case ForwardWhichFrame::kCurrentFrame:
-      __ Move(a4, fp);
-      break;
-    case ForwardWhichFrame::kParentFrame:
-      __ LoadWord(a4, MemOperand(fp, StandardFrameConstants::kCallerFPOffset));
-      break;
-  }
-
-  // Load the argument count into a0.
-  __ LoadWord(a0, MemOperand(a4, StandardFrameConstants::kArgCOffset));
-  __ StackOverflowCheck(a0, a5, t0, &stack_overflow);
-
-  // Point a4 to the base of the argument list to forward, excluding the
-  // receiver.
-  __ AddWord(a4, a4,
-             Operand((StandardFrameConstants::kFixedSlotCountAboveFp + 1) *
-                     kSystemPointerSize));
-
-  // Copy arguments on the stack. a5 is a scratch register.
-  Register argc_without_receiver = a6;
-  __ SubWord(argc_without_receiver, a0, Operand(kJSArgcReceiverSlots));
-  __ PushArray(a4, argc_without_receiver);
-
-  // Push a slot for the receiver.
-  __ push(zero_reg);
-
-  // Call the constructor with a0, a1, and a3 unmodified.
-  __ Jump(BUILTIN_CODE(masm->isolate(), Construct), RelocInfo::CODE_TARGET);
-
-  __ bind(&stack_overflow);
-  {
-    __ TailCallRuntime(Runtime::kThrowStackOverflow);
-    // Unreachable code.
-    __ break_(0xCC);
-  }
-}
-
 namespace {
 
 void NewImplicitReceiver(MacroAssembler* masm) {
@@ -3275,31 +3227,7 @@ void Builtins::Generate_WasmReturnPromiseOnSuspendAsm(MacroAssembler* masm) {
   __ Trap();
 }
 
-void Builtins::Generate_WasmToJsWrapperAsm(MacroAssembler* masm) {
-  int required_stack_space = arraysize(wasm::kFpParamRegisters) * kDoubleSize;
-  __ SubWord(sp, sp, Operand(required_stack_space));
-  for (int i = 0; i < static_cast<int>(arraysize(wasm::kFpParamRegisters));
-       ++i) {
-    __ StoreDouble(wasm::kFpParamRegisters[i], MemOperand(sp, i * kDoubleSize));
-  }
-
-  constexpr int num_gp = arraysize(wasm::kGpParamRegisters) - 1;
-  required_stack_space = num_gp * kSystemPointerSize;
-  __ SubWord(sp, sp, Operand(required_stack_space));
-  for (int i = 1; i < static_cast<int>(arraysize(wasm::kGpParamRegisters));
-       ++i) {
-    __ StoreWord(wasm::kGpParamRegisters[i],
-                 MemOperand(sp, (i - 1) * kSystemPointerSize));
-  }
-  // Decrement the stack to allocate a stack slot. The signature gets written
-  // into the slot in Torque.
-  __ Push(zero_reg);
-  __ TailCallBuiltin(Builtin::kWasmToJsWrapperCSA);
-}
-
-void Builtins::Generate_WasmTrapHandlerLandingPad(MacroAssembler* masm) {
-  __ Trap();
-}
+void Builtins::Generate_WasmToJsWrapperAsm(MacroAssembler* masm) { __ Trap(); }
 
 void Builtins::Generate_WasmSuspend(MacroAssembler* masm) {
   // TODO(v8:12191): Implement for this platform.

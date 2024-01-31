@@ -5,7 +5,6 @@
 d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
 
 (function duplicateGlobalExportName() {
-  print(arguments.callee.name);
   var builder = new WasmModuleBuilder();
   builder.addGlobal(kWasmI64, false).exportAs('g');
   builder.addGlobal(kWasmI64, false).exportAs('g');
@@ -15,7 +14,6 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
 })();
 
 (function exportNameClashWithFunction() {
-  print(arguments.callee.name);
   var builder = new WasmModuleBuilder();
   builder.addGlobal(kWasmI64, false).exportAs('foo');
   builder.addFunction('f', kSig_v_v).addBody([]).exportAs('foo');
@@ -25,7 +23,6 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
 })();
 
 (function veryLongExportName() {
-  print(arguments.callee.name);
   // Regression test for crbug.com/740023.
   var export_name = 'abc';
   while (export_name.length < 8192) {
@@ -40,25 +37,4 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
   assertThrows(
       () => builder.instantiate(), WebAssembly.CompileError,
       new RegExp(error_msg));
-})();
-
-(function exportAsElement() {
-  print(arguments.callee.name);
-  const builder = new WasmModuleBuilder();
-  const global = builder.addGlobal(kWasmI64, false);
-  const max_array_index = Math.pow(2, 32) - 1;
-  const func_idx = builder.addFunction('f', kSig_v_v).addBody([]);
-  const export_names =
-      [0, 3, max_array_index - 1, max_array_index + 1, 2 * max_array_index];
-  for (const name of export_names) {
-    global.exportAs(name);
-  }
-  const instance = builder.instantiate();
-  const exports = instance.exports;
-  for (const name of export_names) {
-    assertTrue(name in exports);
-    assertFalse((name - 1) in exports);
-    assertFalse((name + 1) in exports);
-    assertInstanceof(exports[name], WebAssembly.Global);
-  }
 })();

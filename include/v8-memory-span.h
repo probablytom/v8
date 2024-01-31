@@ -140,8 +140,6 @@ class V8_EXPORT MemorySpan {
     }
 
    private:
-    friend class MemorySpan<T>;
-
     explicit Iterator(T* ptr) : ptr_(ptr) {}
 
     T* ptr_ = nullptr;

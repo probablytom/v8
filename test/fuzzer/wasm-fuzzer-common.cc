@@ -407,11 +407,11 @@ class InitExprInterface {
   void UnOp(FullDecoder* decoder, WasmOpcode opcode, const Value& value,
             Value* result) {
     switch (opcode) {
-      case kExprAnyConvertExtern:
-        os_ << "kGCPrefix, kExprAnyConvertExtern, ";
+      case kExprExternInternalize:
+        os_ << "kGCPrefix, kExprExternInternalize, ";
         break;
-      case kExprExternConvertAny:
-        os_ << "kGCPrefix, kExprExternConvertAny, ";
+      case kExprExternExternalize:
+        os_ << "kGCPrefix, kExprExternExternalize, ";
         break;
       default:
         UNREACHABLE();
@@ -767,11 +767,7 @@ void GenerateTestCase(Isolate* isolate, ModuleWireBytes wire_bytes,
 
   if (compiles) {
     os << "const instance = builder.instantiate();\n"
-          "try {\n"
-          "  print(instance.exports.main(1, 2, 3));\n"
-          "} catch (e) {"
-          "  print('caught exception', e);"
-          "}";
+          "print(instance.exports.main(1, 2, 3));\n";
   } else {
     os << "assertThrows(function() { builder.instantiate(); }, "
           "WebAssembly.CompileError);\n";

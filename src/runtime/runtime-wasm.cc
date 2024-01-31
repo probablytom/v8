@@ -21,7 +21,6 @@
 #include "src/wasm/wasm-debug.h"
 #include "src/wasm/wasm-engine.h"
 #include "src/wasm/wasm-objects.h"
-#include "src/wasm/wasm-opcodes-inl.h"
 #include "src/wasm/wasm-subtyping.h"
 #include "src/wasm/wasm-value.h"
 
@@ -113,9 +112,9 @@ class V8_NODISCARD ClearThreadInWasmScope {
 };
 
 Tagged<Object> ThrowWasmError(Isolate* isolate, MessageTemplate message,
-                              std::initializer_list<Handle<Object>> args = {}) {
+                              Handle<Object> arg0 = Handle<Object>()) {
   Handle<JSObject> error_obj =
-      isolate->factory()->NewWasmRuntimeError(message, base::VectorOf(args));
+      isolate->factory()->NewWasmRuntimeError(message, arg0);
   JSObject::AddProperty(isolate, error_obj,
                         isolate->factory()->wasm_uncatchable_symbol(),
                         isolate->factory()->true_value(), NONE);
@@ -219,42 +218,6 @@ RUNTIME_FUNCTION(Runtime_WasmMemoryGrow) {
   // always return a Smi.
   DCHECK(!isolate->has_pending_exception());
   return Smi::FromInt(ret);
-}
-
-RUNTIME_FUNCTION(Runtime_TrapHandlerThrowWasmError) {
-  ClearThreadInWasmScope flag_scope(isolate);
-  HandleScope scope(isolate);
-  std::vector<FrameSummary> summary;
-  FrameFinder<WasmFrame> frame_finder(isolate, {StackFrame::EXIT});
-  WasmFrame* frame = frame_finder.frame();
-  // TODO(ahaas): We cannot use frame->position() here because for inlined
-  // function it does not return the correct source position. We should remove
-  // frame->position() to avoid problems in the future.
-  frame->Summarize(&summary);
-  DCHECK(summary.back().IsWasm());
-  int pos = summary.back().AsWasm().SourcePosition();
-
-  wasm::WasmCodeRefScope code_ref_scope;
-  auto wire_bytes = frame->wasm_code()->native_module()->wire_bytes();
-  wasm::WasmOpcode op = static_cast<wasm::WasmOpcode>(wire_bytes.at(pos));
-  MessageTemplate message = MessageTemplate::kWasmTrapMemOutOfBounds;
-  if (op == wasm::kGCPrefix || op == wasm::kExprRefAsNonNull ||
-      op == wasm::kExprCallRef || op == wasm::kExprReturnCallRef ||
-      // Calling imported string function with null can trigger a signal.
-      op == wasm::kExprCallFunction || op == wasm::kExprReturnCall) {
-    message = MessageTemplate::kWasmTrapNullDereference;
-#if DEBUG
-  } else {
-    if (wasm::WasmOpcodes::IsPrefixOpcode(op)) {
-      op = wasm::Decoder{wire_bytes}
-               .read_prefixed_opcode<wasm::Decoder::NoValidationTag>(
-                   &wire_bytes.begin()[pos])
-               .first;
-    }
-    DCHECK(wasm::WasmOpcodes::IsMemoryAccessOpcode(op));
-#endif  // DEBUG
-  }
-  return ThrowWasmError(isolate, message);
 }
 
 RUNTIME_FUNCTION(Runtime_ThrowWasmError) {
@@ -456,14 +419,9 @@ RUNTIME_FUNCTION(Runtime_WasmCompileWrapper) {
     return ReadOnlyRoots(isolate).undefined_value();
   }
 
-  // This runtime function is called for wrapper tier up, but wrapper tierup
-  // never happens for imports.
-  bool imported = function.imported;
-  V8_ASSUME(!imported);
-
   Handle<Code> wrapper_code =
-      wasm::JSToWasmWrapperCompilationUnit::CompileJSToWasmWrapper(
-          isolate, sig, canonical_sig_index, module, imported);
+      wasm::JSToWasmWrapperCompilationUnit::CompileSpecificJSToWasmWrapper(
+          isolate, sig, canonical_sig_index, module);
 
   // Replace the wrapper for the function that triggered the tier-up.
   // This is to verify that the wrapper is replaced, even if the function
@@ -648,6 +606,25 @@ RUNTIME_FUNCTION(Runtime_WasmTriggerTierUp) {
   return ReadOnlyRoots(isolate).undefined_value();
 }
 
+RUNTIME_FUNCTION(Runtime_WasmAtomicNotify) {
+  ClearThreadInWasmScope clear_wasm_flag(isolate);
+  SealHandleScope scope(isolate);
+  DCHECK_EQ(4, args.length());
+  Tagged<WasmInstanceObject> instance = WasmInstanceObject::cast(args[0]);
+  int memory_index = args.smi_value_at(1);
+  double offset_double = args.number_value_at(2);
+  uintptr_t offset = static_cast<uintptr_t>(offset_double);
+  uint32_t count = NumberToUint32(args[3]);
+
+  Tagged<JSArrayBuffer> array_buffer =
+      instance->memory_object(memory_index)->array_buffer();
+  // Should have trapped if address was OOB.
+  DCHECK_LT(offset, array_buffer->byte_length());
+  if (!array_buffer->is_shared()) return Smi::zero();
+  int num_waiters_woken = FutexEmulation::Wake(array_buffer, offset, count);
+  return Smi::FromInt(num_waiters_woken);
+}
+
 RUNTIME_FUNCTION(Runtime_WasmI32AtomicWait) {
   ClearThreadInWasmScope clear_wasm_flag(isolate);
   HandleScope scope(isolate);
@@ -668,7 +645,7 @@ RUNTIME_FUNCTION(Runtime_WasmI32AtomicWait) {
   if (!array_buffer->is_shared() || !isolate->allow_atomics_wait()) {
     return ThrowWasmError(
         isolate, MessageTemplate::kAtomicsOperationNotAllowed,
-        {isolate->factory()->NewStringFromAsciiChecked("Atomics.wait")});
+        isolate->factory()->NewStringFromAsciiChecked("Atomics.wait"));
   }
   return FutexEmulation::WaitWasm32(isolate, array_buffer, offset,
                                     expected_value, timeout_ns->AsInt64());
@@ -694,7 +671,7 @@ RUNTIME_FUNCTION(Runtime_WasmI64AtomicWait) {
   if (!array_buffer->is_shared() || !isolate->allow_atomics_wait()) {
     return ThrowWasmError(
         isolate, MessageTemplate::kAtomicsOperationNotAllowed,
-        {isolate->factory()->NewStringFromAsciiChecked("Atomics.wait")});
+        isolate->factory()->NewStringFromAsciiChecked("Atomics.wait"));
   }
   return FutexEmulation::WaitWasm64(isolate, array_buffer, offset,
                                     expected_value->AsInt64(),
@@ -1226,35 +1203,6 @@ RUNTIME_FUNCTION(Runtime_WasmAllocateSuspender) {
     return *result;                                                            \
   } while (false)
 
-// "Special" because the type must be in a recgroup of its own.
-// Used by WebAssembly.String.* builtins.
-RUNTIME_FUNCTION(Runtime_WasmCastToSpecialPrimitiveArray) {
-  ClearThreadInWasmScope flag_scope(isolate);
-  HandleScope scope(isolate);
-  DCHECK_EQ(2, args.length());
-
-  int bits = args.smi_value_at(1);
-  DCHECK(bits == 8 || bits == 16);
-
-  if (args[0] == ReadOnlyRoots(isolate).null_value()) {
-    return ThrowWasmError(isolate, MessageTemplate::kWasmTrapNullDereference);
-  }
-  MessageTemplate illegal_cast = MessageTemplate::kWasmTrapIllegalCast;
-  if (!IsWasmArray(args[0])) return ThrowWasmError(isolate, illegal_cast);
-  Tagged<WasmArray> obj = WasmArray::cast(args[0]);
-  Tagged<WasmTypeInfo> wti = obj->map()->wasm_type_info();
-  const wasm::WasmModule* module =
-      WasmInstanceObject::cast(wti->instance())->module();
-  DCHECK(module->has_array(wti->type_index()));
-  uint32_t expected = bits == 8
-                          ? wasm::TypeCanonicalizer::kPredefinedArrayI8Index
-                          : wasm::TypeCanonicalizer::kPredefinedArrayI16Index;
-  if (module->isorecursive_canonical_type_ids[wti->type_index()] != expected) {
-    return ThrowWasmError(isolate, illegal_cast);
-  }
-  return obj;
-}
-
 // Returns the new string if the operation succeeds.  Otherwise throws an
 // exception and returns an empty result.
 RUNTIME_FUNCTION(Runtime_WasmStringNewWtf8) {
@@ -1267,13 +1215,14 @@ RUNTIME_FUNCTION(Runtime_WasmStringNewWtf8) {
   uint32_t offset = NumberToUint32(args[3]);
   uint32_t size = NumberToUint32(args[4]);
 
-  // TODO(14261): Support multiple memories.
-  CHECK_EQ(memory, 0);
+  DCHECK_EQ(memory, 0);
+  USE(memory);
   DCHECK(utf8_variant_value <=
          static_cast<uint32_t>(unibrow::Utf8Variant::kLastUtf8Variant));
 
   auto utf8_variant = static_cast<unibrow::Utf8Variant>(utf8_variant_value);
 
+  // TODO(14261): Support multiple memories.
   uint64_t mem_size = instance->memory0_size();
   if (!base::IsInBounds<uint64_t>(offset, size, mem_size)) {
     return ThrowWasmError(isolate, MessageTemplate::kWasmTrapMemOutOfBounds);
@@ -1327,9 +1276,10 @@ RUNTIME_FUNCTION(Runtime_WasmStringNewWtf16) {
   uint32_t offset = NumberToUint32(args[2]);
   uint32_t size_in_codeunits = NumberToUint32(args[3]);
 
-  // TODO(14261): Support multiple memories.
-  CHECK_EQ(memory, 0);
+  DCHECK_EQ(memory, 0);
+  USE(memory);
 
+  // TODO(14261): Support multiple memories.
   uint64_t mem_size = instance->memory0_size();
   if (size_in_codeunits > kMaxUInt32 / 2 ||
       !base::IsInBounds<uint64_t>(offset, size_in_codeunits * 2, mem_size)) {
@@ -1568,11 +1518,12 @@ RUNTIME_FUNCTION(Runtime_WasmStringEncodeWtf8) {
   Handle<String> string(String::cast(args[3]), isolate);
   uint32_t offset = NumberToUint32(args[4]);
 
-  // TODO(14261): Support multiple memories.
-  CHECK_EQ(memory, 0);
+  DCHECK_EQ(memory, 0);
+  USE(memory);
   DCHECK(utf8_variant_value <=
          static_cast<uint32_t>(unibrow::Utf8Variant::kLastUtf8Variant));
 
+  // TODO(14261): Support multiple memories.
   char* memory_start = reinterpret_cast<char*>(instance->memory0_start());
   auto utf8_variant = static_cast<unibrow::Utf8Variant>(utf8_variant_value);
   auto get_writable_bytes =
@@ -1614,10 +1565,11 @@ RUNTIME_FUNCTION(Runtime_WasmStringEncodeWtf16) {
   uint32_t start = args.positive_smi_value_at(4);
   uint32_t length = args.positive_smi_value_at(5);
 
-  // TODO(14261): Support multiple memories.
-  CHECK_EQ(memory, 0);
+  DCHECK_EQ(memory, 0);
+  USE(memory);
   DCHECK(base::IsInBounds<uint32_t>(start, length, string->length()));
 
+  // TODO(14261): Support multiple memories.
   size_t mem_size = instance->memory0_size();
   static_assert(String::kMaxLength <=
                 (std::numeric_limits<size_t>::max() / sizeof(base::uc16)));
@@ -1657,7 +1609,7 @@ RUNTIME_FUNCTION(Runtime_WasmStringAsWtf8) {
   auto utf8_variant = unibrow::Utf8Variant::kWtf8;
   auto get_writable_bytes =
       [&](const DisallowGarbageCollection&) -> base::Vector<char> {
-    return {reinterpret_cast<char*>(array->begin()),
+    return {reinterpret_cast<char*>(array->GetDataStartAddress()),
             static_cast<size_t>(wtf8_length)};
   };
   EncodeWtf8(isolate, utf8_variant, string, get_writable_bytes, 0,
@@ -1685,14 +1637,13 @@ RUNTIME_FUNCTION(Runtime_WasmStringViewWtf8Encode) {
   size_t length = end - start;
 
   // TODO(14261): Support multiple memories.
-  CHECK_EQ(1, instance->module()->memories.size());
-
   if (!base::IsInBounds<size_t>(addr, length, instance->memory0_size())) {
     return ThrowWasmError(isolate, MessageTemplate::kWasmTrapMemOutOfBounds);
   }
 
   uint8_t* memory_start = reinterpret_cast<uint8_t*>(instance->memory0_start());
-  const uint8_t* src = reinterpret_cast<const uint8_t*>(array->begin() + start);
+  const uint8_t* src =
+      reinterpret_cast<const uint8_t*>(array->GetDataStartAddress() + start);
   uint8_t* dst = memory_start + addr;
 
   std::vector<size_t> surrogates;
@@ -1747,7 +1698,7 @@ RUNTIME_FUNCTION(Runtime_WasmStringFromCodePoint) {
   }
   if (code_point > 0x10FFFF) {
     return ThrowWasmError(isolate, MessageTemplate::kInvalidCodePoint,
-                          {handle(args[0], isolate)});
+                          handle(args[0], isolate));
   }
 
   base::uc16 char_buffer[] = {

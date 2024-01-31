@@ -61,10 +61,10 @@ Reduction WasmGCLowering::Reduce(Node* node) {
       return ReduceRttCanon(node);
     case IrOpcode::kTypeGuard:
       return ReduceTypeGuard(node);
-    case IrOpcode::kWasmAnyConvertExtern:
-      return ReduceWasmAnyConvertExtern(node);
-    case IrOpcode::kWasmExternConvertAny:
-      return ReduceWasmExternConvertAny(node);
+    case IrOpcode::kWasmExternInternalize:
+      return ReduceWasmExternInternalize(node);
+    case IrOpcode::kWasmExternExternalize:
+      return ReduceWasmExternExternalize(node);
     case IrOpcode::kWasmStructGet:
       return ReduceWasmStructGet(node);
     case IrOpcode::kWasmStructSet:
@@ -87,8 +87,7 @@ Reduction WasmGCLowering::Reduce(Node* node) {
 }
 
 Node* WasmGCLowering::Null(wasm::ValueType type) {
-  RootIndex index = wasm::IsSubtypeOf(type, wasm::kWasmExternRef, module_) ||
-                            type == wasm::kWasmExnRef
+  RootIndex index = wasm::IsSubtypeOf(type, wasm::kWasmExternRef, module_)
                         ? RootIndex::kNullValue
                         : RootIndex::kWasmNull;
   return gasm_.LoadImmutable(MachineType::Pointer(), gasm_.LoadRootRegister(),
@@ -541,8 +540,8 @@ constexpr int32_t kInt31MaxValue = 0x3fffffff;
 constexpr int32_t kInt31MinValue = -kInt31MaxValue - 1;
 }  // namespace
 
-Reduction WasmGCLowering::ReduceWasmAnyConvertExtern(Node* node) {
-  DCHECK_EQ(node->opcode(), IrOpcode::kWasmAnyConvertExtern);
+Reduction WasmGCLowering::ReduceWasmExternInternalize(Node* node) {
+  DCHECK_EQ(node->opcode(), IrOpcode::kWasmExternInternalize);
   Node* input = NodeProperties::GetValueInput(node, 0);
   Node* effect = NodeProperties::GetEffectInput(node);
   Node* control = NodeProperties::GetControlInput(node);
@@ -637,8 +636,8 @@ Reduction WasmGCLowering::ReduceWasmAnyConvertExtern(Node* node) {
   return Replace(end_label.PhiAt(0));
 }
 
-Reduction WasmGCLowering::ReduceWasmExternConvertAny(Node* node) {
-  DCHECK_EQ(node->opcode(), IrOpcode::kWasmExternConvertAny);
+Reduction WasmGCLowering::ReduceWasmExternExternalize(Node* node) {
+  DCHECK_EQ(node->opcode(), IrOpcode::kWasmExternExternalize);
   Node* object = node->InputAt(0);
   gasm_.InitializeEffectControl(NodeProperties::GetEffectInput(node),
                                 NodeProperties::GetControlInput(node));

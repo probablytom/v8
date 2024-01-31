@@ -866,14 +866,13 @@ Handle<HeapObject> RegExpMacroAssemblerARM64::GetCode(Handle<String> source) {
     __ Mov(x10, stack_limit);
     __ Ldr(x10, MemOperand(x10));
     __ Subs(x10, sp, x10);
-    Operand extra_space_for_variables(num_wreg_to_allocate * kWRegSize);
 
     // Handle it if the stack pointer is already below the stack limit.
     __ B(ls, &stack_limit_hit);
 
     // Check if there is room for the variable number of registers above
     // the stack limit.
-    __ Cmp(x10, extra_space_for_variables);
+    __ Cmp(x10, num_wreg_to_allocate * kWRegSize);
     __ B(hs, &stack_ok);
 
     // Exit with OutOfMemory exception. There is not enough space on the stack
@@ -882,7 +881,7 @@ Handle<HeapObject> RegExpMacroAssemblerARM64::GetCode(Handle<String> source) {
     __ B(&return_w0);
 
     __ Bind(&stack_limit_hit);
-    CallCheckStackGuardState(x10, extra_space_for_variables);
+    CallCheckStackGuardState(x10);
     // If returned value is non-zero, we exit with the returned value as result.
     __ Cbnz(w0, &return_w0);
 
@@ -1424,8 +1423,7 @@ static T* frame_entry_address(Address re_frame, int frame_offset) {
 
 int RegExpMacroAssemblerARM64::CheckStackGuardState(
     Address* return_address, Address raw_code, Address re_frame,
-    int start_index, const uint8_t** input_start, const uint8_t** input_end,
-    uintptr_t extra_space) {
+    int start_index, const uint8_t** input_start, const uint8_t** input_end) {
   Tagged<InstructionStream> re_code =
       InstructionStream::cast(Tagged<Object>(raw_code));
   return NativeRegExpMacroAssembler::CheckStackGuardState(
@@ -1434,7 +1432,7 @@ int RegExpMacroAssemblerARM64::CheckStackGuardState(
           frame_entry<int>(re_frame, kDirectCallOffset)),
       return_address, re_code,
       frame_entry_address<Address>(re_frame, kInputStringOffset), input_start,
-      input_end, extra_space);
+      input_end);
 }
 
 void RegExpMacroAssemblerARM64::CheckPosition(int cp_offset,
@@ -1452,8 +1450,7 @@ void RegExpMacroAssemblerARM64::CheckPosition(int cp_offset,
 
 // Private methods:
 
-void RegExpMacroAssemblerARM64::CallCheckStackGuardState(Register scratch,
-                                                         Operand extra_space) {
+void RegExpMacroAssemblerARM64::CallCheckStackGuardState(Register scratch) {
   DCHECK(!isolate()->IsGeneratingEmbeddedBuiltins());
   DCHECK(!masm_->options().isolate_independent_code);
 
@@ -1468,7 +1465,6 @@ void RegExpMacroAssemblerARM64::CallCheckStackGuardState(Register scratch,
 
   __ Claim(xreg_to_claim);
 
-  __ Mov(x6, extra_space);
   // CheckStackGuardState needs the end and start addresses of the input string.
   __ Poke(input_end(), 2 * kSystemPointerSize);
   __ Add(x5, sp, 2 * kSystemPointerSize);

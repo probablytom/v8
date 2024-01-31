@@ -14,7 +14,7 @@ macro Extract(
     resultCapacity: Smi): FixedArray {
   return ExtractFixedArray(
       source, Convert<intptr>(startIndex), Convert<intptr>(count),
-      Convert<intptr>(resultCapacity), TheHole);
+      Convert<intptr>(resultCapacity));
 }
 
 macro Extract(

@@ -732,19 +732,19 @@ Handle<HeapObject> RegExpMacroAssemblerRISCV::GetCode(Handle<String> source) {
       __ li(a0, Operand(stack_limit));
       __ LoadWord(a0, MemOperand(a0));
       __ SubWord(a0, sp, a0);
-      Operand extra_space_for_variables(num_registers_ * kSystemPointerSize);
       // Handle it if the stack pointer is already below the stack limit.
       __ Branch(&stack_limit_hit, le, a0, Operand(zero_reg));
       // Check if there is room for the variable number of registers above
       // the stack limit.
-      __ Branch(&stack_ok, uge, a0, extra_space_for_variables);
+      __ Branch(&stack_ok, uge, a0,
+                Operand(num_registers_ * kSystemPointerSize));
       // Exit with OutOfMemory exception. There is not enough space on the stack
       // for our working registers.
       __ li(a0, Operand(EXCEPTION));
       __ jmp(&return_a0);
 
       __ bind(&stack_limit_hit);
-      CallCheckStackGuardState(a0, extra_space_for_variables);
+      CallCheckStackGuardState(a0);
       // If returned value is non-zero, we exit with the returned value as
       // result.
       __ Branch(&return_a0, ne, a0, Operand(zero_reg));
@@ -1142,8 +1142,7 @@ bool RegExpMacroAssemblerRISCV::CanReadUnaligned() const { return false; }
 #endif
 // Private methods:
 
-void RegExpMacroAssemblerRISCV::CallCheckStackGuardState(Register scratch,
-                                                         Operand extra_space) {
+void RegExpMacroAssemblerRISCV::CallCheckStackGuardState(Register scratch) {
   DCHECK(!isolate()->IsGeneratingEmbeddedBuiltins());
   DCHECK(!masm_->options().isolate_independent_code);
 
@@ -1156,7 +1155,6 @@ void RegExpMacroAssemblerRISCV::CallCheckStackGuardState(Register scratch,
   __ And(sp, sp, Operand(-stack_alignment));
   __ StoreWord(scratch, MemOperand(sp));
 
-  __ li(a3, extra_space);
   __ mv(a2, frame_pointer());
   // InstructionStream of self.
   __ li(a1, Operand(masm_->CodeObject()), CONSTANT_SIZE);
@@ -1217,8 +1215,7 @@ static T* frame_entry_address(Address re_frame, int frame_offset) {
 
 int64_t RegExpMacroAssemblerRISCV::CheckStackGuardState(Address* return_address,
                                                         Address raw_code,
-                                                        Address re_frame,
-                                                        uintptr_t extra_space) {
+                                                        Address re_frame) {
   Tagged<InstructionStream> re_code =
       InstructionStream::cast(Tagged<Object>(raw_code));
   return NativeRegExpMacroAssembler::CheckStackGuardState(
@@ -1229,8 +1226,7 @@ int64_t RegExpMacroAssemblerRISCV::CheckStackGuardState(Address* return_address,
       return_address, re_code,
       frame_entry_address<Address>(re_frame, kInputStringOffset),
       frame_entry_address<const uint8_t*>(re_frame, kInputStartOffset),
-      frame_entry_address<const uint8_t*>(re_frame, kInputEndOffset),
-      extra_space);
+      frame_entry_address<const uint8_t*>(re_frame, kInputEndOffset));
 }
 
 MemOperand RegExpMacroAssemblerRISCV::register_location(int register_index) {

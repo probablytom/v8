@@ -50,7 +50,8 @@ enum PropertyFilter {
   ONLY_CONFIGURABLE = 4,
   SKIP_STRINGS = 8,
   SKIP_SYMBOLS = 16,
-  PRIVATE_NAMES_ONLY = 32,
+  ONLY_ALL_CAN_READ = 32,
+  PRIVATE_NAMES_ONLY = 64,
   ENUMERABLE_STRINGS = ONLY_ENUMERABLE | SKIP_SYMBOLS,
 };
 // Enable fast comparisons of PropertyAttributes against PropertyFilters.
@@ -58,7 +59,8 @@ static_assert(ALL_PROPERTIES == static_cast<PropertyFilter>(NONE));
 static_assert(ONLY_WRITABLE == static_cast<PropertyFilter>(READ_ONLY));
 static_assert(ONLY_ENUMERABLE == static_cast<PropertyFilter>(DONT_ENUM));
 static_assert(ONLY_CONFIGURABLE == static_cast<PropertyFilter>(DONT_DELETE));
-static_assert(((SKIP_STRINGS | SKIP_SYMBOLS) & ALL_ATTRIBUTES_MASK) == 0);
+static_assert(((SKIP_STRINGS | SKIP_SYMBOLS | ONLY_ALL_CAN_READ) &
+               ALL_ATTRIBUTES_MASK) == 0);
 static_assert(ALL_PROPERTIES ==
               static_cast<PropertyFilter>(v8::PropertyFilter::ALL_PROPERTIES));
 static_assert(ONLY_WRITABLE ==

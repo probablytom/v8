@@ -128,13 +128,13 @@ struct IsSubclassOfBasicMemberTemplate {
  private:
   template <typename T, typename CheckingPolicy, typename StorageType>
   static std::true_type SubclassCheck(
-      const BasicMember<T, WeaknessTag, WriteBarrierPolicy, CheckingPolicy,
-                        StorageType>*);
+      BasicMember<T, WeaknessTag, WriteBarrierPolicy, CheckingPolicy,
+                  StorageType>*);
   static std::false_type SubclassCheck(...);
 
  public:
-  static constexpr bool value = decltype(SubclassCheck(
-      std::declval<std::decay_t<BasicMemberCandidate>*>()))::value;
+  static constexpr bool value =
+      decltype(SubclassCheck(std::declval<BasicMemberCandidate*>()))::value;
 };
 
 template <typename T,
@@ -179,14 +179,6 @@ template <typename B, typename D>
 constexpr bool IsStrictlyBaseOfV =
     std::is_base_of_v<std::decay_t<B>, std::decay_t<D>> &&
     !IsDecayedSameV<B, D>;
-
-template <typename T>
-constexpr bool IsAnyMemberTypeV = false;
-
-template <typename T, typename WeaknessTag, typename WriteBarrierPolicy,
-          typename CheckingPolicy, typename StorageType>
-constexpr bool IsAnyMemberTypeV<internal::BasicMember<
-    T, WeaknessTag, WriteBarrierPolicy, CheckingPolicy, StorageType>> = true;
 
 }  // namespace internal
 
@@ -252,19 +244,6 @@ constexpr bool IsWeakV = internal::IsWeak<T>::value;
  */
 template <typename T>
 constexpr bool IsCompleteV = internal::IsComplete<T>::value;
-
-/**
- * Value is true for member types `Member<T>` and `WeakMember<T>`.
- */
-template <typename T>
-constexpr bool IsMemberOrWeakMemberTypeV =
-    IsMemberTypeV<T> || IsWeakMemberTypeV<T>;
-
-/**
- * Value is true for any member type.
- */
-template <typename T>
-constexpr bool IsAnyMemberTypeV = internal::IsAnyMemberTypeV<std::decay_t<T>>;
 
 }  // namespace cppgc
 

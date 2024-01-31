@@ -7,7 +7,6 @@
 #include "src/heap/cppgc-js/unified-heap-marking-verifier.h"
 
 #include "include/v8-cppgc.h"
-#include "src/handles/traced-handles.h"
 #include "src/heap/cppgc/marking-verifier.h"
 
 namespace v8 {
@@ -17,7 +16,8 @@ namespace {
 
 class UnifiedHeapVerificationVisitor final : public JSVisitor {
  public:
-  explicit UnifiedHeapVerificationVisitor(UnifiedHeapVerificationState& state)
+  explicit UnifiedHeapVerificationVisitor(
+      cppgc::internal::VerificationState& state)
       : JSVisitor(cppgc::internal::VisitorFactory::CreateKey()),
         state_(state) {}
 
@@ -46,48 +46,14 @@ class UnifiedHeapVerificationVisitor final : public JSVisitor {
   }
 
   void Visit(const TracedReferenceBase& ref) final {
-    state_.VerifyMarkedTracedReference(ref);
+    // TODO(chromium:1056170): Verify V8 object is indeed marked.
   }
 
  private:
-  UnifiedHeapVerificationState& state_;
+  cppgc::internal::VerificationState& state_;
 };
 
 }  // namespace
-
-class BasicTracedReferenceExtractor final {
- public:
-  static Address* GetObjectSlotForMarking(const TracedReferenceBase& ref) {
-    return const_cast<Address*>(
-        reinterpret_cast<const Address*>(ref.GetSlotThreadSafe()));
-  }
-};
-
-void UnifiedHeapVerificationState::VerifyMarkedTracedReference(
-    const TracedReferenceBase& ref) const {
-  // The following code will crash with null pointer derefs when finding a
-  // non-empty `TracedReferenceBase` when `CppHeap` is in detached mode.
-  Address* traced_handle_location =
-      BasicTracedReferenceExtractor::GetObjectSlotForMarking(ref);
-  // We cannot assume that the reference is non-null as we may get here by
-  // tracing an ephemeron which doesn't have early bailouts, see
-  // `cppgc::Visitor::TraceEphemeron()` for non-Member values.
-  if (!traced_handle_location) {
-    return;
-  }
-  // Verification runs after unamrked nodes are freed. The node for this
-  // TracedReference should still be marked as in use.
-  if (!TracedHandles::IsValidInUseNode(traced_handle_location)) {
-    FATAL(
-        "MarkingVerifier: Encountered unmarked TracedReference.\n"
-        "#\n"
-        "# Hint:\n"
-        "#   %s (%p)\n"
-        "#     \\-> TracedReference (%p)",
-        parent_ ? parent_->GetName().value : "Stack",
-        parent_ ? parent_->ObjectStart() : nullptr, &ref);
-  }
-}
 
 UnifiedHeapMarkingVerifier::UnifiedHeapMarkingVerifier(
     cppgc::internal::HeapBase& heap_base,

@@ -140,11 +140,21 @@ namespace internal {
 #define V8_ENABLE_SANDBOX_BOOL false
 #endif
 
+// D8's MultiMappedAllocator is only available on Linux, and only if the sandbox
+// is not enabled.
+#if V8_OS_LINUX && !V8_ENABLE_SANDBOX_BOOL
+#define MULTI_MAPPED_ALLOCATOR_AVAILABLE true
+#else
+#define MULTI_MAPPED_ALLOCATOR_AVAILABLE false
+#endif
+
 #ifdef V8_ENABLE_CONTROL_FLOW_INTEGRITY
 #define ENABLE_CONTROL_FLOW_INTEGRITY_BOOL true
 #else
 #define ENABLE_CONTROL_FLOW_INTEGRITY_BOOL false
 #endif
+
+#define ENABLE_SPARKPLUG true
 
 #if V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_ARM64
 // Set stack limit lower for ARM and ARM64 than for other architectures because:
@@ -435,10 +445,6 @@ constexpr size_t kMinimumCodeRangeSize = 3 * MB;
 constexpr size_t kReservedCodeRangePages = 0;
 #endif
 
-// These constants define the total trusted space memory per process.
-constexpr size_t kMaximalTrustedRangeSize = 256 * MB;
-constexpr size_t kMinimumTrustedRangeSize = 3 * MB;
-
 #else  // V8_HOST_ARCH_64_BIT
 
 constexpr int kSystemPointerSizeLog2 = 2;
@@ -532,15 +538,7 @@ static_assert(kExternalPointerSlotSize == kTaggedSize);
 static_assert(kExternalPointerSlotSize == kSystemPointerSize);
 #endif
 
-constexpr int kIndirectPointerSize = sizeof(IndirectPointerHandle);
-// When the sandbox is enabled, trusted pointers are implemented as indirect
-// pointers (indices into the trusted pointer table). Otherwise they are regular
-// tagged pointers.
-#ifdef V8_ENABLE_SANDBOX
-constexpr int kTrustedPointerSize = kIndirectPointerSize;
-#else
-constexpr int kTrustedPointerSize = kTaggedSize;
-#endif
+constexpr int kIndirectPointerSlotSize = sizeof(IndirectPointerHandle);
 
 constexpr int kEmbedderDataSlotSize = kSystemPointerSize;
 
@@ -932,9 +930,12 @@ class DescriptorArray;
 template <typename T>
 class DirectHandle;
 #endif
+#ifdef V8_ENABLE_CAPABILITY_HANDLE
+template <typename T>
+class CapabilityHandle;
+#endif
 class TransitionArray;
 class ExternalReference;
-class ExposedTrustedObject;
 class FeedbackVector;
 class FixedArray;
 class Foreign;
@@ -946,6 +947,10 @@ class Handle;
 #ifndef V8_ENABLE_DIRECT_HANDLE
 template <typename T>
 using DirectHandle = Handle<T>;
+#endif
+#ifndef V8_ENABLE_CAPABILITY_HANDLE
+template <typename T>
+using CapabilityHandle = Handle<T>;
 #endif
 class Heap;
 class HeapObject;
@@ -967,11 +972,19 @@ class MarkCompactCollector;
 template <typename T>
 class MaybeDirectHandle;
 #endif
+#ifdef V8_ENABLE_CAPABILITY_HANDLE
+template <typename T>
+class MaybeCapabilityHandle;
+#endif
 template <typename T>
 class MaybeHandle;
 #ifndef V8_ENABLE_DIRECT_HANDLE
 template <typename T>
 using MaybeDirectHandle = MaybeHandle<T>;
+#endif
+#ifndef V8_ENABLE_CAPABILITY_HANDLE
+template <typename T>
+using MaybeCapabilityHandle = MaybeHandle<T>;
 #endif
 template <typename T>
 using MaybeIndirectHandle = MaybeHandle<T>;
@@ -979,9 +992,15 @@ class MaybeObject;
 #ifdef V8_ENABLE_DIRECT_HANDLE
 class MaybeObjectDirectHandle;
 #endif
+#ifdef V8_ENABLE_CAPABILITY_HANDLE
+class MaybeObjectCapabilityHandle;
+#endif
 class MaybeObjectHandle;
 #ifndef V8_ENABLE_DIRECT_HANDLE
 using MaybeObjectDirectHandle = MaybeObjectHandle;
+#endif
+#ifndef V8_ENABLE_CAPABILITY_HANDLE
+using MaybeObjectCapabilityHandle = MaybeObjectHandle;
 #endif
 using MaybeObjectIndirectHandle = MaybeObjectHandle;
 class MemoryChunk;

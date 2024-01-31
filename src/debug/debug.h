@@ -367,12 +367,7 @@ class V8_EXPORT_PRIVATE Debug {
   // Check whether this frame is just about to return.
   bool IsBreakAtReturn(JavaScriptFrame* frame);
 
-  // Walks the call stack to see if any frames are not ignore listed. If
-  // include_async is set, also walks the promise stack to find async frames.
-  // If stop_at_caught is set, stops walking when a frame predicted to catch
-  // exceptions is hit.
-  bool AllFramesOnStackAreBlackboxed(bool include_async = false,
-                                     bool stop_at_caught = false);
+  bool AllFramesOnStackAreBlackboxed();
 
   // Set new script source, throw an exception if error occurred. When preview
   // is true: try to set source, throw exception if any without actual script
@@ -512,6 +507,8 @@ class V8_EXPORT_PRIVATE Debug {
   bool has_suspended_generator() const {
     return thread_local_.suspended_generator_ != Smi::zero();
   }
+
+  bool IsExceptionBlackboxed(bool uncaught);
 
   void OnException(Handle<Object> exception, Handle<Object> promise,
                    v8::debug::ExceptionType exception_type);

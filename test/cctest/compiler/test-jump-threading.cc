@@ -37,6 +37,10 @@ class TestCode : public HandleAndZoneScope {
     End();
     return pos;
   }
+  void Fallthru() {
+    Start();
+    End();
+  }
   int Branch(int ttarget, int ftarget) {
     Start();
     InstructionOperand ops[] = {UseRpo(ttarget), UseRpo(ftarget)};
@@ -216,7 +220,7 @@ TEST(FwMoves2) {
 
   // B0
   code.RedundantMoves();
-  code.Jump(1);
+  code.Fallthru();
   // B1
   code.End();
 
@@ -231,7 +235,7 @@ TEST(FwMoves2b) {
 
   // B0
   code.NonRedundantMoves();
-  code.Jump(1);
+  code.Fallthru();
   // B1
   code.End();
 
@@ -285,7 +289,7 @@ TEST(FwOther2) {
 
   // B0
   code.Other();
-  code.Jump(1);
+  code.Fallthru();
   // B1
   code.End();
 
@@ -299,7 +303,7 @@ TEST(FwNone2a) {
   TestCode code(kBlockCount);
 
   // B0
-  code.Jump(1);
+  code.Fallthru();
   // B1
   code.End();
 
@@ -339,7 +343,7 @@ TEST(FwLoop2) {
   TestCode code(kBlockCount);
 
   // B0
-  code.Jump(1);
+  code.Fallthru();
   // B1
   code.Jump(0);
 
@@ -353,9 +357,9 @@ TEST(FwLoop3) {
   TestCode code(kBlockCount);
 
   // B0
-  code.Jump(1);
+  code.Fallthru();
   // B1
-  code.Jump(2);
+  code.Fallthru();
   // B2
   code.Jump(0);
 
@@ -369,7 +373,7 @@ TEST(FwLoop1b) {
   TestCode code(kBlockCount);
 
   // B0
-  code.Jump(1);
+  code.Fallthru();
   // B1
   code.Jump(1);
 
@@ -383,9 +387,9 @@ TEST(FwLoop2b) {
   TestCode code(kBlockCount);
 
   // B0
-  code.Jump(1);
+  code.Fallthru();
   // B1
-  code.Jump(2);
+  code.Fallthru();
   // B2
   code.Jump(1);
 
@@ -399,11 +403,11 @@ TEST(FwLoop3b) {
   TestCode code(kBlockCount);
 
   // B0
-  code.Jump(1);
+  code.Fallthru();
   // B1
-  code.Jump(2);
+  code.Fallthru();
   // B2
-  code.Jump(3);
+  code.Fallthru();
   // B3
   code.Jump(1);
 
@@ -417,11 +421,11 @@ TEST(FwLoop2_1a) {
   TestCode code(kBlockCount);
 
   // B0
-  code.Jump(1);
+  code.Fallthru();
   // B1
-  code.Jump(2);
+  code.Fallthru();
   // B2
-  code.Jump(3);
+  code.Fallthru();
   // B3
   code.Jump(1);
   // B4
@@ -437,9 +441,9 @@ TEST(FwLoop2_1b) {
   TestCode code(kBlockCount);
 
   // B0
-  code.Jump(1);
+  code.Fallthru();
   // B1
-  code.Jump(2);
+  code.Fallthru();
   // B2
   code.Jump(4);
   // B3
@@ -457,9 +461,9 @@ TEST(FwLoop2_1c) {
   TestCode code(kBlockCount);
 
   // B0
-  code.Jump(1);
+  code.Fallthru();
   // B1
-  code.Jump(2);
+  code.Fallthru();
   // B2
   code.Jump(4);
   // B3
@@ -477,9 +481,9 @@ TEST(FwLoop2_1d) {
   TestCode code(kBlockCount);
 
   // B0
-  code.Jump(1);
+  code.Fallthru();
   // B1
-  code.Jump(2);
+  code.Fallthru();
   // B2
   code.Jump(1);
   // B3
@@ -497,11 +501,11 @@ TEST(FwLoop3_1a) {
   TestCode code(kBlockCount);
 
   // B0
-  code.Jump(1);
+  code.Fallthru();
   // B1
-  code.Jump(2);
+  code.Fallthru();
   // B2
-  code.Jump(3);
+  code.Fallthru();
   // B3
   code.Jump(2);
   // B4
@@ -837,7 +841,7 @@ TEST(Rewire2_deferred) {
   int j1 = code.Jump(1);
   // B1
   code.Defer();
-  code.Jump(2);
+  code.Fallthru();
   // B2
   code.Defer();
   int j2 = code.Jump(3);
@@ -860,7 +864,7 @@ TEST(Rewire_deferred_diamond) {
   // B0
   int b1 = code.Branch(1, 2);
   // B1
-  code.Jump(3);
+  code.Fallthru();  // To B3
   // B2
   code.Defer();
   int j1 = code.Jump(3);

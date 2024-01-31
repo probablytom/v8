@@ -103,7 +103,9 @@ transitioning builtin CreateAsyncFromSyncIteratorBaseline(syncIterator: JSAny):
 
 @export
 transitioning macro GetIteratorRecordAfterCreateAsyncFromSyncIterator(
-    context: Context, asyncIterator: IteratorRecord): IteratorRecord {
+    asyncIterator: IteratorRecord): IteratorRecord {
+  const context: Context = LoadContextFromBaseline();
+
   const iterator = CreateAsyncFromSyncIterator(context, asyncIterator.object);
 
   const nextMethod = GetProperty(iterator, kNextString);

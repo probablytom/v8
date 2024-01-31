@@ -68,8 +68,10 @@ transitioning macro RegExpPrototypeMatchBody(
         if (atom) {
           match = searchString;
         } else {
-          const matchFrom = matchIndices.GetStartOfCapture(0);
-          const matchTo = matchIndices.GetEndOfCapture(0);
+          const matchFrom = UnsafeLoadFixedArrayElement(
+              matchIndices, kRegExpMatchInfoFirstCaptureIndex);
+          const matchTo = UnsafeLoadFixedArrayElement(
+              matchIndices, kRegExpMatchInfoFirstCaptureIndex + 1);
           match = SubString(
               string, UnsafeCast<Smi>(matchFrom), UnsafeCast<Smi>(matchTo));
         }

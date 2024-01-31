@@ -47,8 +47,8 @@ Reduction WasmGCOperatorReducer::Reduce(Node* node) {
       return ReduceWasmTypeCastAbstract(node);
     case IrOpcode::kTypeGuard:
       return ReduceTypeGuard(node);
-    case IrOpcode::kWasmAnyConvertExtern:
-      return ReduceWasmAnyConvertExtern(node);
+    case IrOpcode::kWasmExternInternalize:
+      return ReduceWasmExternInternalize(node);
     case IrOpcode::kMerge:
       return ReduceMerge(node);
     case IrOpcode::kIfTrue:
@@ -86,6 +86,15 @@ Node* GetAlias(Node* node) {
     default:
       return nullptr;
   }
+}
+
+bool IsImplicitInternalization(wasm::ValueType from, wasm::ValueType to,
+                               const wasm::WasmModule* to_module) {
+  return from.is_object_reference() &&
+         from.heap_representation() == wasm::HeapType::kExtern &&
+         to.is_object_reference() &&
+         wasm::IsHeapSubtypeOf(to.heap_type(),
+                               wasm::HeapType(wasm::HeapType::kAny), to_module);
 }
 
 }  // namespace
@@ -332,9 +341,9 @@ Reduction WasmGCOperatorReducer::ReduceCheckNull(Node* node) {
   return NoChange();
 }
 
-Reduction WasmGCOperatorReducer::ReduceWasmAnyConvertExtern(Node* node) {
-  DCHECK_EQ(node->opcode(), IrOpcode::kWasmAnyConvertExtern);
-  // Remove redundant any.convert_extern(extern.convert_any(...)) pattern.
+Reduction WasmGCOperatorReducer::ReduceWasmExternInternalize(Node* node) {
+  DCHECK_EQ(node->opcode(), IrOpcode::kWasmExternInternalize);
+  // Remove redundant extern.internalize(extern.externalize(...)) pattern.
   Node* input = NodeProperties::GetValueInput(node, 0);
   while (input->opcode() == IrOpcode::kTypeGuard) {
     input = NodeProperties::GetValueInput(input, 0);
@@ -343,8 +352,8 @@ Reduction WasmGCOperatorReducer::ReduceWasmAnyConvertExtern(Node* node) {
       input->opcode() == IrOpcode::kDeadValue) {
     return NoChange();
   }
-  if (input->opcode() == IrOpcode::kWasmExternConvertAny) {
-    // "Skip" the extern.convert_any which doesn't have an effect on the value.
+  if (input->opcode() == IrOpcode::kWasmExternExternalize) {
+    // "Skip" the extern.externalize which doesn't have an effect on the value.
     input = NodeProperties::GetValueInput(input, 0);
     ReplaceWithValue(node, input);
     node->Kill();

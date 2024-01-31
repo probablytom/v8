@@ -316,9 +316,9 @@ export class Profile {
   urlToScript_ = new Map();
   warnings = new Set();
 
-  constructor(useBigIntAddresses=false) {
-    this.useBigIntAddresses = useBigIntAddresses;
-    this.codeMap_ = new CodeMap(useBigIntAddresses);
+  constructor(useBigInt=false) {
+    this.useBigInt = useBigInt;
+    this.codeMap_ = new CodeMap(useBigInt);
   }
 
   serializeVMSymbols() {
@@ -523,7 +523,7 @@ export class Profile {
     // Overwrite any old (unused) code objects that overlap with the new SFI.
     const new_sfi_old_code = !(sfi instanceof SharedFunctionInfoEntry)
     if (sfi === null || new_sfi_old_code) {
-      sfi = new SharedFunctionInfoEntry(name, this.useBigIntAddresses);
+      sfi = new SharedFunctionInfoEntry(name, this.useBigInt);
       this.codeMap_.addCode(sfiAddr, sfi);
     } else if (sfi.name !== name) {
       // SFI object has been overwritten with a new one.
@@ -971,8 +971,8 @@ class SharedFunctionInfoEntry extends CodeEntry {
   /** @type {Set<DynamicCodeEntry>} */
   _codeEntries = new Set();
 
-  constructor(name, useBigIntAddresses=false) {
-    super(useBigIntAddresses ? 0n : 0, name);
+  constructor(name, useBigInt=false) {
+    super(useBigInt ? 0n : 0, name);
     const index = name.lastIndexOf(' ');
     this.functionName = 1 <= index ? name.substring(0, index) : '<anonymous>';
   }
@@ -1256,8 +1256,8 @@ class CallTreeNode {
   }
 }
 
-export function JsonProfile(useBigIntAddresses=false) {
-  this.codeMap_ = new CodeMap(useBigIntAddresses);
+export function JsonProfile() {
+  this.codeMap_ = new CodeMap();
   this.codeEntries_ = [];
   this.functionEntries_ = [];
   this.ticks_ = [];

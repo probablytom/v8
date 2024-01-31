@@ -39,7 +39,6 @@ V8_EXPORT_PRIVATE void Heap_GenerationalEphemeronKeyBarrierSlow(
     Heap* heap, Tagged<HeapObject> table, Address slot);
 
 inline bool IsCodeSpaceObject(Tagged<HeapObject> object);
-inline bool IsTrustedSpaceObject(Tagged<HeapObject> object);
 
 // Do not use these internal details anywhere outside of this file. These
 // internals are only intended to shortcut write barrier checks.
@@ -54,7 +53,6 @@ struct MemoryChunk {
   static constexpr uintptr_t kMarkingBit = uintptr_t{1} << 5;
   static constexpr uintptr_t kReadOnlySpaceBit = uintptr_t{1} << 6;
   static constexpr uintptr_t kIsExecutableBit = uintptr_t{1} << 19;
-  static constexpr uintptr_t kIsTrustedBit = uintptr_t{1} << 20;
 
   V8_INLINE static heap_internals::MemoryChunk* FromHeapObject(
       Tagged<HeapObject> object) {
@@ -99,8 +97,6 @@ struct MemoryChunk {
   }
 
   V8_INLINE bool InCodeSpace() const { return GetFlags() & kIsExecutableBit; }
-
-  V8_INLINE bool InTrustedSpace() const { return GetFlags() & kIsTrustedBit; }
 };
 
 inline void CombinedWriteBarrierInternal(Tagged<HeapObject> host,
@@ -187,7 +183,7 @@ inline void CombinedWriteBarrier(Tagged<HeapObject> host, MaybeObjectSlot slot,
   }
 
   Tagged<HeapObject> value_object;
-  if (!value->GetHeapObject(&value_object)) return;
+  if (!value.GetHeapObject(&value_object)) return;
   heap_internals::CombinedWriteBarrierInternal(host, HeapObjectSlot(slot),
                                                value_object, mode);
 }
@@ -292,12 +288,6 @@ inline bool IsCodeSpaceObject(Tagged<HeapObject> object) {
   heap_internals::MemoryChunk* chunk =
       heap_internals::MemoryChunk::FromHeapObject(object);
   return chunk->InCodeSpace();
-}
-
-inline bool IsTrustedSpaceObject(Tagged<HeapObject> object) {
-  heap_internals::MemoryChunk* chunk =
-      heap_internals::MemoryChunk::FromHeapObject(object);
-  return chunk->InTrustedSpace();
 }
 
 bool WriteBarrier::IsMarking(Tagged<HeapObject> object) {

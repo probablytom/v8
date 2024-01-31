@@ -99,31 +99,11 @@ ACCESSORS_CHECKED2(Code, deoptimization_data, Tagged<FixedArray>,
                    kind() != CodeKind::BASELINE,
                    kind() != CodeKind::BASELINE &&
                        !ObjectInYoungGeneration(value))
-
-Tagged<HeapObject> Code::bytecode_or_interpreter_data(
-    const Isolate* isolate) const {
-  DCHECK_EQ(kind(), CodeKind::BASELINE);
-  PtrComprCageBase cage_base = GetPtrComprCageBase(*this);
-  Tagged<HeapObject> value =
-      TaggedField<HeapObject, kDeoptimizationDataOrInterpreterDataOffset>::load(
-          cage_base, *this);
-  if (IsBytecodeWrapper(value)) {
-    return BytecodeWrapper::cast(value)->bytecode(isolate);
-  }
-  return value;
-}
-void Code::set_bytecode_or_interpreter_data(Tagged<HeapObject> value,
-                                            WriteBarrierMode mode) {
-  DCHECK(kind() == CodeKind::BASELINE && !ObjectInYoungGeneration(value));
-  if (IsBytecodeArray(value)) {
-    value = BytecodeArray::cast(value)->wrapper();
-  }
-  TaggedField<HeapObject, kDeoptimizationDataOrInterpreterDataOffset>::store(
-      *this, value);
-  CONDITIONAL_WRITE_BARRIER(*this, kDeoptimizationDataOrInterpreterDataOffset,
-                            value, mode);
-}
-
+ACCESSORS_CHECKED2(Code, bytecode_or_interpreter_data, Tagged<HeapObject>,
+                   kDeoptimizationDataOrInterpreterDataOffset,
+                   kind() == CodeKind::BASELINE,
+                   kind() == CodeKind::BASELINE &&
+                       !ObjectInYoungGeneration(value))
 ACCESSORS_CHECKED2(Code, source_position_table, Tagged<ByteArray>,
                    kPositionTableOffset, kind() != CodeKind::BASELINE,
                    kind() != CodeKind::BASELINE &&
@@ -519,7 +499,7 @@ void Code::IterateDeoptimizationLiterals(RootVisitor* v) {
   Tagged<DeoptimizationLiteralArray> literals = deopt_data->LiteralArray();
   const int literals_length = literals->length();
   for (int i = 0; i < literals_length; ++i) {
-    MaybeObject maybe_literal = literals->get_raw(i);
+    MaybeObject maybe_literal = literals->Get(i);
     Tagged<HeapObject> heap_literal;
     if (maybe_literal.GetHeapObject(&heap_literal)) {
       v->VisitRootPointer(Root::kStackRoots, "deoptimization literal",
@@ -614,15 +594,26 @@ Tagged<Object> Code::raw_instruction_stream(PtrComprCageBase cage_base,
 
 DEF_GETTER(Code, instruction_start, Address) {
 #ifdef V8_ENABLE_SANDBOX
-  return ReadCodeEntrypointViaCodePointerField(kSelfIndirectPointerOffset);
+  return ReadCodeEntrypointViaIndirectPointerField(kSelfIndirectPointerOffset);
 #else
   return ReadField<Address>(kInstructionStartOffset);
 #endif
 }
 
+void Code::init_instruction_start(Isolate* isolate, Address value) {
+#ifdef V8_ENABLE_SANDBOX
+  // In this case, the instruction_start is stored in this Code's code pointer
+  // table entry, so initialize that instead.
+  InitCodePointerTableEntryField(kSelfIndirectPointerOffset, isolate, *this,
+                                 value);
+#else
+  set_instruction_start(isolate, value);
+#endif
+}
+
 void Code::set_instruction_start(Isolate* isolate, Address value) {
 #ifdef V8_ENABLE_SANDBOX
-  WriteCodeEntrypointViaCodePointerField(kSelfIndirectPointerOffset, value);
+  WriteCodeEntrypointViaIndirectPointerField(kSelfIndirectPointerOffset, value);
 #else
   WriteField<Address>(kInstructionStartOffset, value);
 #endif

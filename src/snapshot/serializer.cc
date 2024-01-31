@@ -1121,44 +1121,25 @@ void Serializer::ObjectSerializer::VisitExternalPointer(
 void Serializer::ObjectSerializer::VisitIndirectPointer(
     Tagged<HeapObject> host, IndirectPointerSlot slot,
     IndirectPointerMode mode) {
-#ifdef V8_ENABLE_SANDBOX
-
-  // If necessary, output any raw data preceeding this slot.
-  OutputRawData(slot.address());
+  DCHECK(V8_ENABLE_SANDBOX_BOOL);
 
   // The slot must be properly initialized at this point, so will always contain
   // a reference to a HeapObject.
   Handle<HeapObject> slot_value(HeapObject::cast(slot.load(isolate())),
                                 isolate());
   CHECK(IsHeapObject(*slot_value));
-  bytes_processed_so_far_ += kIndirectPointerSize;
+  bytes_processed_so_far_ += kIndirectPointerSlotSize;
 
-  // Currently we cannot see pending objects here, but we may need to handle
-  // them here and in the deserializer in the future.
-  CHECK(!serializer_->SerializePendingObject(*slot_value));
+  // Currently, we only reference Code objects through indirect pointers, and
+  // we only serialize builtin Code objects which end up in the RO snapshot, so
+  // we cannot see pending objects here. However, we'll need to handle pending
+  // objects here and in the deserializer once we reference other types of
+  // objects through indirect pointers.
+  CHECK_EQ(slot.tag(), kCodeIndirectPointerTag);
+  DCHECK(IsJSFunction(host) && IsCode(*slot_value));
+  DCHECK(!serializer_->SerializePendingObject(*slot_value));
   sink_->Put(kIndirectPointerPrefix, "IndirectPointer");
   serializer_->SerializeObject(slot_value, SlotType::kAnySlot);
-#else
-  UNREACHABLE();
-#endif
-}
-
-void Serializer::ObjectSerializer::VisitTrustedPointerTableEntry(
-    Tagged<HeapObject> host, IndirectPointerSlot slot) {
-#ifdef V8_ENABLE_SANDBOX
-  // These fields only exist on the ExposedTrustedObject class, and they are
-  // located directly after the Map word.
-  DCHECK_EQ(bytes_processed_so_far_,
-            ExposedTrustedObject::kSelfIndirectPointerOffset);
-
-  // The field will be recreated during deserialization by allocating a new
-  // pointer table entry for the host object. This opcode instructs the
-  // deserializer to do so.
-  sink_->Put(kInitializeSelfIndirectPointer, "InitializeSelfIndirectPointer");
-  bytes_processed_so_far_ += kIndirectPointerSize;
-#else
-  UNREACHABLE();
-#endif
 }
 
 namespace {
@@ -1233,7 +1214,7 @@ void Serializer::ObjectSerializer::OutputRawData(Address up_to) {
       // When the sandbox is enabled, this field contains the handle to this
       // Code object's code pointer table entry. This will be recomputed after
       // deserialization.
-      static uint8_t field_value[kIndirectPointerSize] = {0};
+      static uint8_t field_value[kIndirectPointerSlotSize] = {0};
       OutputRawWithCustomField(sink_, object_start, base, bytes_to_output,
                                Code::kSelfIndirectPointerOffset,
                                sizeof(field_value), field_value);

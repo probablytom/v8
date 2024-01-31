@@ -215,9 +215,11 @@ void FutexEmulation::NotifyAsyncWaiter(FutexWaitListNode* node) {
 void FutexWaitList::AddNode(FutexWaitListNode* node) {
   DCHECK_NULL(node->prev_);
   DCHECK_NULL(node->next_);
-  auto [it, inserted] =
-      location_lists_.insert({node->wait_location_, HeadAndTail{node, node}});
-  if (!inserted) {
+  auto it = location_lists_.find(node->wait_location_);
+  if (it == location_lists_.end()) {
+    location_lists_.insert(
+        std::make_pair(node->wait_location_, HeadAndTail{node, node}));
+  } else {
     it->second.tail->next_ = node;
     node->prev_ = it->second.tail;
     it->second.tail = node;
@@ -227,38 +229,30 @@ void FutexWaitList::AddNode(FutexWaitListNode* node) {
 }
 
 void FutexWaitList::RemoveNode(FutexWaitListNode* node) {
-  if (!node->prev_ && !node->next_) {
-    // If the node was the last one on its list, delete the whole list.
-    size_t erased = location_lists_.erase(node->wait_location_);
-    DCHECK_EQ(1, erased);
-    USE(erased);
-  } else if (node->prev_ && node->next_) {
-    // If we have both a successor and a predecessor, skip the lookup in the
-    // list and just update those two nodes directly.
-    node->prev_->next_ = node->next_;
-    node->next_->prev_ = node->prev_;
-    node->prev_ = node->next_ = nullptr;
-  } else {
-    // Otherwise we have to lookup in the list to find the head and tail
-    // pointers.
-    auto it = location_lists_.find(node->wait_location_);
-    DCHECK_NE(location_lists_.end(), it);
-    DCHECK(NodeIsOnList(node, it->second.head));
+  auto it = location_lists_.find(node->wait_location_);
+  DCHECK_NE(location_lists_.end(), it);
+  DCHECK(NodeIsOnList(node, it->second.head));
 
-    if (node->prev_) {
-      DCHECK(!node->next_);
-      node->prev_->next_ = nullptr;
-      DCHECK_EQ(node, it->second.tail);
-      it->second.tail = node->prev_;
-      node->prev_ = nullptr;
-    } else {
-      DCHECK_EQ(node, it->second.head);
-      it->second.head = node->next_;
-      DCHECK(node->next_);
-      node->next_->prev_ = nullptr;
-      node->next_ = nullptr;
-    }
+  if (node->prev_) {
+    node->prev_->next_ = node->next_;
+  } else {
+    DCHECK_EQ(node, it->second.head);
+    it->second.head = node->next_;
   }
+
+  if (node->next_) {
+    node->next_->prev_ = node->prev_;
+  } else {
+    DCHECK_EQ(node, it->second.tail);
+    it->second.tail = node->prev_;
+  }
+
+  // If the node was the last one on its list, delete the whole list.
+  if (node->prev_ == nullptr && node->next_ == nullptr) {
+    location_lists_.erase(it);
+  }
+
+  node->prev_ = node->next_ = nullptr;
 
   Verify();
 }
@@ -425,6 +419,13 @@ Tagged<Object> FutexEmulation::WaitSync(Isolate* isolate,
   do {
     NoGarbageCollectionMutexGuard lock_guard(wait_list->mutex());
 
+    node->wait_location_ = wait_location;
+    node->waiting_ = true;
+
+    // Reset node->waiting_ = false when leaving this scope (but while
+    // still holding the lock).
+    FutexWaitListNode::ResetWaitingOnScopeExit reset_waiting(node);
+
     std::atomic<T>* p = reinterpret_cast<std::atomic<T>*>(wait_location);
     T loaded_value = p->load();
 #if defined(V8_TARGET_BIG_ENDIAN)
@@ -440,8 +441,6 @@ Tagged<Object> FutexEmulation::WaitSync(Isolate* isolate,
       break;
     }
 
-    node->wait_location_ = wait_location;
-    node->waiting_ = true;
     wait_list->AddNode(node);
 
     while (true) {
@@ -489,7 +488,6 @@ Tagged<Object> FutexEmulation::WaitSync(Isolate* isolate,
       }
 
       if (!node->waiting_) {
-        // We were woken either via the stop_handle or via Wake.
         result = handle(Smi::FromInt(WaitReturnValue::kOk), isolate);
         break;
       }
@@ -515,10 +513,8 @@ Tagged<Object> FutexEmulation::WaitSync(Isolate* isolate,
       // Spurious wakeup, interrupt or timeout.
     }
 
-    node->waiting_ = false;
     wait_list->RemoveNode(node);
   } while (false);
-  DCHECK(!node->waiting_);
 
   isolate->RunAtomicsWaitCallback(callback_result, array_buffer, addr, value,
                                   rel_timeout_ms, nullptr);
@@ -683,12 +679,8 @@ Tagged<Object> FutexEmulation::WaitAsync(Isolate* isolate,
 
 int FutexEmulation::Wake(Tagged<JSArrayBuffer> array_buffer, size_t addr,
                          uint32_t num_waiters_to_wake) {
-  void* wait_location = FutexWaitList::ToWaitLocation(array_buffer, addr);
-  return Wake(wait_location, num_waiters_to_wake);
-}
-
-int FutexEmulation::Wake(void* wait_location, uint32_t num_waiters_to_wake) {
   int num_waiters_woken = 0;
+  void* wait_location = FutexWaitList::ToWaitLocation(array_buffer, addr);
   FutexWaitList* wait_list = GetWaitList();
   NoGarbageCollectionMutexGuard lock_guard(wait_list->mutex());
 

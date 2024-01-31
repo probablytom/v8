@@ -47,3 +47,27 @@ gcc_toolchain("mips64el-bundled") {
     is_clang = false
   }
 }
+
+gcc_toolchain("morello-llvm") {
+    toolprefix = "/Users/twallis/cheri/output/morello-sdk/bin/"
+
+    cc = "${toolprefix}clang"
+    cxx = "${toolprefix}clang++"
+    readelf = "${toolprefix}llvm-readelf"
+    nm = "${toolprefix}llvm-nm"
+    ar = "${toolprefix}llvm-ar"
+    ld = cxx
+
+    extra_cflags="--target=aarch64-unknown-freebsd --sysroot /Users/twallis/cheri/output/rootfs-morello-purecap -mabi=purecap -march=morello -Xclang -morello-vararg=new"
+    extra_cxxflags="--target=aarch64-unknown-freebsd --sysroot /Users/twallis/cheri/output/rootfs-morello-purecap -mabi=purecap -march=morello -Xclang -morello-vararg=new"
+    extra_ldflags="--target=aarch64-unknown-freebsd --sysroot /Users/twallis/cheri/output/rootfs-morello-purecap -mabi=purecap -march=morello -Xclang -morello-vararg=new"
+
+    toolchain_args = {
+       v8_generator_toolchain = "//build/toolchain/mac:clang_arm64"
+       current_cpu = "arm64"
+       current_os = "mac"
+       is_clang = true
+       use_lld = true
+       v8_enable_i18n_support = false
+    }
+}

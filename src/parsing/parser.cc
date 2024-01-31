@@ -54,23 +54,26 @@ FunctionLiteral* Parser::DefaultConstructor(const AstRawString* name,
   {
     FunctionState function_state(&function_state_, &scope_, function_scope);
 
-    // ES#sec-runtime-semantics-classdefinitionevaluation
-    //
-    // 14.a
-    //  ...
-    //  iv. If F.[[ConstructorKind]] is DERIVED, then
-    //    1. NOTE: This branch behaves similarly to constructor(...args) {
-    //       super(...args); }. The most notable distinction is that while the
-    //       aforementioned ECMAScript source text observably calls the
-    //       @@iterator method on %Array.prototype%, this function does not.
-    //    2. Let func be ! F.[[GetPrototypeOf]]().
-    //    3. If IsConstructor(func) is false, throw a TypeError exception.
-    //    4. Let result be ? Construct(func, args, NewTarget).
-    //  ...
     if (call_super) {
-      SuperCallReference* super_call_ref = NewSuperCallReference(pos);
-      Expression* call =
-          factory()->NewSuperCallForwardArgs(super_call_ref, pos);
+      // Create a SuperCallReference and handle in BytecodeGenerator.
+      auto constructor_args_name = ast_value_factory()->empty_string();
+      bool is_rest = true;
+      bool is_optional = false;
+      Variable* constructor_args = function_scope->DeclareParameter(
+          constructor_args_name, VariableMode::kTemporary, is_optional, is_rest,
+          ast_value_factory(), pos);
+
+      Expression* call;
+      {
+        ScopedPtrList<Expression> args(pointer_buffer());
+        Spread* spread_args = factory()->NewSpread(
+            factory()->NewVariableProxy(constructor_args), pos, pos);
+
+        args.Add(spread_args);
+        Expression* super_call_ref = NewSuperCallReference(pos);
+        constexpr bool has_spread = true;
+        call = factory()->NewCall(super_call_ref, args, pos, has_spread);
+      }
       body.Add(factory()->NewReturnStatement(call, pos));
     }
 
@@ -311,7 +314,7 @@ Expression* Parser::NewSuperPropertyReference(Scope* home_object_scope,
       pos);
 }
 
-SuperCallReference* Parser::NewSuperCallReference(int pos) {
+Expression* Parser::NewSuperCallReference(int pos) {
   VariableProxy* new_target_proxy =
       NewUnresolved(ast_value_factory()->new_target_string(), pos);
   VariableProxy* this_function_proxy =
@@ -1404,8 +1407,16 @@ ImportAssertions* Parser::ParseImportAssertClause() {
   Expect(Token::LBRACE);
 
   while (peek() != Token::RBRACE) {
-    const AstRawString* attribute_key =
-        Check(Token::STRING) ? GetSymbol() : ParsePropertyName();
+    const AstRawString* attribute_key = nullptr;
+    if (Check(Token::STRING) || Check(Token::SMI)) {
+      attribute_key = GetSymbol();
+    } else if (Check(Token::NUMBER)) {
+      attribute_key = GetNumberAsSymbol();
+    } else if (Check(Token::BIGINT)) {
+      attribute_key = GetBigIntAsSymbol();
+    } else {
+      attribute_key = ParsePropertyName();
+    }
 
     Scanner::Location location = scanner()->location();
 
@@ -3447,9 +3458,6 @@ void Parser::UpdateStatistics(Isolate* isolate, Handle<Script> script) {
   if (scanner_.SawMagicCommentCompileHintsAll()) {
     isolate->CountUsage(v8::Isolate::kCompileHintsMagicAll);
   }
-  if (scanner_.SawSourceMappingUrlMagicCommentAtSign()) {
-    isolate->CountUsage(v8::Isolate::kSourceMappingUrlMagicCommentAtSign);
-  }
 }
 
 void Parser::UpdateStatistics(
@@ -3471,9 +3479,6 @@ void Parser::UpdateStatistics(
   }
   if (scanner_.SawMagicCommentCompileHintsAll()) {
     use_counts->emplace_back(v8::Isolate::kCompileHintsMagicAll);
-  }
-  if (scanner_.SawSourceMappingUrlMagicCommentAtSign()) {
-    use_counts->emplace_back(v8::Isolate::kSourceMappingUrlMagicCommentAtSign);
   }
 
   *preparse_skipped = total_preparse_skipped_;

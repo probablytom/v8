@@ -21,8 +21,6 @@ class Factory;
 template <typename Impl>
 class FactoryBase;
 class LocalFactory;
-class SafepointEntry;
-class RootVisitor;
 
 enum class Builtin;
 
@@ -88,6 +86,7 @@ class Code : public ExposedTrustedObject {
   DECL_PRIMITIVE_ACCESSORS(instruction_size, int)
   inline Address instruction_end() const;
 
+  inline void init_instruction_start(Isolate* isolate, Address initial_value);
   inline void SetInstructionStreamAndInstructionStart(
       Isolate* isolate_for_sandbox, Tagged<InstructionStream> code,
       WriteBarrierMode mode = UPDATE_WRITE_BARRIER);
@@ -122,14 +121,7 @@ class Code : public ExposedTrustedObject {
   DECL_ACCESSORS(deoptimization_data, Tagged<FixedArray>)
   // [bytecode_or_interpreter_data]: BytecodeArray or InterpreterData for
   // baseline code.
-  // As BytecodeArrays are located in trusted space, but Code objects are not
-  // yet, BytecodeArrays are currently referenced via their wrapper object.
-  // This is transparent for the caller.
-  static_assert(!kCodeObjectLiveInTrustedSpace);
-  inline Tagged<HeapObject> bytecode_or_interpreter_data(
-      const Isolate* isolate) const;
-  inline void set_bytecode_or_interpreter_data(
-      Tagged<HeapObject> value, WriteBarrierMode mode = UPDATE_WRITE_BARRIER);
+  DECL_ACCESSORS(bytecode_or_interpreter_data, Tagged<HeapObject>)
   // [source_position_table]: ByteArray for the source positions table for
   // non-baseline code.
   DECL_ACCESSORS(source_position_table, Tagged<ByteArray>)
@@ -398,8 +390,7 @@ class Code : public ExposedTrustedObject {
 
   // TODO(jgruber): These field names are incomplete, we've squashed in more
   // overloaded contents in the meantime. Update the field names.
-  Tagged<HeapObject> raw_deoptimization_data_or_interpreter_data(
-      const Isolate* isolate) const;
+  Tagged<HeapObject> raw_deoptimization_data_or_interpreter_data() const;
   Tagged<ByteArray> raw_position_table() const;
 
   enum BytecodeToPCPosition {

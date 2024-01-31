@@ -13,7 +13,6 @@
 #include <vector>
 
 #include "v8-local-handle.h"  // NOLINT(build/include_directory)
-#include "v8-memory-span.h"   // NOLINT(build/include_directory)
 #include "v8-promise.h"       // NOLINT(build/include_directory)
 #include "v8config.h"         // NOLINT(build/include_directory)
 
@@ -80,33 +79,23 @@ class V8_EXPORT MeasureMemoryDelegate {
   /** Holds the result of a memory measurement request. */
   struct Result {
     /**
-     * A vector of (context, size) pairs that includes each context for
+     * a vector of (context, size) pairs that includes each context for
      * which ShouldMeasure returned true and that was not garbage collected
      * while the memory measurement was in progress.
      */
-    V8_DEPRECATE_SOON("Please use contexts and sizes_in_bytes")
     const std::vector<std::pair<Local<Context>, size_t>>&
         context_sizes_in_bytes;
 
     /**
-     * Two spans of equal length: the first includes each context for which
-     * ShouldMeasure returned true and that was not garbage collected while
-     * the memory measurement was in progress; the second includes the size
-     * of the respective context.
-     */
-    const MemorySpan<const Local<Context>>& contexts;
-    const MemorySpan<const size_t>& sizes_in_bytes;
-
-    /**
-     * Total size of objects that were not attributed to any context (i.e. are
+     * total size of objects that were not attributed to any context (i.e. are
      * likely shared objects).
      */
     size_t unattributed_size_in_bytes;
 
-    /** Total size of generated code for Wasm (shared across contexts). */
+    /** total size of generated code for Wasm (shared across contexts). */
     size_t wasm_code_size_in_bytes;
 
-    /** Total size of Wasm metadata (except code; shared across contexts). */
+    /** total size of Wasm metadata (except code; shared across contexts). */
     size_t wasm_metadata_size_in_bytes;
   };
 

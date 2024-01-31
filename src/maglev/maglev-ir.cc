@@ -999,22 +999,7 @@ void Phi::SetValueLocationConstraints() {
 
   result().SetUnallocated(kIgnoredPolicy, kNoVreg);
 }
-
 void Phi::GenerateCode(MaglevAssembler* masm, const ProcessingState& state) {}
-
-void Phi::SetUseRequires31BitValue() {
-  if (uses_require_31_bit_value_) return;
-  uses_require_31_bit_value_ = true;
-  auto inputs =
-      is_loop_phi() ? merge_state_->predecessors_so_far() : input_count();
-  for (int i = 0; i < inputs; ++i) {
-    ValueNode* input_node = input(i).node();
-    DCHECK(input_node);
-    if (auto phi = input_node->TryCast<Phi>()) {
-      phi->SetUseRequires31BitValue();
-    }
-  }
-}
 
 namespace {
 
@@ -1251,20 +1236,6 @@ void CheckedSmiTagInt32::GenerateCode(MaglevAssembler* masm,
   __ SmiTagInt32AndJumpIfFail(reg, fail);
 }
 
-void CheckedSmiSizedInt32::SetValueLocationConstraints() {
-  UseAndClobberRegister(input());
-  DefineSameAsFirst(this);
-}
-void CheckedSmiSizedInt32::GenerateCode(MaglevAssembler* masm,
-                                        const ProcessingState& state) {
-  // We shouldn't be emitting this node for 32-bit Smis.
-  DCHECK(!SmiValuesAre32Bits());
-
-  Register reg = ToRegister(input());
-  Label* fail = __ GetDeoptLabel(this, DeoptimizeReason::kNotASmi);
-  __ CheckInt32IsSmi(reg, fail);
-}
-
 void CheckedSmiTagUint32::SetValueLocationConstraints() {
   UseRegister(input());
   DefineSameAsFirst(this);
@@ -1444,11 +1415,7 @@ void CheckedObjectToIndex::GenerateCode(MaglevAssembler* masm,
             MaglevAssembler::ScratchRegisterScope temps(masm);
             Register map = temps.GetDefaultScratchRegister();
             Label check_string;
-#ifdef V8_COMPRESS_POINTERS
-            __ LoadCompressedMap(map, object);
-#else
             __ LoadMap(map, object);
-#endif
             __ JumpIfNotRoot(
                 map, RootIndex::kHeapNumberMap, &check_string,
                 v8_flags.deopt_every_n_times > 0 ? Label::kFar : Label::kNear);
@@ -1460,13 +1427,12 @@ void CheckedObjectToIndex::GenerateCode(MaglevAssembler* masm,
                   __ GetDeoptLabel(node, DeoptimizeReason::kNotInt32));
             }
             __ bind(&check_string);
+            __ CompareInstanceTypeRange(map, map, FIRST_STRING_TYPE,
+                                        LAST_STRING_TYPE);
             // The IC will go generic if it encounters something other than a
             // Number or String key.
-            __ JumpIfStringMap(
-                map, __ GetDeoptLabel(node, DeoptimizeReason::kNotInt32),
-                Label::kFar, false);
-            // map is clobbered after this call.
-
+            __ EmitEagerDeoptIf(kUnsignedGreaterThan,
+                                DeoptimizeReason::kNotInt32, node);
             {
               // TODO(verwaest): Load the cached number from the string hash.
               RegisterSnapshot snapshot = node->register_snapshot();
@@ -1631,6 +1597,12 @@ void CheckMapsWithMigration::GenerateCode(MaglevAssembler* masm,
   // where the object map is, since the map is reloaded after the runtime call.
   save_registers.live_registers.set(object);
   save_registers.live_tagged_registers.set(object);
+
+  // We can eager deopt after the snapshot, so make sure the nodes used by the
+  // deopt are included in it.
+  // TODO(leszeks): This is a bit of a footgun -- we likely want the snapshot to
+  // always include eager deopt input registers.
+  AddDeoptRegistersToSnapshot(&save_registers, eager_deopt_info());
 
   size_t map_count = maps().size();
   bool has_migration_targets = false;
@@ -2558,7 +2530,11 @@ void EmitPolymorphicAccesses(MaglevAssembler* masm, NodeT* node,
 
     bool has_number_map = false;
     if (HasOnlyStringMaps(base::VectorOf(maps))) {
-      __ JumpIfStringMap(object_map, &next, Label::kFar, false);
+      MaglevAssembler::ScratchRegisterScope temps(masm);
+      Register scratch = temps.GetDefaultScratchRegister();
+      __ CompareInstanceTypeRange(object_map, scratch, FIRST_STRING_TYPE,
+                                  LAST_STRING_TYPE);
+      __ JumpIf(kUnsignedGreaterThan, &next);
       // Fallthrough... to map_found.
     } else {
       for (auto it = maps.begin(); it != maps.end(); ++it) {
@@ -2835,34 +2811,36 @@ void CheckValueEqualsString::GenerateCode(MaglevAssembler* masm,
                             Label::kNear);
 
   __ EmitEagerDeoptIfSmi(this, target, DeoptimizeReason::kWrongValue);
-  __ JumpIfString(
-      target,
-      __ MakeDeferredCode(
-          [](MaglevAssembler* masm, CheckValueEqualsString* node,
-             ZoneLabelRef end) {
-            Register target = D::GetRegisterParameter(D::kLeft);
-            Register string_length = D::GetRegisterParameter(D::kLength);
-            __ StringLength(string_length, target);
-            Label* fail = __ GetDeoptLabel(node, DeoptimizeReason::kWrongValue);
-            __ CompareInt32AndJumpIf(string_length, node->value().length(),
-                                     kNotEqual, fail);
-            RegisterSnapshot snapshot = node->register_snapshot();
-            {
-              SaveRegisterStateForCall save_register_state(masm, snapshot);
-              __ CallBuiltin<Builtin::kStringEqual>(
-                  node->target_input(),    // left
-                  node->value().object(),  // right
-                  string_length            // length
-              );
-              save_register_state.DefineSafepoint();
-              // Compare before restoring registers, so that the deopt below has
-              // the correct register set.
-              __ CompareRoot(kReturnRegister0, RootIndex::kTrueValue);
-            }
-            __ EmitEagerDeoptIf(kNotEqual, DeoptimizeReason::kWrongValue, node);
-            __ Jump(*end);
-          },
-          this, end));
+  __ CompareObjectTypeRange(target, FIRST_STRING_TYPE, LAST_STRING_TYPE);
+
+  __ JumpToDeferredIf(
+      kUnsignedLessThanEqual,
+      [](MaglevAssembler* masm, CheckValueEqualsString* node,
+         ZoneLabelRef end) {
+        Register target = D::GetRegisterParameter(D::kLeft);
+        Register string_length = D::GetRegisterParameter(D::kLength);
+        __ StringLength(string_length, target);
+        Label* fail = __ GetDeoptLabel(node, DeoptimizeReason::kWrongValue);
+        __ CompareInt32AndJumpIf(string_length, node->value().length(),
+                                 kNotEqual, fail);
+        RegisterSnapshot snapshot = node->register_snapshot();
+        AddDeoptRegistersToSnapshot(&snapshot, node->eager_deopt_info());
+        {
+          SaveRegisterStateForCall save_register_state(masm, snapshot);
+          __ CallBuiltin<Builtin::kStringEqual>(
+              node->target_input(),    // left
+              node->value().object(),  // right
+              string_length            // length
+          );
+          save_register_state.DefineSafepoint();
+          // Compare before restoring registers, so that the deopt below has the
+          // correct register set.
+          __ CompareRoot(kReturnRegister0, RootIndex::kTrueValue);
+        }
+        __ EmitEagerDeoptIf(kNotEqual, DeoptimizeReason::kWrongValue, node);
+        __ Jump(*end);
+      },
+      this, end);
 
   __ EmitEagerDeopt(this, DeoptimizeReason::kWrongValue);
 
@@ -2988,8 +2966,9 @@ void CheckString::GenerateCode(MaglevAssembler* masm,
   } else {
     __ EmitEagerDeoptIfSmi(this, object, DeoptimizeReason::kNotAString);
   }
-  __ JumpIfNotString(object,
-                     __ GetDeoptLabel(this, DeoptimizeReason::kNotAString));
+  __ CompareObjectTypeRange(object, FIRST_STRING_TYPE, LAST_STRING_TYPE);
+  __ EmitEagerDeoptIf(kUnsignedGreaterThan, DeoptimizeReason::kNotAString,
+                      this);
 }
 
 void CheckNotHole::SetValueLocationConstraints() {
@@ -3634,6 +3613,7 @@ void MaybeGrowAndEnsureWritableFastElements::GenerateCode(
              MaybeGrowAndEnsureWritableFastElements* node) {
             {
               RegisterSnapshot snapshot = node->register_snapshot();
+              AddDeoptRegistersToSnapshot(&snapshot, node->eager_deopt_info());
               snapshot.live_registers.clear(result_reg);
               snapshot.live_tagged_registers.clear(result_reg);
               SaveRegisterStateForCall save_register_state(masm, snapshot);
@@ -4375,7 +4355,8 @@ void ToString::GenerateCode(MaglevAssembler* masm,
   Label call_builtin, done;
   // Avoid the builtin call if {value} is a string.
   __ JumpIfSmi(value, &call_builtin, Label::Distance::kNear);
-  __ JumpIfString(value, &done, Label::Distance::kNear);
+  __ CompareObjectTypeAndJumpIf(value, FIRST_NONSTRING_TYPE, kUnsignedLessThan,
+                                &done, Label::Distance::kNear);
   if (mode() == kConvertSymbol) {
     __ CompareObjectTypeAndJumpIf(value, SYMBOL_TYPE, kNotEqual, &call_builtin,
                                   Label::Distance::kNear);
@@ -5109,15 +5090,14 @@ void CallKnownApiFunction::GenerateCallApiCallbackOptimizedInline(
   static_assert((kApiStackSpace - 1) * kSystemPointerSize == FCA::kSize);
   const int exit_frame_params_size = 0;
 
-  Label done, call_api_callback_builtin_inline;
-  __ Call(&call_api_callback_builtin_inline);
-  masm->DefineExceptionHandlerAndLazyDeoptPoint(this);
-  __ jmp(&done);
-
-  //
-  // Generate a CallApiCallback builtin inline.
-  //
-  __ bind(&call_api_callback_builtin_inline);
+  Label done;
+  // Make it look like as if the code starting from EnterExitFrame was called
+  // by an instruction right before the |done| label. Depending on the current
+  // architecture it will either push the "return address" between
+  // FunctonCallbackInfo and ExitFrame or set the link register to the
+  // "return address". This is necessary for lazy deopting of current code.
+  const int kMaybePCOnTheStack = __ PushOrSetReturnAddressTo(&done);
+  DCHECK(kMaybePCOnTheStack == 0 || kMaybePCOnTheStack == 1);
 
   FrameScope frame_scope(masm, StackFrame::MANUAL);
   __ EmitEnterExitFrame(kApiStackSpace, StackFrame::EXIT, api_function_address,
@@ -5150,7 +5130,8 @@ void CallKnownApiFunction::GenerateCallApiCallbackOptimizedInline(
 
   MemOperand return_value_operand = ExitFrameCallerStackSlotOperand(
       FCA::kReturnValueIndex + exit_frame_params_size);
-  const int kStackUnwindSpace = FCA::kArgsLengthWithReceiver + num_args();
+  const int kStackUnwindSpace =
+      FCA::kArgsLengthWithReceiver + num_args() + kMaybePCOnTheStack;
 
   const bool with_profiling = false;
   ExternalReference no_thunk_ref;
@@ -5158,10 +5139,11 @@ void CallKnownApiFunction::GenerateCallApiCallbackOptimizedInline(
 
   CallApiFunctionAndReturn(masm, with_profiling, api_function_address,
                            no_thunk_ref, no_thunk_arg, kStackUnwindSpace,
-                           nullptr, return_value_operand);
-  __ RecordComment("end of inlined CallApiCallbackOptimized builtin");
+                           nullptr, return_value_operand, &done);
 
   __ bind(&done);
+  __ RecordComment("end of inlined CallApiCallbackOptimized builtin");
+  masm->DefineExceptionHandlerAndLazyDeoptPoint(this);
 }
 
 int CallBuiltin::MaxCallStackArgs() const {
@@ -5321,7 +5303,11 @@ void CallCPPBuiltin::GenerateCode(MaglevAssembler* masm,
 
   DCHECK_EQ(Builtins::CallInterfaceDescriptorFor(builtin()).GetReturnCount(),
             1);
-  __ CallBuiltin(Builtin::kCEntry_Return1_ArgvOnStack_BuiltinExit);
+  constexpr int kResultSize = 1;
+  constexpr bool kBuiltinExitFrame = true;
+  Handle<Code> code = CodeFactory::CEntry(masm->isolate(), kResultSize,
+                                          ArgvMode::kStack, kBuiltinExitFrame);
+  __ Call(code, RelocInfo::CODE_TARGET);
 }
 
 int CallRuntime::MaxCallStackArgs() const { return num_args(); }
@@ -5787,7 +5773,14 @@ void AttemptOnStackReplacement(MaglevAssembler* masm,
     // The osr_urgency exceeds the current loop_depth, signaling an OSR
     // request. Call into runtime to compile.
     {
+      // At this point we need a custom register snapshot since additional
+      // registers may be live at the eager deopt below (the normal
+      // register_snapshot only contains live registers *after this
+      // node*).
+      // TODO(v8:7700): Consider making the snapshot location
+      // configurable.
       RegisterSnapshot snapshot = node->register_snapshot();
+      AddDeoptRegistersToSnapshot(&snapshot, node->eager_deopt_info());
       DCHECK(!snapshot.live_registers.has(maybe_target_code));
       SaveRegisterStateForCall save_register_state(masm, snapshot);
       if (node->unit()->is_inline()) {

@@ -12,7 +12,6 @@ from contextlib import contextmanager
 from ..local.android import Driver
 from .command import AndroidCommand, IOSCommand, PosixCommand, WindowsCommand, taskkill_windows
 from .pool import DefaultExecutionPool
-from .process_utils import EMPTY_PROCESS_LOGGER, PROCESS_LOGGER
 from ..testproc.util import list_processes_linux
 
 
@@ -36,17 +35,7 @@ class DefaultOSContext:
     return outdir.resolve() / shell
 
 
-class DesktopContext(DefaultOSContext):
-
-  @contextmanager
-  def handle_context(self, options):
-    log_path = options.log_system_memory
-    logger = PROCESS_LOGGER if log_path else EMPTY_PROCESS_LOGGER
-    with logger.log_system_memory(log_path):
-      yield
-
-
-class PosixContext(DesktopContext):
+class LinuxContext(DefaultOSContext):
 
   def __init__(self):
     super().__init__(PosixCommand)
@@ -58,7 +47,7 @@ class PosixContext(DesktopContext):
     os.kill(process.pid, signal.SIGTERM)
 
 
-class WindowsContext(DesktopContext):
+class WindowsContext(DefaultOSContext):
 
   def __init__(self):
     super().__init__(WindowsCommand)
@@ -114,7 +103,8 @@ class IOSContext(DefaultOSContext):
 def find_os_context_factory(target_os):
   registry = dict(
       android=AndroidOSContext, ios=IOSContext, windows=WindowsContext)
-  return registry.get(target_os, PosixContext)
+  default = LinuxContext
+  return registry.get(target_os, default)
 
 
 @contextmanager

@@ -159,7 +159,9 @@ size_t hash_value(const Signature<T>& sig) {
   // Hash over all contained representations, plus the parameter count to
   // differentiate signatures with the same representation array but different
   // parameter/return count.
-  return base::Hasher{}.Add(sig.parameter_count()).AddRange(sig.all()).hash();
+  size_t seed = base::hash_value(sig.parameter_count());
+  for (T rep : sig.all()) seed = base::hash_combine(seed, base::hash<T>{}(rep));
+  return seed;
 }
 
 template <typename T, size_t kNumReturns = 0, size_t kNumParams = 0>

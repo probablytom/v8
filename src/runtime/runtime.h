@@ -184,7 +184,8 @@ namespace internal {
   F(FunctionGetScriptId, 1, 1)             \
   F(FunctionGetScriptSourcePosition, 1, 1) \
   F(FunctionGetSourceCode, 1, 1)           \
-  F(FunctionIsAPIFunction, 1, 1)
+  F(FunctionIsAPIFunction, 1, 1)           \
+  F(IsFunction, 1, 1)
 
 #define FOR_EACH_INTRINSIC_GENERATOR(F, I)    \
   I(AsyncFunctionAwaitCaught, 2, 1)           \
@@ -503,7 +504,6 @@ namespace internal {
   F(ArraySpeciesProtector, 0, 1)              \
   F(BaselineOsr, -1, 1)                       \
   F(BenchMaglev, 2, 1)                        \
-  F(BenchTurbofan, 2, 1)                      \
   F(ClearFunctionFeedback, 1, 1)              \
   F(ClearMegamorphicStubCache, 0, 1)          \
   F(CompleteInobjectSlackTracking, 1, 1)      \
@@ -528,7 +528,6 @@ namespace internal {
   F(FinalizeOptimization, 0, 1)               \
   F(ForceFlush, 1, 1)                         \
   F(GetCallable, 0, 1)                        \
-  F(GetFunctionForCurrentFrame, 0, 1)         \
   F(GetInitializerFunction, 1, 1)             \
   F(GetOptimizationStatus, 1, 1)              \
   F(GetUndetectable, 0, 1)                    \
@@ -600,7 +599,6 @@ namespace internal {
   F(SetForceSlowPath, 1, 1)                   \
   F(SetIteratorProtector, 0, 1)               \
   F(SharedGC, 0, 1)                           \
-  F(ShareObject, 1, 1)                        \
   F(SimulateNewspaceFull, 0, 1)               \
   F(StringIteratorProtector, 0, 1)            \
   F(SystemBreak, 0, 1)                        \
@@ -625,10 +623,10 @@ namespace internal {
 #define FOR_EACH_INTRINSIC_WASM(F, I)         \
   F(ThrowBadSuspenderError, 0, 1)             \
   F(ThrowWasmError, 1, 1)                     \
-  F(TrapHandlerThrowWasmError, 0, 1)          \
   F(ThrowWasmStackOverflow, 0, 1)             \
   F(WasmI32AtomicWait, 4, 1)                  \
   F(WasmI64AtomicWait, 5, 1)                  \
+  F(WasmAtomicNotify, 3, 1)                   \
   F(WasmMemoryGrow, 2, 1)                     \
   F(WasmStackGuard, 0, 1)                     \
   F(WasmThrow, 2, 1)                          \
@@ -658,7 +656,6 @@ namespace internal {
   F(WasmArrayNewSegment, 5, 1)                \
   F(WasmArrayInitSegment, 6, 1)               \
   F(WasmAllocateSuspender, 0, 1)              \
-  F(WasmCastToSpecialPrimitiveArray, 2, 1)    \
   F(WasmStringNewSegmentWtf8, 4, 1)           \
   F(WasmStringNewWtf8, 5, 1)                  \
   F(WasmStringNewWtf8Array, 4, 1)             \

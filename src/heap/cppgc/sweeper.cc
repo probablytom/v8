@@ -5,7 +5,6 @@
 #include "src/heap/cppgc/sweeper.h"
 
 #include <atomic>
-#include <cstdint>
 #include <memory>
 #include <vector>
 
@@ -16,7 +15,6 @@
 #include "src/heap/cppgc/free-list.h"
 #include "src/heap/cppgc/globals.h"
 #include "src/heap/cppgc/heap-base.h"
-#include "src/heap/cppgc/heap-config.h"
 #include "src/heap/cppgc/heap-object-header.h"
 #include "src/heap/cppgc/heap-page.h"
 #include "src/heap/cppgc/heap-space.h"
@@ -24,7 +22,6 @@
 #include "src/heap/cppgc/memory.h"
 #include "src/heap/cppgc/object-poisoner.h"
 #include "src/heap/cppgc/object-start-bitmap.h"
-#include "src/heap/cppgc/page-memory.h"
 #include "src/heap/cppgc/raw-heap.h"
 #include "src/heap/cppgc/stats-collector.h"
 #include "src/heap/cppgc/task-handle.h"
@@ -484,7 +481,7 @@ class SweepFinalizer final {
     if (page_state->is_empty) {
       if (empty_page_handling_ == EmptyPageHandling::kDestroy ||
           page->is_large()) {
-        BasePage::Destroy(page, free_memory_handling_);
+        BasePage::Destroy(page);
         return;
       }
 
@@ -616,7 +613,7 @@ class MutatorThreadSweeper final : private HeapVisitor<MutatorThreadSweeper> {
             : SweepNormalPage<InlinedFinalizationBuilder<RegularFreeHandler>>(
                   &page, *platform_->GetPageAllocator(), sticky_bits_);
     if (result.is_empty) {
-      NormalPage::Destroy(&page, free_memory_handling_);
+      NormalPage::Destroy(&page);
     } else {
       // The page was eagerly finalized and all the freelist have been merged.
       // Verify that the bitmap is consistent with headers.
@@ -826,11 +823,10 @@ class Sweeper::SweeperImpl final {
     PrepareForSweepVisitor(&space_states_, config.compactable_space_handling)
         .Run(heap_);
 
-    if (config.sweeping_type >= SweepingConfig::SweepingType::kIncremental) {
+    if (config.sweeping_type == SweepingConfig::SweepingType::kAtomic) {
+      Finish();
+    } else {
       ScheduleIncrementalSweeping();
-    }
-    if (config.sweeping_type >=
-        SweepingConfig::SweepingType::kIncrementalAndConcurrent) {
       ScheduleConcurrentSweeping();
     }
   }
@@ -900,11 +896,8 @@ class Sweeper::SweeperImpl final {
     if (is_sweeping_on_mutator_thread_) return false;
 
     {
-      v8::base::Optional<StatsCollector::EnabledScope> stats_scope;
-      if (config_.sweeping_type != SweepingConfig::SweepingType::kAtomic) {
-        stats_scope.emplace(stats_collector_,
-                            StatsCollector::kIncrementalSweep);
-      }
+      StatsCollector::EnabledScope stats_scope(
+          stats_collector_, StatsCollector::kIncrementalSweep);
       StatsCollector::EnabledScope inner_scope(stats_collector_,
                                                StatsCollector::kSweepFinalize);
       if (concurrent_sweeper_handle_ && concurrent_sweeper_handle_->IsValid() &&
@@ -987,9 +980,6 @@ class Sweeper::SweeperImpl final {
     DCHECK(notify_done_pending_);
     notify_done_pending_ = false;
     stats_collector_->NotifySweepingCompleted(config_.sweeping_type);
-    if (config_.free_memory_handling ==
-        FreeMemoryHandling::kDiscardWherePossible)
-      heap_.heap()->page_backend()->DiscardPooledPages();
   }
 
   void NotifyDoneIfNeeded() {
@@ -1116,9 +1106,6 @@ class Sweeper::SweeperImpl final {
 
   void ScheduleIncrementalSweeping() {
     DCHECK(platform_);
-    DCHECK_GE(config_.sweeping_type,
-              SweepingConfig::SweepingType::kIncremental);
-
     auto runner = platform_->GetForegroundTaskRunner();
     if (!runner) return;
 
@@ -1128,8 +1115,10 @@ class Sweeper::SweeperImpl final {
 
   void ScheduleConcurrentSweeping() {
     DCHECK(platform_);
-    DCHECK_GE(config_.sweeping_type,
-              SweepingConfig::SweepingType::kIncrementalAndConcurrent);
+
+    if (config_.sweeping_type !=
+        SweepingConfig::SweepingType::kIncrementalAndConcurrent)
+      return;
 
     concurrent_sweeper_handle_ =
         platform_->PostJob(cppgc::TaskPriority::kUserVisible,

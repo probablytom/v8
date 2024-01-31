@@ -52,7 +52,6 @@ void LateLoadEliminationAnalyzer::ProcessBlock(const Block& block,
       case Opcode::kAtomicWord32Pair:
       case Opcode::kMemoryBarrier:
       case Opcode::kStackCheck:
-      case Opcode::kParameter:
 #ifdef V8_ENABLE_WEBASSEMBLY
       case Opcode::kSimd128LaneMemory:
       case Opcode::kGlobalSet:
@@ -61,6 +60,14 @@ void LateLoadEliminationAnalyzer::ProcessBlock(const Block& block,
 #endif  // V8_ENABLE_WEBASSEMBLY
         // We explicitely break for those operations that have can_write effects
         // but don't actually write, or cannot interfere with load elimination.
+        break;
+      case Opcode::kParameter:
+#if V8_ENABLE_WEBASSEMBLY
+        if (is_wasm_ && op.Cast<ParameterOp>().parameter_index == 0) {
+          // This is the instance parameter.
+          non_aliasing_objects_.Set(op_idx, true);
+        }
+#endif
         break;
       default:
         // Operations that `can_write` should invalidate the state. All such
@@ -76,10 +83,10 @@ void LateLoadEliminationAnalyzer::ProcessBlock(const Block& block,
 
 namespace {
 
-// Returns true if replacing a Load with a RegisterRepresentation
+// Returns true if replacing a Load with a RegisterReprsentation
 // {expected_reg_rep} and MemoryRepresentation of {expected_loaded_repr} with an
 // operation with RegisterRepresentation {actual} is valid. For instance,
-// replacing an operation that returns a Float64 by one that returns a Word64 is
+// replacing a operation that returns a Float64 by one that returns a Word64 is
 // not valid. Similarly, replacing a Tagged with an untagged value is probably
 // not valid because of the GC.
 bool RepIsCompatible(RegisterRepresentation actual,
@@ -94,7 +101,7 @@ bool RepIsCompatible(RegisterRepresentation actual,
     // truncation), we just prevent load elimination in this case.
 
     // TODO(dmercadier): add more truncations operators to Turboshaft, and
-    // insert the correct truncation when there is a mismatch between
+    // insert the correct truncation when there is a missmatch between
     // {expected_loaded_repr} and {actual}.
 
     return false;
@@ -163,7 +170,7 @@ void LateLoadEliminationAnalyzer::ProcessStore(OpIndex op_idx,
 
   OpIndex value = store.value();
 
-  // Updating the known stored values.
+  // Updating the known stored values
   memory_.Invalidate(store);
   memory_.Insert(store);
 

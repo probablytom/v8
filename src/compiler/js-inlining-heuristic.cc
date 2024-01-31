@@ -667,7 +667,7 @@ void JSInliningHeuristic::CreateOrReuseDispatch(
     // TODO(2206): Make comparison be based on underlying SharedFunctionInfo
     // instead of the target JSFunction reference directly.
     Node* target =
-        jsgraph()->ConstantNoHole(candidate.functions[i].value(), broker());
+        jsgraph()->Constant(candidate.functions[i].value(), broker());
     if (i != (*num_calls - 1)) {
       Node* check =
           graph()->NewNode(simplified()->ReferenceEqual(), callee, target);

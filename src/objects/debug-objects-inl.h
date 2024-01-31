@@ -38,27 +38,20 @@ BIT_FIELD_ACCESSORS(DebugInfo, debugger_hints, debugging_id,
                     DebugInfo::DebuggingIdBits)
 
 bool DebugInfo::HasInstrumentedBytecodeArray() {
-  return has_debug_bytecode_array();
+  return IsBytecodeArray(debug_bytecode_array(kAcquireLoad));
 }
 
-Tagged<BytecodeArray> DebugInfo::OriginalBytecodeArray(Isolate* isolate) {
+Tagged<BytecodeArray> DebugInfo::OriginalBytecodeArray() {
   DCHECK(HasInstrumentedBytecodeArray());
-  return original_bytecode_array(isolate, kAcquireLoad);
+  return BytecodeArray::cast(original_bytecode_array(kAcquireLoad));
 }
 
-Tagged<BytecodeArray> DebugInfo::DebugBytecodeArray(Isolate* isolate) {
+Tagged<BytecodeArray> DebugInfo::DebugBytecodeArray() {
   DCHECK(HasInstrumentedBytecodeArray());
-  Tagged<BytecodeArray> result = debug_bytecode_array(isolate, kAcquireLoad);
-  DCHECK_EQ(shared()->GetActiveBytecodeArray(isolate), result);
-  return result;
+  DCHECK_EQ(shared()->GetActiveBytecodeArray(),
+            debug_bytecode_array(kAcquireLoad));
+  return BytecodeArray::cast(debug_bytecode_array(kAcquireLoad));
 }
-
-TRUSTED_POINTER_ACCESSORS(DebugInfo, debug_bytecode_array, BytecodeArray,
-                          kDebugBytecodeArrayOffset,
-                          kBytecodeArrayIndirectPointerTag)
-TRUSTED_POINTER_ACCESSORS(DebugInfo, original_bytecode_array, BytecodeArray,
-                          kOriginalBytecodeArrayOffset,
-                          kBytecodeArrayIndirectPointerTag)
 
 TQ_OBJECT_CONSTRUCTORS_IMPL(StackFrameInfo)
 NEVER_READ_ONLY_SPACE_IMPL(StackFrameInfo)

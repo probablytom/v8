@@ -179,7 +179,7 @@ MaybeHandle<JSObject> JSObjectWalkVisitor<ContextObject>::StructureWalk(
 #endif
       } else {
         for (int i = 0; i < elements->length(); i++) {
-          Tagged<Object> raw = elements->get(i);
+          Tagged<Object> raw = elements->get(isolate, i);
           if (!IsJSObject(raw, isolate)) continue;
           Handle<JSObject> value(JSObject::cast(raw), isolate);
           ASSIGN_RETURN_ON_EXCEPTION(
@@ -398,11 +398,13 @@ Handle<JSObject> CreateObjectLiteral(
   if (!use_fast_elements) JSObject::NormalizeElements(boilerplate);
 
   // Add the constant properties to the boilerplate.
-  int length = object_boilerplate_description->boilerplate_properties_count();
+  int length = object_boilerplate_description->size();
   // TODO(verwaest): Support tracking representations in the boilerplate.
   for (int index = 0; index < length; index++) {
-    Handle<Object> key(object_boilerplate_description->name(index), isolate);
-    Handle<Object> value(object_boilerplate_description->value(index), isolate);
+    Handle<Object> key(object_boilerplate_description->name(isolate, index),
+                       isolate);
+    Handle<Object> value(object_boilerplate_description->value(isolate, index),
+                         isolate);
 
     if (IsHeapObject(*value)) {
       if (IsArrayBoilerplateDescription(HeapObject::cast(*value), isolate)) {
@@ -480,7 +482,7 @@ Handle<JSObject> CreateArrayLiteral(
           isolate->factory()->CopyFixedArray(fixed_array_values);
       copied_elements_values = fixed_array_values_copy;
       for (int i = 0; i < fixed_array_values->length(); i++) {
-        Tagged<Object> value = fixed_array_values_copy->get(i);
+        Tagged<Object> value = fixed_array_values_copy->get(isolate, i);
         Tagged<HeapObject> value_heap_object;
         if (value.GetHeapObject(isolate, &value_heap_object)) {
           if (IsArrayBoilerplateDescription(value_heap_object, isolate)) {

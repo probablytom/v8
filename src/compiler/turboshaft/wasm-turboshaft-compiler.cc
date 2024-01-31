@@ -48,8 +48,9 @@ wasm::WasmCompilationResult ExecuteTurboshaftWasmCompilation(
   data.assumptions = new wasm::AssumptionsJournal();
   auto call_descriptor = GetWasmCallDescriptor(&zone, data.func_body.sig);
 
-  if (!Pipeline::GenerateWasmCodeFromTurboshaftGraph(
-          &info, env, data, mcgraph, detected, call_descriptor)) {
+  if (!Pipeline::GenerateWasmCodeFromTurboshaftGraph(&info, env, data, mcgraph,
+                                                     data.func_body, detected,
+                                                     call_descriptor)) {
     delete data.assumptions;
     return {};
   }

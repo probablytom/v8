@@ -97,11 +97,6 @@ void ExternalPointerTableEntry::MakeEvacuationEntry(Address handle_location) {
   payload_.store(new_payload, std::memory_order_relaxed);
 }
 
-bool ExternalPointerTableEntry::HasEvacuationEntry() const {
-  auto payload = payload_.load(std::memory_order_relaxed);
-  return payload.ContainsEvacuationEntry();
-}
-
 void ExternalPointerTableEntry::UnmarkAndMigrateInto(
     ExternalPointerTableEntry& other) {
   auto payload = payload_.load(std::memory_order_relaxed);
@@ -273,8 +268,7 @@ void ExternalPointerTable::MaybeCreateEvacuationEntry(Space* space,
   }
 }
 
-// static
-bool ExternalPointerTable::IsValidHandle(ExternalPointerHandle handle) {
+bool ExternalPointerTable::IsValidHandle(ExternalPointerHandle handle) const {
 #ifdef DEBUG
   handle &= ~kVisitedHandleMarker;
 #endif  // DEBUG
@@ -282,8 +276,8 @@ bool ExternalPointerTable::IsValidHandle(ExternalPointerHandle handle) {
   return handle == index << kExternalPointerIndexShift;
 }
 
-// static
-uint32_t ExternalPointerTable::HandleToIndex(ExternalPointerHandle handle) {
+uint32_t ExternalPointerTable::HandleToIndex(
+    ExternalPointerHandle handle) const {
   DCHECK(IsValidHandle(handle));
   uint32_t index = handle >> kExternalPointerIndexShift;
 #if defined(LEAK_SANITIZER)
@@ -302,8 +296,8 @@ uint32_t ExternalPointerTable::HandleToIndex(ExternalPointerHandle handle) {
   return index;
 }
 
-// static
-ExternalPointerHandle ExternalPointerTable::IndexToHandle(uint32_t index) {
+ExternalPointerHandle ExternalPointerTable::IndexToHandle(
+    uint32_t index) const {
   DCHECK_LE(index, kMaxExternalPointers);
   ExternalPointerHandle handle = index << kExternalPointerIndexShift;
 #if defined(LEAK_SANITIZER)
@@ -315,7 +309,6 @@ ExternalPointerHandle ExternalPointerTable::IndexToHandle(uint32_t index) {
 
 void ExternalPointerTable::Space::StartCompacting(
     uint32_t start_of_evacuation_area) {
-  DCHECK_EQ(invalidated_fields_.size(), 0);
   start_of_evacuation_area_.store(start_of_evacuation_area,
                                   std::memory_order_relaxed);
 }
@@ -342,31 +335,6 @@ bool ExternalPointerTable::Space::IsCompacting() {
 bool ExternalPointerTable::Space::CompactingWasAborted() {
   auto value = start_of_evacuation_area_.load(std::memory_order_relaxed);
   return (value & kCompactionAbortedMarker) == kCompactionAbortedMarker;
-}
-
-void ExternalPointerTable::Space::NotifyExternalPointerFieldInvalidated(
-    Address field_address) {
-#ifdef DEBUG
-  ExternalPointerHandle handle = base::AsAtomic32::Acquire_Load(
-      reinterpret_cast<ExternalPointerHandle*>(field_address));
-  DCHECK(Contains(HandleToIndex(handle)));
-#endif
-  if (IsCompacting()) {
-    base::MutexGuard guard(&invalidated_fields_mutex_);
-    invalidated_fields_.push_back(field_address);
-  }
-}
-
-bool ExternalPointerTable::Space::FieldWasInvalidated(
-    Address field_address) const {
-  invalidated_fields_mutex_.AssertHeld();
-  return std::find(invalidated_fields_.begin(), invalidated_fields_.end(),
-                   field_address) != invalidated_fields_.end();
-}
-
-void ExternalPointerTable::Space::ClearInvalidatedFields() {
-  invalidated_fields_mutex_.AssertHeld();
-  invalidated_fields_.clear();
 }
 
 }  // namespace internal

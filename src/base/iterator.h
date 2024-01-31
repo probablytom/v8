@@ -9,8 +9,6 @@
 #include <tuple>
 #include <utility>
 
-#include "src/base/logging.h"
-
 namespace v8 {
 namespace base {
 

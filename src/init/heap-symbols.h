@@ -257,7 +257,6 @@
   V(_, epochSeconds_string, "epochSeconds")                                   \
   V(_, era_string, "era")                                                     \
   V(_, eraYear_string, "eraYear")                                             \
-  V(_, error_string, "error")                                                 \
   V(_, errors_string, "errors")                                               \
   V(_, error_to_string, "[object Error]")                                     \
   V(_, eval_string, "eval")                                                   \
@@ -431,8 +430,6 @@
   V(_, String_string, "String")                                               \
   V(_, string_string, "string")                                               \
   V(_, string_to_string, "[object String]")                                   \
-  V(_, suppressed_string, "suppressed")                                       \
-  V(_, SuppressedError_string, "SuppressedError")                             \
   V(_, Symbol_iterator_string, "Symbol.iterator")                             \
   V(_, Symbol_match_all_string, "Symbol.matchAll")                            \
   V(_, Symbol_replace_string, "Symbol.replace")                               \
@@ -569,6 +566,7 @@
 #define MC_INCREMENTAL_SCOPES(F)                                   \
   /* MC_INCREMENTAL is the top-level incremental marking scope. */ \
   F(MC_INCREMENTAL)                                                \
+  F(MC_INCREMENTAL_EMBEDDER_PROLOGUE)                              \
   F(MC_INCREMENTAL_EMBEDDER_TRACING)                               \
   F(MC_INCREMENTAL_EXTERNAL_EPILOGUE)                              \
   F(MC_INCREMENTAL_EXTERNAL_PROLOGUE)                              \
@@ -625,6 +623,7 @@
 #define SCAVENGER_MAIN_THREAD_SCOPES(F)              \
   F(SCAVENGER)                                       \
   F(SCAVENGER_COMPLETE_SWEEP_ARRAY_BUFFERS)          \
+  F(SCAVENGER_FAST_PROMOTE)                          \
   F(SCAVENGER_FREE_REMEMBERED_SET)                   \
   F(SCAVENGER_SCAVENGE)                              \
   F(SCAVENGER_SCAVENGE_WEAK_GLOBAL_HANDLES_IDENTIFY) \

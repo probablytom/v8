@@ -82,7 +82,7 @@ Handle<Code> FactoryBase<Impl>::NewCode(const NewCodeOptions& options) {
   Tagged<Code> code = Tagged<Code>::cast(
       AllocateRawWithImmortalMap(size, AllocationType::kOld, map));
   DisallowGarbageCollection no_gc;
-  code->init_self_indirect_pointer(isolate()->AsLocalIsolate());
+  code->init_instruction_start(isolate_for_sandbox, kNullAddress);
   code->initialize_flags(options.kind, options.is_turbofanned,
                          options.stack_slots);
   code->set_builtin_id(options.builtin);
@@ -129,7 +129,15 @@ Handle<Code> FactoryBase<Impl>::NewCode(const NewCodeOptions& options) {
 template <typename Impl>
 Handle<FixedArray> FactoryBase<Impl>::NewFixedArray(int length,
                                                     AllocationType allocation) {
-  return FixedArray::New(isolate(), length, allocation);
+  if (length == 0) return impl()->empty_fixed_array();
+  if (length < 0 || length > FixedArray::kMaxLength) {
+    FATAL("Fatal JavaScript invalid size error %d (see crbug.com/1201626)",
+          length);
+    UNREACHABLE();
+  }
+  return NewFixedArrayWithFiller(
+      read_only_roots().fixed_array_map_handle(), length,
+      read_only_roots().undefined_value_handle(), allocation);
 }
 
 template <typename Impl>
@@ -163,7 +171,7 @@ Handle<FixedArray> FactoryBase<Impl>::NewFixedArrayWithFiller(
   result->set_map_after_allocation(*map, SKIP_WRITE_BARRIER);
   Tagged<FixedArray> array = Tagged<FixedArray>::cast(result);
   array->set_length(length);
-  MemsetTagged(array->RawFieldOfFirstElement(), *filler, length);
+  MemsetTagged(array->data_start(), *filler, length);
   return handle(array, isolate());
 }
 
@@ -181,14 +189,27 @@ Handle<FixedArray> FactoryBase<Impl>::NewFixedArrayWithZeroes(
                                    SKIP_WRITE_BARRIER);
   Tagged<FixedArray> array = Tagged<FixedArray>::cast(result);
   array->set_length(length);
-  MemsetTagged(array->RawFieldOfFirstElement(), Smi::zero(), length);
+  MemsetTagged(array->data_start(), Smi::zero(), length);
   return handle(array, isolate());
 }
 
 template <typename Impl>
 Handle<FixedArrayBase> FactoryBase<Impl>::NewFixedDoubleArray(
     int length, AllocationType allocation) {
-  return FixedDoubleArray::New(isolate(), length, allocation);
+  if (length == 0) return impl()->empty_fixed_array();
+  if (length < 0 || length > FixedDoubleArray::kMaxLength) {
+    FATAL("Fatal JavaScript invalid size error %d (see crbug.com/1201626)",
+          length);
+    UNREACHABLE();
+  }
+  int size = FixedDoubleArray::SizeFor(length);
+  Tagged<Map> map = read_only_roots().fixed_double_array_map();
+  Tagged<HeapObject> result =
+      AllocateRawWithImmortalMap(size, allocation, map, kDoubleAligned);
+  DisallowGarbageCollection no_gc;
+  Tagged<FixedDoubleArray> array = Tagged<FixedDoubleArray>::cast(result);
+  array->set_length(length);
+  return handle(array, isolate());
 }
 
 template <typename Impl>
@@ -204,7 +225,7 @@ Handle<WeakFixedArray> FactoryBase<Impl>::NewWeakFixedArrayWithMap(
   DisallowGarbageCollection no_gc;
   Tagged<WeakFixedArray> array = Tagged<WeakFixedArray>::cast(result);
   array->set_length(length);
-  MemsetTagged(ObjectSlot(array->RawFieldOfFirstElement()),
+  MemsetTagged(ObjectSlot(array->data_start()),
                read_only_roots().undefined_value(), length);
 
   return handle(array, isolate());
@@ -213,13 +234,28 @@ Handle<WeakFixedArray> FactoryBase<Impl>::NewWeakFixedArrayWithMap(
 template <typename Impl>
 Handle<WeakFixedArray> FactoryBase<Impl>::NewWeakFixedArray(
     int length, AllocationType allocation) {
-  return WeakFixedArray::New(isolate(), length, allocation);
+  DCHECK_LE(0, length);
+  if (length == 0) return impl()->empty_weak_fixed_array();
+  return NewWeakFixedArrayWithMap(read_only_roots().weak_fixed_array_map(),
+                                  length, allocation);
 }
 
 template <typename Impl>
 Handle<ByteArray> FactoryBase<Impl>::NewByteArray(int length,
                                                   AllocationType allocation) {
-  return ByteArray::New(isolate(), length, allocation);
+  if (length < 0 || length > ByteArray::kMaxLength) {
+    FATAL("Fatal JavaScript invalid size error %d", length);
+    UNREACHABLE();
+  }
+  if (length == 0) return impl()->empty_byte_array();
+  int size = ALIGN_TO_ALLOCATION_ALIGNMENT(ByteArray::SizeFor(length));
+  Tagged<HeapObject> result = AllocateRawWithImmortalMap(
+      size, allocation, read_only_roots().byte_array_map());
+  DisallowGarbageCollection no_gc;
+  Tagged<ByteArray> array = Tagged<ByteArray>::cast(result);
+  array->set_length(length);
+  array->clear_padding();
+  return handle(array, isolate());
 }
 
 template <typename Impl>
@@ -272,13 +308,11 @@ Handle<BytecodeArray> FactoryBase<Impl>::NewBytecodeArray(
   // too.
   DCHECK(!Heap::InYoungGeneration(*constant_pool));
 
-  Handle<BytecodeWrapper> wrapper = NewBytecodeWrapper();
   int size = BytecodeArray::SizeFor(length);
   Tagged<HeapObject> result = AllocateRawWithImmortalMap(
       size, AllocationType::kOld, read_only_roots().bytecode_array_map());
   DisallowGarbageCollection no_gc;
-  Tagged<BytecodeArray> instance = BytecodeArray::cast(result);
-  instance->init_self_indirect_pointer(isolate()->AsLocalIsolate());
+  Tagged<BytecodeArray> instance = Tagged<BytecodeArray>::cast(result);
   instance->set_length(length);
   instance->set_frame_size(frame_size);
   instance->set_parameter_count(parameter_count);
@@ -287,29 +321,12 @@ Handle<BytecodeArray> FactoryBase<Impl>::NewBytecodeArray(
   instance->set_constant_pool(*constant_pool);
   instance->set_handler_table(read_only_roots().empty_byte_array(),
                               SKIP_WRITE_BARRIER);
-  instance->set_wrapper(*wrapper);
   instance->set_source_position_table(read_only_roots().undefined_value(),
                                       kReleaseStore, SKIP_WRITE_BARRIER);
   CopyBytes(reinterpret_cast<uint8_t*>(instance->GetFirstBytecodeAddress()),
             raw_bytecodes, length);
   instance->clear_padding();
-  wrapper->set_bytecode(instance);
   return handle(instance, isolate());
-}
-
-template <typename Impl>
-Handle<BytecodeWrapper> FactoryBase<Impl>::NewBytecodeWrapper() {
-  Handle<BytecodeWrapper> wrapper(
-      BytecodeWrapper::cast(NewWithImmortalMap(
-          read_only_roots().bytecode_wrapper_map(), AllocationType::kOld)),
-      isolate());
-  // The BytecodeWrapper is typically created before the BytecodeArray it
-  // wraps, so the bytecode field cannot yet be set. However, as a heap
-  // verifier might see the wrapper before the field can be set, we need to
-  // clear the field here.
-  wrapper->clear_bytecode();
-  wrapper->clear_padding();
-  return wrapper;
 }
 
 template <typename Impl>
@@ -380,7 +397,16 @@ Handle<SloppyArgumentsElements> FactoryBase<Impl>::NewSloppyArgumentsElements(
 template <typename Impl>
 Handle<ArrayList> FactoryBase<Impl>::NewArrayList(int size,
                                                   AllocationType allocation) {
-  return ArrayList::New(isolate(), size, allocation);
+  if (size == 0) return impl()->empty_array_list();
+  Handle<FixedArray> fixed_array =
+      NewFixedArray(size + ArrayList::kFirstIndex, allocation);
+  {
+    DisallowGarbageCollection no_gc;
+    Tagged<FixedArray> raw = *fixed_array;
+    raw->set_map_no_write_barrier(read_only_roots().array_list_map());
+    ArrayList::cast(raw)->SetLength(0);
+  }
+  return Handle<ArrayList>::cast(fixed_array);
 }
 
 template <typename Impl>
@@ -518,9 +544,38 @@ FactoryBase<Impl>::NewObjectBoilerplateDescription(int boilerplate,
                                                    int all_properties,
                                                    int index_keys,
                                                    bool has_seen_proto) {
-  return ObjectBoilerplateDescription::New(
-      isolate(), boilerplate, all_properties, index_keys, has_seen_proto,
-      AllocationType::kOld);
+  DCHECK_GE(boilerplate, 0);
+  DCHECK_GE(all_properties, index_keys);
+  DCHECK_GE(index_keys, 0);
+
+  int backing_store_size =
+      all_properties - index_keys - (has_seen_proto ? 1 : 0);
+  DCHECK_GE(backing_store_size, 0);
+  bool has_different_size_backing_store = boilerplate != backing_store_size;
+
+  // Space for name and value for every boilerplate property + LiteralType flag.
+  int size =
+      2 * boilerplate + ObjectBoilerplateDescription::kDescriptionStartIndex;
+
+  if (has_different_size_backing_store) {
+    // An extra entry for the backing store size.
+    size++;
+  }
+
+  Handle<ObjectBoilerplateDescription> description =
+      Handle<ObjectBoilerplateDescription>::cast(NewFixedArrayWithMap(
+          read_only_roots().object_boilerplate_description_map_handle(), size,
+          AllocationType::kOld));
+
+  if (has_different_size_backing_store) {
+    DCHECK_IMPLIES((boilerplate == (all_properties - index_keys)),
+                   has_seen_proto);
+    description->set_backing_store_size(backing_store_size);
+  }
+
+  description->set_flags(0);
+
+  return description;
 }
 
 template <typename Impl>

@@ -54,11 +54,8 @@ class DebugInfo : public TorqueGeneratedDebugInfo<DebugInfo, Struct> {
   // and DebugBytecodeArray returns the instrumented bytecode.
   inline bool HasInstrumentedBytecodeArray();
 
-  inline Tagged<BytecodeArray> OriginalBytecodeArray(Isolate* isolate);
-  inline Tagged<BytecodeArray> DebugBytecodeArray(Isolate* isolate);
-
-  DECL_TRUSTED_POINTER_ACCESSORS(original_bytecode_array, BytecodeArray)
-  DECL_TRUSTED_POINTER_ACCESSORS(debug_bytecode_array, BytecodeArray)
+  inline Tagged<BytecodeArray> OriginalBytecodeArray();
+  inline Tagged<BytecodeArray> DebugBytecodeArray();
 
   // --- Break points ---
   // --------------------
@@ -136,7 +133,7 @@ class DebugInfo : public TorqueGeneratedDebugInfo<DebugInfo, Struct> {
 
   static const int kEstimatedNofBreakPointsInFunction = 4;
 
-  class BodyDescriptor;
+  using BodyDescriptor = StructBodyDescriptor;
 
  private:
   // Get the break point info object for a source position.

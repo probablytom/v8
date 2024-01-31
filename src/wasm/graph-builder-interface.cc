@@ -762,7 +762,6 @@ class WasmGraphBuildingInterface {
     switch (import) {
       case WKI::kUninstantiated:
       case WKI::kGeneric:
-      case WKI::kLinkError:
         return false;
 
       // WebAssembly.String.* imports.
@@ -902,27 +901,8 @@ class WasmGraphBuildingInterface {
         decoder->detected_->Add(kFeature_stringref);
         break;
         // Not implementing for Turbofan.
-      case WKI::kDataViewGetBigInt64:
-      case WKI::kDataViewGetBigUint64:
-      case WKI::kDataViewGetFloat32:
-      case WKI::kDataViewGetFloat64:
-      case WKI::kDataViewGetInt8:
-      case WKI::kDataViewGetInt16:
       case WKI::kDataViewGetInt32:
-      case WKI::kDataViewGetUint8:
-      case WKI::kDataViewGetUint16:
-      case WKI::kDataViewGetUint32:
-      case WKI::kDataViewSetBigInt64:
-      case WKI::kDataViewSetBigUint64:
-      case WKI::kDataViewSetFloat32:
-      case WKI::kDataViewSetFloat64:
-      case WKI::kDataViewSetInt8:
-      case WKI::kDataViewSetInt16:
       case WKI::kDataViewSetInt32:
-      case WKI::kDataViewSetUint8:
-      case WKI::kDataViewSetUint16:
-      case WKI::kDataViewSetUint32:
-      case WKI::kDataViewByteLength:
         return false;
     }
     if (v8_flags.trace_wasm_inlining) {
@@ -1336,15 +1316,6 @@ class WasmGraphBuildingInterface {
 
     SetEnv(block->try_info->catch_env);
   }
-
-  void TryTable(FullDecoder* decoder, Control* control) { UNIMPLEMENTED(); }
-
-  void CatchCase(FullDecoder* decoder, Control* control,
-                 const CatchCase& catch_case, base::Vector<Value> values) {
-    UNIMPLEMENTED();
-  }
-
-  void ThrowRef(FullDecoder* decoder, Value* value) { UNIMPLEMENTED(); }
 
   void AtomicOp(FullDecoder* decoder, WasmOpcode opcode, const Value args[],
                 const size_t argc, const MemoryAccessImmediate& imm,

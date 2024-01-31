@@ -694,7 +694,7 @@ void Builtins::Generate_ResumeGeneratorTrampoline(MacroAssembler* masm) {
   // Check the stack for overflow. We are not trying to catch interruptions
   // (i.e. debug break and preemption) here, so check the "real stack limit".
   Label stack_overflow;
-  __ LoadStackLimit(scratch, StackLimitKind::kRealStackLimit, r0);
+  __ LoadStackLimit(scratch, StackLimitKind::kRealStackLimit);
   __ CmpU64(sp, scratch);
   __ blt(&stack_overflow);
 
@@ -1203,6 +1203,7 @@ static void AdvanceBytecodeOffsetOrReturn(MacroAssembler* masm,
   __ bind(&end);
 }
 
+#if ENABLE_SPARKPLUG
 // static
 void Builtins::Generate_BaselineOutOfLinePrologue(MacroAssembler* masm) {
   auto descriptor =
@@ -1293,8 +1294,7 @@ void Builtins::Generate_BaselineOutOfLinePrologue(MacroAssembler* masm) {
     Register sp_minus_frame_size = r11;
     Register interrupt_limit = r0;
     __ SubS64(sp_minus_frame_size, sp, frame_size);
-    __ LoadStackLimit(interrupt_limit, StackLimitKind::kInterruptStackLimit,
-                      r0);
+    __ LoadStackLimit(interrupt_limit, StackLimitKind::kInterruptStackLimit);
     __ CmpU64(sp_minus_frame_size, interrupt_limit);
     __ blt(&call_stack_guard);
   }
@@ -1333,6 +1333,7 @@ void Builtins::Generate_BaselineOutOfLinePrologue(MacroAssembler* masm) {
   __ LoadRoot(kInterpreterAccumulatorRegister, RootIndex::kUndefinedValue);
   __ Ret();
 }
+#endif
 
 // static
 void Builtins::Generate_BaselineOutOfLinePrologueDeopt(MacroAssembler* masm) {
@@ -1454,8 +1455,8 @@ void Builtins::Generate_InterpreterEntryTrampoline(
 
     // Do a stack check to ensure we don't go over the limit.
     __ sub(r8, sp, r5);
-    __ LoadStackLimit(ip, StackLimitKind::kRealStackLimit, r0);
-    __ CmpU64(r8, ip);
+    __ LoadStackLimit(r0, StackLimitKind::kRealStackLimit);
+    __ CmpU64(r8, r0);
     __ blt(&stack_overflow);
 
     // If ok, push undefined as the initial value for all register file entries.
@@ -1488,8 +1489,8 @@ void Builtins::Generate_InterpreterEntryTrampoline(
   // Perform interrupt stack check.
   // TODO(solanes): Merge with the real stack limit check above.
   Label stack_check_interrupt, after_stack_check_interrupt;
-  __ LoadStackLimit(ip, StackLimitKind::kInterruptStackLimit, r0);
-  __ CmpU64(sp, ip);
+  __ LoadStackLimit(r0, StackLimitKind::kInterruptStackLimit);
+  __ CmpU64(sp, r0);
   __ blt(&stack_check_interrupt);
   __ bind(&after_stack_check_interrupt);
 
@@ -1741,56 +1742,6 @@ void Builtins::Generate_InterpreterPushArgsThenConstructImpl(
     // Call the constructor with r3, r4, and r6 unmodified.
     __ Jump(BUILTIN_CODE(masm->isolate(), Construct), RelocInfo::CODE_TARGET);
   }
-
-  __ bind(&stack_overflow);
-  {
-    __ TailCallRuntime(Runtime::kThrowStackOverflow);
-    // Unreachable Code.
-    __ bkpt(0);
-  }
-}
-
-// static
-void Builtins::Generate_ConstructForwardAllArgsImpl(
-    MacroAssembler* masm, ForwardWhichFrame which_frame) {
-  // ----------- S t a t e -------------
-  // -- r6 : new target
-  // -- r4 : constructor to call
-  // -----------------------------------
-  Label stack_overflow;
-
-  // Load the frame pointer into r7.
-  switch (which_frame) {
-    case ForwardWhichFrame::kCurrentFrame:
-      __ Move(r7, fp);
-      break;
-    case ForwardWhichFrame::kParentFrame:
-      __ LoadU64(r7, MemOperand(fp, StandardFrameConstants::kCallerFPOffset),
-                 r0);
-      break;
-  }
-
-  // Load the argument count into r3.
-  __ LoadU64(r3, MemOperand(r7, StandardFrameConstants::kArgCOffset), r0);
-  __ StackOverflowCheck(r3, ip, &stack_overflow);
-
-  // Point r7 to the base of the argument list to forward, excluding the
-  // receiver.
-  __ addi(r7, r7,
-          Operand((StandardFrameConstants::kFixedSlotCountAboveFp + 1) *
-                  kSystemPointerSize));
-
-  // Copy arguments on the stack. r8 is a scratch register.
-  Register argc_without_receiver = ip;
-  __ subi(argc_without_receiver, r3, Operand(kJSArgcReceiverSlots));
-  __ PushArray(r7, argc_without_receiver, r8, r0);
-
-  // Push a slot for the receiver to be constructed.
-  __ li(r0, Operand::Zero());
-  __ push(r0);
-
-  // Call the constructor with r3, r4, and r6 unmodified.
-  __ Jump(BUILTIN_CODE(masm->isolate(), Construct), RelocInfo::CODE_TARGET);
 
   __ bind(&stack_overflow);
   {
@@ -2206,6 +2157,7 @@ void Builtins::Generate_InterpreterOnStackReplacement(MacroAssembler* masm) {
                      D::MaybeTargetCodeRegister());
 }
 
+#if ENABLE_SPARKPLUG
 void Builtins::Generate_BaselineOnStackReplacement(MacroAssembler* masm) {
   using D = OnStackReplacementDescriptor;
   static_assert(D::kParameterCount == 1);
@@ -2215,6 +2167,7 @@ void Builtins::Generate_BaselineOnStackReplacement(MacroAssembler* masm) {
   OnStackReplacement(masm, OsrSourceTier::kBaseline,
                      D::MaybeTargetCodeRegister());
 }
+#endif
 
 // static
 void Builtins::Generate_FunctionPrototypeApply(MacroAssembler* masm) {
@@ -2724,7 +2677,7 @@ void Generate_PushBoundArguments(MacroAssembler* masm) {
       // (i.e. debug break and preemption) here, so check the "real stack
       // limit".
       {
-        __ LoadStackLimit(scratch, StackLimitKind::kRealStackLimit, ip);
+        __ LoadStackLimit(scratch, StackLimitKind::kRealStackLimit);
         __ CmpU64(r0, scratch);
       }
       __ bgt(&done);  // Signed comparison.
@@ -3148,31 +3101,7 @@ void Builtins::Generate_WasmReturnPromiseOnSuspendAsm(MacroAssembler* masm) {
   __ Trap();
 }
 
-void Builtins::Generate_WasmToJsWrapperAsm(MacroAssembler* masm) {
-  // Push registers in reverse order so that they are on the stack like
-  // in an array, with the first item being at the lowest address.
-  DoubleRegList fp_regs;
-  for (DoubleRegister fp_param_reg : wasm::kFpParamRegisters) {
-    fp_regs.set(fp_param_reg);
-  }
-  __ MultiPushDoubles(fp_regs);
-
-  // Push the GP registers in reverse order so that they are on the stack like
-  // in an array, with the first item being at the lowest address.
-  RegList gp_regs;
-  for (size_t i = arraysize(wasm::kGpParamRegisters) - 1; i > 0; --i) {
-    gp_regs.set(wasm::kGpParamRegisters[i]);
-  }
-  __ MultiPush(gp_regs);
-  // Push an arbitrary register to reserve stack space for the signature which
-  // will be spilled on the stack in Torque.
-  __ Push(r0);
-  __ TailCallBuiltin(Builtin::kWasmToJsWrapperCSA);
-}
-
-void Builtins::Generate_WasmTrapHandlerLandingPad(MacroAssembler* masm) {
-  __ Trap();
-}
+void Builtins::Generate_WasmToJsWrapperAsm(MacroAssembler* masm) { __ Trap(); }
 
 void Builtins::Generate_WasmSuspend(MacroAssembler* masm) {
   // TODO(v8:12191): Implement for this platform.

@@ -95,8 +95,7 @@ class V8_EXPORT_PRIVATE RegExpMacroAssemblerARM64
   static int CheckStackGuardState(Address* return_address, Address raw_code,
                                   Address re_frame, int start_offset,
                                   const uint8_t** input_start,
-                                  const uint8_t** input_end,
-                                  uintptr_t extra_space);
+                                  const uint8_t** input_end);
 
  private:
   static constexpr int kFramePointerOffset = 0;
@@ -175,8 +174,7 @@ class V8_EXPORT_PRIVATE RegExpMacroAssemblerARM64
   // Check whether we are exceeding the stack limit on the backtrack stack.
   void CheckStackLimit();
 
-  void CallCheckStackGuardState(Register scratch,
-                                Operand extra_space = Operand(0));
+  void CallCheckStackGuardState(Register scratch);
   void CallIsCharacterInRangeArray(const ZoneList<CharacterRange>* ranges);
 
   // Location of a 32 bit position register.

@@ -24,22 +24,22 @@ namespace internal {
   V(AccessorInfo)                       \
   V(AllocationSite)                     \
   V(BigInt)                             \
+  V(ByteArray)                          \
   V(BytecodeArray)                      \
-  V(BytecodeWrapper)                    \
   V(ExternalPointerArray)               \
   V(CallHandlerInfo)                    \
   V(Cell)                               \
   V(InstructionStream)                  \
-  V(CallSiteInfo)                       \
   V(Code)                               \
   V(CoverageInfo)                       \
   V(DataHandler)                        \
-  V(DebugInfo)                          \
   V(EmbedderDataArray)                  \
   V(EphemeronHashTable)                 \
   V(ExternalString)                     \
   V(FeedbackCell)                       \
   V(FeedbackMetadata)                   \
+  V(FixedArray)                         \
+  V(FixedDoubleArray)                   \
   V(JSArrayBuffer)                      \
   V(JSDataViewOrRabGsabDataView)        \
   V(JSExternalObject)                   \
@@ -60,7 +60,6 @@ namespace internal {
   V(PropertyArray)                      \
   V(PropertyCell)                       \
   V(PrototypeInfo)                      \
-  V(InterpreterData)                    \
   V(SharedFunctionInfo)                 \
   V(SloppyArgumentsElements)            \
   V(SmallOrderedHashMap)                \
@@ -85,8 +84,7 @@ namespace internal {
   IF_WASM(V, WasmResumeData)            \
   IF_WASM(V, WasmTypeInfo)              \
   IF_WASM(V, WasmContinuationObject)    \
-  IF_WASM(V, WasmNull)                  \
-  SIMPLE_HEAP_OBJECT_LIST1(V)
+  IF_WASM(V, WasmNull)
 
 #define FORWARD_DECLARE(TypeName) class TypeName;
 TYPED_VISITOR_ID_LIST(FORWARD_DECLARE)

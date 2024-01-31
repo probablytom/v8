@@ -69,7 +69,7 @@ class JSTypedLoweringTester : public HandleAndZoneScope,
     return graph.NewNode(common.HeapConstant(value));
   }
 
-  Node* HeapConstantNoHole(Handle<HeapObject> constant) {
+  Node* HeapConstant(Handle<HeapObject> constant) {
     return graph.NewNode(common.HeapConstant(constant));
   }
 

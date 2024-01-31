@@ -70,37 +70,37 @@ class ConsoleHelper {
 
   void reportCall(ConsoleAPIType type) {
     if (!m_info.Length()) return;
-    v8::LocalVector<v8::Value> arguments(m_isolate);
+    std::vector<v8::Local<v8::Value>> arguments;
     arguments.reserve(m_info.Length());
     for (int i = 0; i < m_info.Length(); ++i) arguments.push_back(m_info[i]);
-    reportCall(type, {arguments.begin(), arguments.end()});
+    reportCall(type, arguments);
   }
 
   void reportCallWithDefaultArgument(ConsoleAPIType type,
                                      const String16& message) {
-    v8::LocalVector<v8::Value> arguments(m_isolate);
+    std::vector<v8::Local<v8::Value>> arguments;
     arguments.reserve(m_info.Length());
     for (int i = 0; i < m_info.Length(); ++i) arguments.push_back(m_info[i]);
     if (!m_info.Length()) arguments.push_back(toV8String(m_isolate, message));
-    reportCall(type, {arguments.begin(), arguments.end()});
+    reportCall(type, arguments);
   }
 
   void reportCallAndReplaceFirstArgument(ConsoleAPIType type,
                                          const String16& message) {
-    v8::LocalVector<v8::Value> arguments(m_isolate);
+    std::vector<v8::Local<v8::Value>> arguments;
     arguments.push_back(toV8String(m_isolate, message));
     for (int i = 1; i < m_info.Length(); ++i) arguments.push_back(m_info[i]);
-    reportCall(type, {arguments.begin(), arguments.end()});
+    reportCall(type, arguments);
   }
 
   void reportCallWithArgument(ConsoleAPIType type, const String16& message) {
-    auto arguments =
-        v8::to_array<v8::Local<v8::Value>>({toV8String(m_isolate, message)});
+    std::vector<v8::Local<v8::Value>> arguments(1,
+                                                toV8String(m_isolate, message));
     reportCall(type, arguments);
   }
 
   void reportCall(ConsoleAPIType type,
-                  v8::MemorySpan<const v8::Local<v8::Value>> arguments) {
+                  const std::vector<v8::Local<v8::Value>>& arguments) {
     if (!m_groupId) return;
     std::unique_ptr<V8ConsoleMessage> message =
         V8ConsoleMessage::createForConsoleAPI(
@@ -116,8 +116,8 @@ class ConsoleHelper {
                                                                  id)) {
       return;
     }
-    auto arguments =
-        v8::to_array<v8::Local<v8::Value>>({toV8String(m_isolate, message)});
+    std::vector<v8::Local<v8::Value>> arguments(1,
+                                                toV8String(m_isolate, message));
     reportCall(ConsoleAPIType::kWarning, arguments);
   }
 
@@ -355,13 +355,12 @@ void V8Console::Assert(const v8::debug::ConsoleCallArguments& info,
   ConsoleHelper helper(info, consoleContext, m_inspector);
   DCHECK(!helper.firstArgToBoolean(false));
 
-  v8::Isolate* isolate = m_inspector->isolate();
-  v8::LocalVector<v8::Value> arguments(isolate);
+  std::vector<v8::Local<v8::Value>> arguments;
   for (int i = 1; i < info.Length(); ++i) arguments.push_back(info[i]);
   if (info.Length() < 2)
-    arguments.push_back(toV8String(isolate, String16("console.assert")));
-  helper.reportCall(ConsoleAPIType::kAssert,
-                    {arguments.begin(), arguments.end()});
+    arguments.push_back(
+        toV8String(m_inspector->isolate(), String16("console.assert")));
+  helper.reportCall(ConsoleAPIType::kAssert, arguments);
   m_inspector->debugger()->breakProgramOnAssert(helper.groupId());
 }
 
@@ -817,7 +816,7 @@ void V8Console::installMemoryGetter(v8::Local<v8::Context> context,
                         &V8Console::call<&V8Console::memorySetterCallback>,
                         data, 0, v8::ConstructorBehavior::kThrow)
           .ToLocalChecked(),
-      static_cast<v8::PropertyAttribute>(v8::None));
+      static_cast<v8::PropertyAttribute>(v8::None), v8::DEFAULT);
 }
 
 void V8Console::installAsyncStackTaggingAPI(v8::Local<v8::Context> context,
@@ -980,11 +979,11 @@ V8Console::CommandLineAPIScope::CommandLineAPIScope(
     if (!m_installedMethods->Add(context, name).ToLocal(&m_installedMethods))
       continue;
     if (!m_global
-             ->SetNativeDataProperty(
-                 context, name.As<v8::Name>(),
-                 CommandLineAPIScope::accessorGetterCallback,
-                 CommandLineAPIScope::accessorSetterCallback, m_thisReference,
-                 v8::DontEnum, v8::SideEffectType::kHasNoSideEffect)
+             ->SetAccessor(context, name.As<v8::Name>(),
+                           CommandLineAPIScope::accessorGetterCallback,
+                           CommandLineAPIScope::accessorSetterCallback,
+                           m_thisReference, v8::DEFAULT, v8::DontEnum,
+                           v8::SideEffectType::kHasNoSideEffect)
              .FromMaybe(false)) {
       bool removed = m_installedMethods->Delete(context, name).FromMaybe(false);
       DCHECK(removed);

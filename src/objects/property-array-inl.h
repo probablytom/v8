@@ -114,11 +114,7 @@ Tagged<Object> PropertyArray::CompareAndSwap(int index, Tagged<Object> expected,
   return result;
 }
 
-ObjectSlot PropertyArray::data_start() { return RawFieldOfElementAt(0); }
-
-ObjectSlot PropertyArray::RawFieldOfElementAt(int index) {
-  return RawField(OffsetOfElementAt(index));
-}
+ObjectSlot PropertyArray::data_start() { return RawField(kHeaderSize); }
 
 int PropertyArray::length() const {
   return LengthField::decode(length_and_hash());
@@ -141,16 +137,15 @@ void PropertyArray::SetHash(int hash) {
   set_length_and_hash(value, kReleaseStore);
 }
 
-// static
-void PropertyArray::CopyElements(Isolate* isolate, Tagged<PropertyArray> dst,
-                                 int dst_index, Tagged<PropertyArray> src,
-                                 int src_index, int len,
-                                 WriteBarrierMode mode) {
+void PropertyArray::CopyElements(Isolate* isolate, int dst_index,
+                                 Tagged<PropertyArray> src, int src_index,
+                                 int len, WriteBarrierMode mode) {
   if (len == 0) return;
   DisallowGarbageCollection no_gc;
-  ObjectSlot dst_slot(dst->data_start() + dst_index);
+
+  ObjectSlot dst_slot(data_start() + dst_index);
   ObjectSlot src_slot(src->data_start() + src_index);
-  isolate->heap()->CopyRange(dst, dst_slot, src_slot, len, mode);
+  isolate->heap()->CopyRange(*this, dst_slot, src_slot, len, mode);
 }
 
 }  // namespace internal

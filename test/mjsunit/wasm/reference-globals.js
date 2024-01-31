@@ -427,11 +427,11 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
 
   let internal = builder.addGlobal(
     kWasmAnyRef, false,
-    [kExprGlobalGet, imported, kGCPrefix, kExprAnyConvertExtern]);
+    [kExprGlobalGet, imported, kGCPrefix, kExprExternInternalize]);
 
   builder.addGlobal(
       kWasmExternRef, false,
-      [kExprGlobalGet, internal.index, kGCPrefix, kExprExternConvertAny])
+      [kExprGlobalGet, internal.index, kGCPrefix, kExprExternExternalize])
     .exportAs("exported")
 
   builder.addFunction("getter", kSig_i_v)

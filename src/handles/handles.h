@@ -18,6 +18,10 @@
 #include "src/flags/flags.h"
 #endif
 
+#ifdef V8_ENABLE_CAPABILITY_HANDLE
+#include <cheriintrin.h> 
+#endif
+
 namespace v8 {
 
 class HandleScope;
@@ -408,6 +412,11 @@ class DirectHandle final : public DirectHandleBase {
       : DirectHandle(handle.location() != nullptr ? *handle.location()
                                                   : kTaggedNullAddress) {}
 
+  template <typename S, typename = std::enable_if_t<is_subtype_v<S, T>>>
+  V8_INLINE DirectHandle(CapabilityHandle<S> handle)
+      : DirectHandle(handle.addr() != nullptr ? *handle.addr()
+                                                  : kTaggedNullAddress) {}
+
   V8_INLINE Tagged<T> operator->() const {
     if constexpr (std::is_base_of_v<HeapObject, T> ||
                   std::is_convertible_v<T*, HeapObject*>) {
@@ -442,6 +451,9 @@ class DirectHandle final : public DirectHandleBase {
   template <typename S>
   V8_INLINE static const DirectHandle<T> cast(Handle<S> that);
 
+  template <typename S>
+  V8_INLINE static const DirectHandle<T> cast(CapabilityHandle<S> that);
+
   // Consider declaring values that contain empty handles as
   // MaybeDirectHandle to force validation before being used as handles.
   V8_INLINE static const DirectHandle<T> null() { return DirectHandle<T>(); }
@@ -454,12 +466,201 @@ class DirectHandle final : public DirectHandleBase {
   // MaybeDirectHandle is allowed to access obj_.
   template <typename>
   friend class MaybeDirectHandle;
+
+  template <typename>
+  friend class CapabilityHandle;
+  template <typename>
+  friend class MaybeCapabilityHandle;
 };
 
 template <typename T>
 std::ostream& operator<<(std::ostream& os, DirectHandle<T> handle);
 
 #endif  // V8_ENABLE_DIRECT_HANDLE
+
+
+
+#ifdef V8_ENABLE_CAPABILITY_HANDLE
+// Capability handles should not be used without conservative stack scanning,
+// as this would break the correctness of the GC.
+// (CapabilityHandles are very similar to DirectHandles)
+static_assert(V8_ENABLE_CONSERVATIVE_STACK_SCANNING_BOOL);
+
+// ----------------------------------------------------------------------------
+// Base class for CapabilityHandle instantiations. Don't use directly.
+class CapabilityHandleBase {
+ public:
+  // Check if this handle refers to the exact same object as the other handle.
+  V8_INLINE bool is_identical_to(const CapabilityHandleBase& that) const;
+  V8_INLINE bool is_null() const { return obj_.addr() == kTaggedNullAddress; }
+
+  // MARK CHERI CHANGE
+  // Not sure this is semantically appropriate for the use of the address. It
+  // may not be reachable if the DDC is altered. Revisit this.
+  V8_INLINE Address address() const { return obj_.addr(); }
+
+ protected:
+ // MARK CHERI CHANGE
+ // TODO: what should be passed in here, and how should the
+ // capability be constructed around it? Do we pass a capability? If we don't,
+ // how do we set the correct metadata bits? What if the addr points to a comp?
+ // Haven't made the required edit yet.
+  V8_INLINE explicit CapabilityHandleBase(Address object) : obj_(CapabilityHandleBase::UnderlyingCapability(object)) {
+#ifdef DEBUG
+    VerifyOnStackAndMainThread();
+#endif
+  }
+
+  V8_INLINE explicit CapabilityHandleBase(Address object, Isolate* isolate);
+  V8_INLINE explicit CapabilityHandleBase(Address object, LocalIsolate* isolate);
+  V8_INLINE explicit CapabilityHandleBase(Address object, LocalHeap* local_heap);
+
+#ifdef DEBUG
+  bool V8_EXPORT_PRIVATE IsDereferenceAllowed() const;
+  V8_EXPORT_PRIVATE void VerifyOnStackAndMainThread() const;
+#else
+  V8_INLINE
+  bool V8_EXPORT_PRIVATE IsDereferenceAllowed() const { return obj_.isValid(); } // MARK CHERI CHECK this may be false!!
+#endif  // DEBUG
+
+  // MARK CHERI CHANGE
+  // TODO: I suspect I'm breaking a C++ idiom by making a class for this.
+  // Consider removing if there are no other methods I'd actually need.
+  class UnderlyingCapability {
+    public:
+      V8_INLINE explicit UnderlyingCapability(Address object) : cap((void* __capability)object){}
+      V8_INLINE explicit UnderlyingCapability(void *object) : cap((void* __capability)object){}
+      V8_INLINE explicit UnderlyingCapability(void *__capability object) : cap(object){}
+
+      V8_INLINE Address addr() const {return cheri_address_get(cap);}
+
+      V8_INLINE bool isValid() {return cheri_is_valid(cap);}
+    private:
+      void *__capability cap;
+  };
+
+  // This is a cheri capability to either a tagged object or SMI. Design overview:
+  // https://docs.google.com/document/d/1uRGYQM76vk1fc_aDqDH3pm2qhaJtnK2oyzeVng4cS6I/
+  CapabilityHandleBase::UnderlyingCapability obj_; // MARK CHERI CHANGE is this correct? Also, make sure I import cheri headers!
+};
+
+// ----------------------------------------------------------------------------
+// A CapabilityHandle provides a reference to an object without an intermediate
+// pointer. It is conceptually the same as a DirectHandle, but has a CHERI
+// capability underlying it instead of a regular integer pointer.
+//
+// A CapabilityHandle is a simple wrapper around a tagged capability to a heap object
+// or a SMI. Its methods are symmetrical with Handle, so that Handles can be
+// easily migrated. It is intended to be used on hybrid Morello systems as an
+// alternative to the ExternalEntityTable derivitives used in the sandbox.
+//
+// CapabilityHandles are intended to be used with conservative stack scanning, as
+// they do not provide a mechanism for keeping an object alive across a garbage
+// collection, just as with DirectHandles.
+template <typename T>
+class CapabilityHandle final : public CapabilityHandleBase {
+ public:
+  V8_INLINE CapabilityHandle() : CapabilityHandle(kTaggedNullAddress) {}
+
+ // MARK CHERI CHANGE
+ // TODO: this constructor probably needs to take a different type. What that
+ // type is depends on how we use CapabilityHandles and whether we have access
+ // when constructing this to any compartment the capability might point to.
+
+  V8_INLINE explicit CapabilityHandle(Address object) : CapabilityHandleBase(object) {}
+
+  V8_INLINE explicit CapabilityHandle(Tagged<T> object);
+  V8_INLINE CapabilityHandle(Tagged<T> object, Isolate* isolate)
+      : CapabilityHandle(object) {}
+  V8_INLINE CapabilityHandle(Tagged<T> object, LocalIsolate* isolate)
+      : CapabilityHandle(object) {}
+  V8_INLINE CapabilityHandle(Tagged<T> object, LocalHeap* local_heap)
+      : CapabilityHandle(object) {}
+
+  V8_INLINE explicit CapabilityHandle(Address* address)
+      : CapabilityHandle(address == nullptr ? kTaggedNullAddress : *address) {}
+
+  V8_INLINE static CapabilityHandle<T> New(Tagged<T> object, Isolate* isolate) {
+    return CapabilityHandle<T>(object);
+  }
+
+  // Constructor for handling automatic up casting.
+  // Ex. CapabilityHandle<JSFunction> can be passed when CapabilityHandle<Object> is
+  // expected.
+  template <typename S, typename = std::enable_if_t<is_subtype_v<S, T>>>
+  V8_INLINE CapabilityHandle(CapabilityHandle<S> handle) : CapabilityHandle(handle.obj_) {}
+
+  template <typename S, typename = std::enable_if_t<is_subtype_v<S, T>>>
+  V8_INLINE CapabilityHandle(Handle<S> handle)
+      : CapabilityHandle(handle.location() != nullptr ? *handle.location()
+                                                  : kTaggedNullAddress) {}
+
+  template <typename S, typename = std::enable_if_t<is_subtype_v<S, T>>>
+  V8_INLINE CapabilityHandle(DirectHandle<S> handle)
+      : CapabilityHandle(handle.obj_) {}
+
+  V8_INLINE Tagged<T> operator->() const {
+    if constexpr (std::is_base_of_v<HeapObject, T> ||
+                  std::is_convertible_v<T*, HeapObject*>) {
+      return **this;
+    } else {
+      // For non-HeapObjects, there's no on-heap object to dereference, so
+      // disallow using operator->.
+      //
+      // If you got an error here and want to access the Tagged<T>, use
+      // operator* -- e.g. for `Tagged<Smi>::value()`, use `(*handle).value()`.
+      static_assert(
+          false,
+          "This handle does not reference a heap object. Use `(*handle).foo`.");
+    }
+  }
+
+  V8_INLINE Tagged<T> operator*() const {
+    // This static type check also fails for forward class declarations. We
+    // check on access instead of on construction to allow CapabilityHandles to
+    // forward declared types.
+    static_assert(is_taggable_v<T>, "static type violation");
+    // Capability construction of Tagged from address, without a type check, because
+    // we rather trust CapabilityHandle<T> to contain a T than include all the
+    // respective -inl.h headers for SLOW_DCHECKs.
+    SLOW_DCHECK(IsDereferenceAllowed());
+    return Tagged<T>(address()); // TODO is this sensibly defined at the moment?
+  }
+
+  template <typename S>
+  V8_INLINE static const CapabilityHandle<T> cast(CapabilityHandle<S> that);
+
+  template <typename S>
+  V8_INLINE static const CapabilityHandle<T> cast(Handle<S> that);
+
+  // #ifdef V8_ENABLE_DIRECT_HANDLE
+  template <typename S>
+  V8_INLINE static const CapabilityHandle<T> cast(DirectHandle<S> that);
+  // #endif
+
+  // Consider declaring values that contain empty handles as
+  // MaybeCapabilityHandle to force validation before being used as handles.
+  V8_INLINE static const CapabilityHandle<T> null() { return CapabilityHandle<T>(); }
+
+ private:
+  // CapabilityHandles of different classes are allowed to access each other's
+  // obj_.
+  template <typename>
+  friend class CapabilityHandle;
+  // MaybeCapabilityHandle is allowed to access obj_.
+  template <typename>
+  friend class MaybeCapabilityHandle;
+
+  template <typename>
+  friend class DirectHandle;
+  template <typename>
+  friend class MaybeDirectHandle;
+};
+
+template <typename T>
+std::ostream& operator<<(std::ostream& os, CapabilityHandle<T> handle);
+
+#endif  // V8_ENABLE_CAPABILITY_HANDLE
 
 }  // namespace internal
 }  // namespace v8

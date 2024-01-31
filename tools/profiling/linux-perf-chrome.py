@@ -19,8 +19,7 @@ import time
 
 import psutil
 
-renderer_cmd_file = (Path(__file__).parent /
-                     'linux-perf-chrome-renderer-cmd.sh').resolve()
+renderer_cmd_file = Path(__file__).parent / 'linux-perf-chrome-renderer-cmd.sh'
 assert renderer_cmd_file.is_file()
 renderer_cmd_prefix = f"{renderer_cmd_file} --perf-data-prefix=chrome_renderer"
 

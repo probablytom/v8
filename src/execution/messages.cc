@@ -165,7 +165,7 @@ void MessageHandler::ReportMessageNoExceptions(
   int error_level = api_message_obj->ErrorLevel();
 
   Handle<ArrayList> global_listeners = isolate->factory()->message_listeners();
-  int global_length = global_listeners->length();
+  int global_length = global_listeners->Length();
   if (global_length == 0) {
     DefaultMessageReport(isolate, loc, message);
     if (isolate->has_scheduled_exception()) {
@@ -174,8 +174,8 @@ void MessageHandler::ReportMessageNoExceptions(
   } else {
     for (int i = 0; i < global_length; i++) {
       HandleScope scope(isolate);
-      if (IsUndefined(global_listeners->get(i), isolate)) continue;
-      Tagged<FixedArray> listener = FixedArray::cast(global_listeners->get(i));
+      if (IsUndefined(global_listeners->Get(i), isolate)) continue;
+      Tagged<FixedArray> listener = FixedArray::cast(global_listeners->Get(i));
       Tagged<Foreign> callback_obj = Foreign::cast(listener->get(0));
       int32_t message_levels =
           static_cast<int32_t>(Smi::ToInt(listener->get(2)));
@@ -203,9 +203,8 @@ void MessageHandler::ReportMessageNoExceptions(
 Handle<String> MessageHandler::GetMessage(Isolate* isolate,
                                           Handle<Object> data) {
   Handle<JSMessageObject> message = Handle<JSMessageObject>::cast(data);
-  Handle<Object> arg{message->argument(), isolate};
-  return MessageFormatter::Format(isolate, message->type(),
-                                  base::VectorOf({arg}));
+  Handle<Object> arg = Handle<Object>(message->argument(), isolate);
+  return MessageFormatter::Format(isolate, message->type(), arg);
 }
 
 std::unique_ptr<char[]> MessageHandler::GetLocalizedMessage(
@@ -407,24 +406,30 @@ MaybeHandle<Object> ErrorUtils::FormatStackTrace(Isolate* isolate,
   return builder.Finish();
 }
 
-Handle<String> MessageFormatter::Format(
-    Isolate* isolate, MessageTemplate index,
-    base::Vector<const Handle<Object>> args) {
-  constexpr size_t kMaxArgs = 3;
-  Handle<String> arg_strings[kMaxArgs];
-  DCHECK_LE(args.size(), kMaxArgs);
-  for (size_t i = 0; i < args.size(); ++i) {
-    DCHECK(!args[i].is_null());
-    arg_strings[i] = Object::NoSideEffectsToString(isolate, args[i]);
+Handle<String> MessageFormatter::Format(Isolate* isolate, MessageTemplate index,
+                                        Handle<Object> arg0,
+                                        Handle<Object> arg1,
+                                        Handle<Object> arg2) {
+  Factory* factory = isolate->factory();
+  Handle<String> arg0_string = factory->empty_string();
+  if (!arg0.is_null()) {
+    arg0_string = Object::NoSideEffectsToString(isolate, arg0);
+  }
+  Handle<String> arg1_string = factory->empty_string();
+  if (!arg1.is_null()) {
+    arg1_string = Object::NoSideEffectsToString(isolate, arg1);
+  }
+  Handle<String> arg2_string = factory->empty_string();
+  if (!arg2.is_null()) {
+    arg2_string = Object::NoSideEffectsToString(isolate, arg2);
   }
   MaybeHandle<String> maybe_result_string = MessageFormatter::TryFormat(
-      isolate, index, base::VectorOf(arg_strings, args.size()));
+      isolate, index, arg0_string, arg1_string, arg2_string);
   Handle<String> result_string;
   if (!maybe_result_string.ToHandle(&result_string)) {
     DCHECK(isolate->has_pending_exception());
     isolate->clear_pending_exception();
-    return isolate->factory()->InternalizeString(
-        base::StaticCharVector("<error>"));
+    return factory->InternalizeString(base::StaticCharVector("<error>"));
   }
   // A string that has been obtained from JS code in this way is
   // likely to be a complicated ConsString of some sort.  We flatten it
@@ -442,64 +447,26 @@ const char* MessageFormatter::TemplateString(MessageTemplate index) {
     MESSAGE_TEMPLATES(CASE)
 #undef CASE
     case MessageTemplate::kMessageCount:
-      UNREACHABLE();
+    default:
+      return nullptr;
   }
 }
 
-MaybeHandle<String> MessageFormatter::TryFormat(
-    Isolate* isolate, MessageTemplate index,
-    base::Vector<const Handle<String>> args) {
+MaybeHandle<String> MessageFormatter::TryFormat(Isolate* isolate,
+                                                MessageTemplate index,
+                                                Handle<String> arg0,
+                                                Handle<String> arg1,
+                                                Handle<String> arg2) {
   const char* template_string = TemplateString(index);
+  if (template_string == nullptr) {
+    isolate->ThrowIllegalOperation();
+    return MaybeHandle<String>();
+  }
 
   IncrementalStringBuilder builder(isolate);
 
-  // TODO(14386): Get this list empty.
-  static constexpr MessageTemplate kTemplatesWithMismatchedArguments[] = {
-      MessageTemplate::kConstAssign,
-      MessageTemplate::kConstructorNotReceiver,
-      MessageTemplate::kDataCloneErrorDetachedArrayBuffer,
-      MessageTemplate::kDataCloneErrorOutOfMemory,
-      MessageTemplate::kIncompatibleMethodReceiver,
-      MessageTemplate::kInvalidArgument,
-      MessageTemplate::kInvalidArrayLength,
-      MessageTemplate::kInvalidAtomicAccessIndex,
-      MessageTemplate::kInvalidDataViewLength,
-      MessageTemplate::kInvalidIndex,
-      MessageTemplate::kInvalidLhsInAssignment,
-      MessageTemplate::kInvalidLhsInFor,
-      MessageTemplate::kInvalidLhsInPostfixOp,
-      MessageTemplate::kInvalidLhsInPrefixOp,
-      MessageTemplate::kInvalidPrivateBrandReinitialization,
-      MessageTemplate::kInvalidPrivateFieldReinitialization,
-      MessageTemplate::kInvalidPrivateMemberWrite,
-      MessageTemplate::kInvalidRegExpExecResult,
-      MessageTemplate::kInvalidTimeValue,
-      MessageTemplate::kInvalidWeakMapKey,
-      MessageTemplate::kInvalidWeakSetValue,
-      MessageTemplate::kIteratorReduceNoInitial,
-      MessageTemplate::kJsonParseShortString,
-      MessageTemplate::kJsonParseUnexpectedEOS,
-      MessageTemplate::kJsonParseUnexpectedTokenEndStringWithContext,
-      MessageTemplate::kJsonParseUnexpectedTokenShortString,
-      MessageTemplate::kJsonParseUnexpectedTokenStartStringWithContext,
-      MessageTemplate::kJsonParseUnexpectedTokenSurroundStringWithContext,
-      MessageTemplate::kMustBePositive,
-      MessageTemplate::kNotIterable,
-      MessageTemplate::kNotTypedArray,
-      MessageTemplate::kProxyNonObject,
-      MessageTemplate::kProxyPrivate,
-      MessageTemplate::kProxyRevoked,
-      MessageTemplate::kProxyTrapReturnedFalsishFor,
-      MessageTemplate::kReduceNoInitial,
-      MessageTemplate::kSpreadIteratorSymbolNonCallable,
-      MessageTemplate::kSymbolIteratorInvalid,
-      MessageTemplate::kTopLevelAwaitStalled,
-      MessageTemplate::kUndefinedOrNullToObject,
-      MessageTemplate::kUnexpectedStrictReserved,
-      MessageTemplate::kUnexpectedTokenIdentifier,
-      MessageTemplate::kWeakRefsCleanupMustBeCallable};
-
-  base::Vector<const Handle<String>> remaining_args = args;
+  unsigned int i = 0;
+  Handle<String> args[] = {arg0, arg1, arg2};
   for (const char* c = template_string; *c != '\0'; c++) {
     if (*c == '%') {
       // %% results in verbatim %.
@@ -507,30 +474,13 @@ MaybeHandle<String> MessageFormatter::TryFormat(
         c++;
         builder.AppendCharacter('%');
       } else {
-        // TODO(14386): Remove this fallback.
-        if (remaining_args.empty()) {
-          if (std::count(std::begin(kTemplatesWithMismatchedArguments),
-                         std::end(kTemplatesWithMismatchedArguments), index)) {
-            builder.AppendCString("undefined");
-          } else {
-            FATAL("Missing argument to template (got %zu): %s", args.size(),
-                  template_string);
-          }
-        } else {
-          Handle<String> arg = remaining_args[0];
-          remaining_args += 1;
-          builder.AppendString(arg);
-        }
+        DCHECK(i < arraysize(args));
+        Handle<String> arg = args[i++];
+        builder.AppendString(arg);
       }
     } else {
       builder.AppendCharacter(*c);
     }
-  }
-  if (!remaining_args.empty() &&
-      std::count(std::begin(kTemplatesWithMismatchedArguments),
-                 std::end(kTemplatesWithMismatchedArguments), index) == 0) {
-    FATAL("Too many arguments to template (expected %zu, got %zu): %s",
-          args.size() - remaining_args.size(), args.size(), template_string);
   }
 
   return builder.Finish();
@@ -717,17 +667,43 @@ MaybeHandle<String> ErrorUtils::ToString(Isolate* isolate,
   return result;
 }
 
+namespace {
+
+Handle<String> DoFormatMessage(Isolate* isolate, MessageTemplate index,
+                               Handle<Object> arg0, Handle<Object> arg1,
+                               Handle<Object> arg2) {
+  Handle<String> arg0_str = Object::NoSideEffectsToString(isolate, arg0);
+  Handle<String> arg1_str = Object::NoSideEffectsToString(isolate, arg1);
+  Handle<String> arg2_str = Object::NoSideEffectsToString(isolate, arg2);
+
+  isolate->native_context()->IncrementErrorsThrown();
+
+  Handle<String> msg;
+  if (!MessageFormatter::TryFormat(isolate, index, arg0_str, arg1_str, arg2_str)
+           .ToHandle(&msg)) {
+    DCHECK(isolate->has_pending_exception());
+    isolate->clear_pending_exception();
+    isolate->set_external_caught_exception(false);
+    return isolate->factory()->NewStringFromAsciiChecked("<error>");
+  }
+
+  return msg;
+}
+
+}  // namespace
+
 // static
 Handle<JSObject> ErrorUtils::MakeGenericError(
     Isolate* isolate, Handle<JSFunction> constructor, MessageTemplate index,
-    base::Vector<const Handle<Object>> args, FrameSkipMode mode) {
+    Handle<Object> arg0, Handle<Object> arg1, Handle<Object> arg2,
+    FrameSkipMode mode) {
   if (v8_flags.clear_exceptions_on_js_entry) {
     // This function used to be implemented in JavaScript, and JSEntry
     // clears any pending exceptions - so whenever we'd call this from C++,
     // pending exceptions would be cleared. Preserve this behavior.
     isolate->clear_pending_exception();
   }
-  Handle<String> msg = MessageFormatter::Format(isolate, index, args);
+  Handle<String> msg = DoFormatMessage(isolate, index, arg0, arg1, arg2);
   Handle<Object> options = isolate->factory()->undefined_value();
 
   DCHECK(mode != SKIP_UNTIL_SEEN);

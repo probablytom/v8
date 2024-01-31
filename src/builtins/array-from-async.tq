@@ -20,208 +20,170 @@ extern enum ArrayFromAsyncLabels extends uint31
   kRejectPromise
 }
 
-transitioning macro ArrayFromAsyncAwaitPoint<T : type extends FunctionContext>(
-    implicit context: Context)(resolveContext: T, stepSlot: Slot<T, Smi>,
-    promiseFunSlot: Slot<T, JSReceiver>,
-    resolveSlot: Slot<T, Undefined|JSFunction>,
-    rejectSlot: Slot<T, Undefined|JSFunction>, step: ArrayFromAsyncLabels,
-    value: JSAny): JSAny {
-  *ContextSlot(resolveContext, stepSlot) = SmiTag<ArrayFromAsyncLabels>(step);
-
-  const promiseFun = *ContextSlot(resolveContext, promiseFunSlot);
-  const resolve = *ContextSlot(resolveContext, resolveSlot);
-  const reject = *ContextSlot(resolveContext, rejectSlot);
-
-  const resultPromise = promise::PromiseResolve(promiseFun, value);
-
-  promise::PerformPromiseThenImpl(
-      UnsafeCast<JSPromise>(resultPromise), resolve, reject, Undefined);
-  return Undefined;
-}
-
-// This macro reject the promise if any exception occurs in the execution of
-// the asynchronous code.
-transitioning macro
-RejectArrayFromAsyncPromise<T : type extends FunctionContext>(
-    implicit context: Context)(resolveContext: T, errorSlot: Slot<T, JSAny>,
-    promiseSlot: Slot<T, JSPromise>): JSAny {
-  const error = *ContextSlot(resolveContext, errorSlot);
-  const promise = *ContextSlot(resolveContext, promiseSlot);
-
-  return promise::RejectPromise(promise, error, False);
-}
-
-// --- Iterable path
-
-struct ArrayFromAsyncIterableResumeState {
+struct ArrayFromAsyncResumeState {
   step: ArrayFromAsyncLabels;
   awaitedValue: JSAny;
+  len: Smi;
   index: Smi;
 }
 
-type ArrayFromAsyncIterableResolveContext extends FunctionContext;
-extern enum ArrayFromAsyncIterableResolveContextSlots extends intptr
-    constexpr 'ArrayBuiltins::ArrayFromAsyncIterableResolveContextSlots' {
-  kArrayFromAsyncIterableResolveResumeStateStepSlot:
-      Slot<ArrayFromAsyncIterableResolveContext, Smi>,
-  kArrayFromAsyncIterableResolveResumeStateAwaitedValueSlot:
-      Slot<ArrayFromAsyncIterableResolveContext, JSAny>,
-  kArrayFromAsyncIterableResolveResumeStateIndexSlot:
-      Slot<ArrayFromAsyncIterableResolveContext, Smi>,
-  kArrayFromAsyncIterableResolvePromiseSlot:
-      Slot<ArrayFromAsyncIterableResolveContext, JSPromise>,
-  kArrayFromAsyncIterableResolvePromiseFunctionSlot:
-      Slot<ArrayFromAsyncIterableResolveContext, JSReceiver>,
-  kArrayFromAsyncIterableResolveOnFulfilledFunctionSlot:
-      Slot<ArrayFromAsyncIterableResolveContext, JSFunction|Undefined>,
-  kArrayFromAsyncIterableResolveOnRejectedFunctionSlot:
-      Slot<ArrayFromAsyncIterableResolveContext, JSFunction|Undefined>,
-  kArrayFromAsyncIterableResolveResultArraySlot:
-      Slot<ArrayFromAsyncIterableResolveContext, JSReceiver>,
-  kArrayFromAsyncIterableResolveIteratorSlot:
-      Slot<ArrayFromAsyncIterableResolveContext, JSReceiver>,
-  kArrayFromAsyncIterableResolveNextMethodSlot:
-      Slot<ArrayFromAsyncIterableResolveContext, JSAny>,
-  kArrayFromAsyncIterableResolveErrorSlot:
-      Slot<ArrayFromAsyncIterableResolveContext, JSAny>,
-  kArrayFromAsyncIterableResolveMapfnSlot:
-      Slot<ArrayFromAsyncIterableResolveContext, JSAny>,
-  kArrayFromAsyncIterableResolveThisArgSlot:
-      Slot<ArrayFromAsyncIterableResolveContext, JSAny>,
-  kArrayFromAsyncIterableResolveLength
+type ArrayFromAsyncResolveContext extends FunctionContext;
+extern enum ArrayFromAsyncResolveContextSlots extends intptr
+    constexpr 'ArrayBuiltins::ArrayFromAsyncResolveContextSlots' {
+  kArrayFromAsyncResolveResumeStateStepSlot:
+      Slot<ArrayFromAsyncResolveContext, Smi>,
+  kArrayFromAsyncResolveResumeStateAwaitedValueSlot:
+      Slot<ArrayFromAsyncResolveContext, JSAny>,
+  kArrayFromAsyncResolveResumeStateLenSlot:
+      Slot<ArrayFromAsyncResolveContext, Smi>,
+  kArrayFromAsyncResolveResumeStateIndexSlot:
+      Slot<ArrayFromAsyncResolveContext, Smi>,
+  kArrayFromAsyncResolvePromiseSlot:
+      Slot<ArrayFromAsyncResolveContext, JSPromise>,
+  kArrayFromAsyncResolvePromiseFunctionSlot:
+      Slot<ArrayFromAsyncResolveContext, JSReceiver>,
+  kArrayFromAsyncResolveOnFulfilledFunctionSlot:
+      Slot<ArrayFromAsyncResolveContext, JSFunction|Undefined>,
+  kArrayFromAsyncResolveOnRejectedFunctionSlot:
+      Slot<ArrayFromAsyncResolveContext, JSFunction|Undefined>,
+  kArrayFromAsyncResolveResultArraySlot:
+      Slot<ArrayFromAsyncResolveContext, JSReceiver>,
+  kArrayFromAsyncResolveIteratorSlot:
+      Slot<ArrayFromAsyncResolveContext, JSReceiver>,
+  kArrayFromAsyncResolveNextMethodSlot:
+      Slot<ArrayFromAsyncResolveContext, JSAny>,
+  kArrayFromAsyncResolveErrorSlot: Slot<ArrayFromAsyncResolveContext, JSAny>,
+  kArrayFromAsyncResolveMapfnSlot: Slot<ArrayFromAsyncResolveContext, JSAny>,
+  kArrayFromAsyncResolveThisArgSlot: Slot<ArrayFromAsyncResolveContext, JSAny>,
+  kArrayFromAsyncResolveLength
 }
 
-macro CreateArrayFromAsyncIterableResolveContext(
-    implicit context: Context)(resumeState: ArrayFromAsyncIterableResumeState,
+macro CreateArrayFromAsyncResolveContext(
+    implicit context: Context)(resumeState: ArrayFromAsyncResumeState,
     promise: JSPromise, promiseFun: JSReceiver, map: Map, iterator: JSReceiver,
     next: JSAny, arr: JSReceiver, error: JSAny, mapfn: JSAny, thisArg: JSAny,
-    nativeContext: NativeContext): ArrayFromAsyncIterableResolveContext {
-  const resolveContext = %RawDownCast<ArrayFromAsyncIterableResolveContext>(
+    nativeContext: NativeContext): ArrayFromAsyncResolveContext {
+  const resolveContext = %RawDownCast<ArrayFromAsyncResolveContext>(
       AllocateSyntheticFunctionContext(
           nativeContext,
-          ArrayFromAsyncIterableResolveContextSlots::
-              kArrayFromAsyncIterableResolveLength));
+          ArrayFromAsyncResolveContextSlots::kArrayFromAsyncResolveLength));
   InitContextSlot(
       resolveContext,
-      ArrayFromAsyncIterableResolveContextSlots::
-          kArrayFromAsyncIterableResolveResumeStateStepSlot,
+      ArrayFromAsyncResolveContextSlots::
+          kArrayFromAsyncResolveResumeStateStepSlot,
       SmiTag<ArrayFromAsyncLabels>(resumeState.step));
   InitContextSlot(
       resolveContext,
-      ArrayFromAsyncIterableResolveContextSlots::
-          kArrayFromAsyncIterableResolveResumeStateAwaitedValueSlot,
+      ArrayFromAsyncResolveContextSlots::
+          kArrayFromAsyncResolveResumeStateAwaitedValueSlot,
       resumeState.awaitedValue);
   InitContextSlot(
       resolveContext,
-      ArrayFromAsyncIterableResolveContextSlots::
-          kArrayFromAsyncIterableResolveResumeStateIndexSlot,
+      ArrayFromAsyncResolveContextSlots::
+          kArrayFromAsyncResolveResumeStateLenSlot,
+      resumeState.len);
+  InitContextSlot(
+      resolveContext,
+      ArrayFromAsyncResolveContextSlots::
+          kArrayFromAsyncResolveResumeStateIndexSlot,
       resumeState.index);
   InitContextSlot(
       resolveContext,
-      ArrayFromAsyncIterableResolveContextSlots::
-          kArrayFromAsyncIterableResolvePromiseSlot,
+      ArrayFromAsyncResolveContextSlots::kArrayFromAsyncResolvePromiseSlot,
       promise);
   InitContextSlot(
       resolveContext,
-      ArrayFromAsyncIterableResolveContextSlots::
-          kArrayFromAsyncIterableResolvePromiseFunctionSlot,
+      ArrayFromAsyncResolveContextSlots::
+          kArrayFromAsyncResolvePromiseFunctionSlot,
       promiseFun);
   InitContextSlot(
       resolveContext,
-      ArrayFromAsyncIterableResolveContextSlots::
-          kArrayFromAsyncIterableResolveOnFulfilledFunctionSlot,
+      ArrayFromAsyncResolveContextSlots::
+          kArrayFromAsyncResolveOnFulfilledFunctionSlot,
       promise::AllocateFunctionWithMapAndContext(
-          map, ArrayFromAsyncIterableOnFulfilledSharedFunConstant(),
-          resolveContext));
+          map, ArrayFromAsyncOnFulfilledSharedFunConstant(), resolveContext));
   InitContextSlot(
       resolveContext,
-      ArrayFromAsyncIterableResolveContextSlots::
-          kArrayFromAsyncIterableResolveOnRejectedFunctionSlot,
+      ArrayFromAsyncResolveContextSlots::
+          kArrayFromAsyncResolveOnRejectedFunctionSlot,
       promise::AllocateFunctionWithMapAndContext(
-          map, ArrayFromAsyncIterableOnRejectedSharedFunConstant(),
-          resolveContext));
+          map, ArrayFromAsyncOnRejectedSharedFunConstant(), resolveContext));
   InitContextSlot(
       resolveContext,
-      ArrayFromAsyncIterableResolveContextSlots::
-          kArrayFromAsyncIterableResolveResultArraySlot,
+      ArrayFromAsyncResolveContextSlots::kArrayFromAsyncResolveResultArraySlot,
       arr);
   InitContextSlot(
       resolveContext,
-      ArrayFromAsyncIterableResolveContextSlots::
-          kArrayFromAsyncIterableResolveIteratorSlot,
+      ArrayFromAsyncResolveContextSlots::kArrayFromAsyncResolveIteratorSlot,
       iterator);
   InitContextSlot(
       resolveContext,
-      ArrayFromAsyncIterableResolveContextSlots::
-          kArrayFromAsyncIterableResolveNextMethodSlot,
+      ArrayFromAsyncResolveContextSlots::kArrayFromAsyncResolveNextMethodSlot,
       next);
   InitContextSlot(
       resolveContext,
-      ArrayFromAsyncIterableResolveContextSlots::
-          kArrayFromAsyncIterableResolveErrorSlot,
+      ArrayFromAsyncResolveContextSlots::kArrayFromAsyncResolveErrorSlot,
       error);
   InitContextSlot(
       resolveContext,
-      ArrayFromAsyncIterableResolveContextSlots::
-          kArrayFromAsyncIterableResolveMapfnSlot,
+      ArrayFromAsyncResolveContextSlots::kArrayFromAsyncResolveMapfnSlot,
       mapfn);
   InitContextSlot(
       resolveContext,
-      ArrayFromAsyncIterableResolveContextSlots::
-          kArrayFromAsyncIterableResolveThisArgSlot,
+      ArrayFromAsyncResolveContextSlots::kArrayFromAsyncResolveThisArgSlot,
       thisArg);
   return resolveContext;
 }
 
-macro GetIteratorRecordFromArrayFromAsyncIterableResolveContext(
-    context: ArrayFromAsyncIterableResolveContext): iterator::IteratorRecord {
+macro GetIteratorRecordFromArrayFromAsyncResolveContext(
+    context: ArrayFromAsyncResolveContext): iterator::IteratorRecord {
   const iterator = *ContextSlot(
       context,
-      ArrayFromAsyncIterableResolveContextSlots::
-          kArrayFromAsyncIterableResolveIteratorSlot);
+      ArrayFromAsyncResolveContextSlots::kArrayFromAsyncResolveIteratorSlot);
 
   const nextMethod = *ContextSlot(
       context,
-      ArrayFromAsyncIterableResolveContextSlots::
-          kArrayFromAsyncIterableResolveNextMethodSlot);
+      ArrayFromAsyncResolveContextSlots::kArrayFromAsyncResolveNextMethodSlot);
 
   return iterator::IteratorRecord{object: iterator, next: nextMethod};
 }
 
 transitioning macro CreateArrayFromIterableAsynchronously(
-    context: ArrayFromAsyncIterableResolveContext): JSAny {
+    context: ArrayFromAsyncResolveContext): JSAny {
   try {
     const fastIteratorResultMap = GetIteratorResultMap();
 
     const mapfn = *ContextSlot(
         context,
-        ArrayFromAsyncIterableResolveContextSlots::
-            kArrayFromAsyncIterableResolveMapfnSlot);
+        ArrayFromAsyncResolveContextSlots::kArrayFromAsyncResolveMapfnSlot);
 
     const thisArg = *ContextSlot(
         context,
-        ArrayFromAsyncIterableResolveContextSlots::
-            kArrayFromAsyncIterableResolveThisArgSlot);
+        ArrayFromAsyncResolveContextSlots::kArrayFromAsyncResolveThisArgSlot);
 
     const arr = *ContextSlot(
         context,
-        ArrayFromAsyncIterableResolveContextSlots::
-            kArrayFromAsyncIterableResolveResultArraySlot);
+        ArrayFromAsyncResolveContextSlots::
+            kArrayFromAsyncResolveResultArraySlot);
 
-    let resumeState = ArrayFromAsyncIterableResumeState{
+    let resumeState = ArrayFromAsyncResumeState{
       step: SmiUntag<ArrayFromAsyncLabels>(
           %RawDownCast<SmiTagged<ArrayFromAsyncLabels>>(*ContextSlot(
               context,
-              ArrayFromAsyncIterableResolveContextSlots::
-                  kArrayFromAsyncIterableResolveResumeStateStepSlot))),
+              ArrayFromAsyncResolveContextSlots::
+                  kArrayFromAsyncResolveResumeStateStepSlot))),
       awaitedValue: *ContextSlot(
           context,
-          ArrayFromAsyncIterableResolveContextSlots::
-              kArrayFromAsyncIterableResolveResumeStateAwaitedValueSlot),
+          ArrayFromAsyncResolveContextSlots::
+              kArrayFromAsyncResolveResumeStateAwaitedValueSlot),
+      len: *ContextSlot(
+          context,
+          ArrayFromAsyncResolveContextSlots::
+              kArrayFromAsyncResolveResumeStateLenSlot),
       index: *ContextSlot(
           context,
-          ArrayFromAsyncIterableResolveContextSlots::
-              kArrayFromAsyncIterableResolveResumeStateIndexSlot)
+          ArrayFromAsyncResolveContextSlots::
+              kArrayFromAsyncResolveResumeStateIndexSlot)
     };
 
     let mappedValue: JSAny = Undefined;
@@ -233,7 +195,7 @@ transitioning macro CreateArrayFromIterableAsynchronously(
     while (true) {
       if (resumeState.step == ArrayFromAsyncLabels::kGetIteratorStep) {
         const iteratorRecord =
-            GetIteratorRecordFromArrayFromAsyncIterableResolveContext(context);
+            GetIteratorRecordFromArrayFromAsyncResolveContext(context);
         let next: JSAny;
         // https://github.com/tc39/proposal-array-from-async/issues/33#issuecomment-1279296963
         //    3. Let nextResult be ? Call(iteratorRecord.[[NextMethod]],
@@ -241,8 +203,8 @@ transitioning macro CreateArrayFromIterableAsynchronously(
         //    4. Set nextResult to ? Await(nextResult).
         next = Call(context, iteratorRecord.next, iteratorRecord.object);
 
-        return ArrayFromAsyncIterableAwaitPoint(
-            context, ArrayFromAsyncLabels::kCheckIteratorValueAndMapping, next);
+        return ArrayFromAsyncAwaitPoint(
+            ArrayFromAsyncLabels::kCheckIteratorValueAndMapping, next);
       } else if (
           resumeState.step ==
           ArrayFromAsyncLabels::kCheckIteratorValueAndMapping) {
@@ -276,6 +238,7 @@ transitioning macro CreateArrayFromIterableAsynchronously(
         } label Done {
           //    7. If done is true,
           //       a. Perform ? Set(A, "length", 𝔽(k), true).
+          array::SetPropertyLength(arr, resumeState.index);
           //       b. Return Completion Record { [[Type]]: return, [[Value]]: A,
           //       [[Target]]: empty }.
           resumeState.step = ArrayFromAsyncLabels::kDoneAndResolvePromise;
@@ -291,9 +254,8 @@ transitioning macro CreateArrayFromIterableAsynchronously(
 
         //      c. Set mappedValue to Await(mappedValue).
         //      d. IfAbruptCloseAsyncIterator(mappedValue, iteratorRecord).
-        return ArrayFromAsyncIterableAwaitPoint(
-            context, ArrayFromAsyncLabels::kGetIteratorValueWithMapping,
-            mapResult);
+        return ArrayFromAsyncAwaitPoint(
+            ArrayFromAsyncLabels::kGetIteratorValueWithMapping, mapResult);
       } else if (
           resumeState.step ==
           ArrayFromAsyncLabels::kGetIteratorValueWithMapping) {
@@ -313,18 +275,83 @@ transitioning macro CreateArrayFromIterableAsynchronously(
 
         *ContextSlot(
             context,
-            ArrayFromAsyncIterableResolveContextSlots::
-                kArrayFromAsyncIterableResolveResumeStateIndexSlot) =
-            resumeState.index;
+            ArrayFromAsyncResolveContextSlots::
+                kArrayFromAsyncResolveResumeStateIndexSlot) = resumeState.index;
 
         resumeState.step = ArrayFromAsyncLabels::kGetIteratorStep;
+      } else if (resumeState.step == ArrayFromAsyncLabels::kGetArrayLikeValue) {
+        //   vii. Repeat, while k < len,
+        //     1. Let Pk be ! ToString(𝔽(k)).
+        //     2. Let kValue be ? Get(arrayLike, Pk).
+
+        resumeState.step = ArrayFromAsyncLabels::kCheckArrayLikeValueAndMapping;
+
+        *ContextSlot(
+            context,
+            ArrayFromAsyncResolveContextSlots::
+                kArrayFromAsyncResolveResumeStateStepSlot) =
+            SmiTag<ArrayFromAsyncLabels>(resumeState.step);
+
+        resumeState.index++;
+        *ContextSlot(
+            context,
+            ArrayFromAsyncResolveContextSlots::
+                kArrayFromAsyncResolveResumeStateIndexSlot) = resumeState.index;
+
+        // item.then((result) => asyncFunction(result));
+        return Undefined;
+      } else if (
+          resumeState.step ==
+          ArrayFromAsyncLabels::kCheckArrayLikeValueAndMapping) {
+        if (resumeState.index == resumeState.len) {
+          resumeState.step = ArrayFromAsyncLabels::kDoneAndResolvePromise;
+        }
+
+        let mapping: bool;
+        //  a. If mapfn is undefined, let mapping be false.
+        if (mapfn == Undefined) {
+          mapping = false;
+        } else {
+          //  b. Else,
+          //    i. If IsCallable(mapfn) is false, throw a TypeError exception.
+          if (!Is<Callable>(mapfn)) deferred {
+              ThrowTypeError(MessageTemplate::kCalledNonCallable, mapfn);
+            }
+          //    ii. Let mapping be true.
+          mapping = true;
+        }
+
+        //    4. If mapping is true, then
+        if (mapping) {
+          resumeState.step =
+              ArrayFromAsyncLabels::kGetArrayLikeValueWithMapping;
+        } else {
+          resumeState.step = ArrayFromAsyncLabels::kAddArrayLikeValueToTheArray;
+        }
+      } else if (
+          resumeState.step ==
+          ArrayFromAsyncLabels::kGetArrayLikeValueWithMapping) {
+        //      a. Let mappedValue be ? Call(mapfn, thisArg, « kValue, 𝔽(k)
+        //      »). b. Set mappedValue to ? Await(mappedValue).
+        const mapResult = Call(
+            context, UnsafeCast<Callable>(mapfn), thisArg,
+            resumeState.awaitedValue, resumeState.index);
+        return ArrayFromAsyncAwaitPoint(
+            ArrayFromAsyncLabels::kAddArrayLikeValueToTheArray, mapResult);
+      } else if (
+          resumeState.step ==
+          ArrayFromAsyncLabels::kAddArrayLikeValueToTheArray) {
+        //    5. Else, let mappedValue be kValue.
+        //    6. Perform ? CreateDataPropertyOrThrow(A, Pk, mappedValue).
+        mappedValue = resumeState.awaitedValue;
+        FastCreateDataProperty(arr, resumeState.index, mappedValue);
+        resumeState.step = ArrayFromAsyncLabels::kGetArrayLikeValue;
       } else if (
           resumeState.step == ArrayFromAsyncLabels::kDoneAndResolvePromise) {
-        array::SetPropertyLength(arr, resumeState.index);
         const promise = *ContextSlot(
             context,
-            ArrayFromAsyncIterableResolveContextSlots::
-                kArrayFromAsyncIterableResolvePromiseSlot);
+            ArrayFromAsyncResolveContextSlots::
+                kArrayFromAsyncResolvePromiseSlot);
 
         promise::ResolvePromise(promise, arr);
         return Undefined;
@@ -333,7 +360,7 @@ transitioning macro CreateArrayFromIterableAsynchronously(
         resumeState.step = ArrayFromAsyncLabels::kRejectPromise;
 
         const iteratorRecord =
-            GetIteratorRecordFromArrayFromAsyncIterableResolveContext(context);
+            GetIteratorRecordFromArrayFromAsyncResolveContext(context);
         try {
           ArrayFromAsyncAsyncIteratorCloseOnException(iteratorRecord)
               otherwise RejectPromise;
@@ -342,86 +369,106 @@ transitioning macro CreateArrayFromIterableAsynchronously(
           // Do nothing so the codeflow continues to the kRejectPromise label.
         }
       } else if (resumeState.step == ArrayFromAsyncLabels::kRejectPromise) {
-        return RejectArrayFromAsyncPromise<
-            ArrayFromAsyncIterableResolveContext>(
-            context,
-            ArrayFromAsyncIterableResolveContextSlots::
-                kArrayFromAsyncIterableResolveErrorSlot,
-            ArrayFromAsyncIterableResolveContextSlots::
-                kArrayFromAsyncIterableResolvePromiseSlot);
+        return RejectArrayFromAsyncPromise();
       }
     }
   } catch (e, _message) {
     *ContextSlot(
         context,
-        ArrayFromAsyncIterableResolveContextSlots::
-            kArrayFromAsyncIterableResolveErrorSlot) = e;
+        ArrayFromAsyncResolveContextSlots::kArrayFromAsyncResolveErrorSlot) = e;
 
     const iteratorRecord =
-        GetIteratorRecordFromArrayFromAsyncIterableResolveContext(context);
+        GetIteratorRecordFromArrayFromAsyncResolveContext(context);
     try {
       ArrayFromAsyncAsyncIteratorCloseOnException(iteratorRecord)
           otherwise RejectPromise;
     } label RejectPromise {
-      return RejectArrayFromAsyncPromise<ArrayFromAsyncIterableResolveContext>(
-          context,
-          ArrayFromAsyncIterableResolveContextSlots::
-              kArrayFromAsyncIterableResolveErrorSlot,
-          ArrayFromAsyncIterableResolveContextSlots::
-              kArrayFromAsyncIterableResolvePromiseSlot);
+      return RejectArrayFromAsyncPromise();
     }
   }
   return Undefined;
 }
 
-transitioning macro ArrayFromAsyncIterableAwaitPoint(
-    context: ArrayFromAsyncIterableResolveContext, step: ArrayFromAsyncLabels,
+transitioning macro ArrayFromAsyncAwaitPoint(
+    implicit context: Context)(step: ArrayFromAsyncLabels,
     value: JSAny): JSAny {
-  return ArrayFromAsyncAwaitPoint<ArrayFromAsyncIterableResolveContext>(
-      context,
-      ArrayFromAsyncIterableResolveContextSlots::
-          kArrayFromAsyncIterableResolveResumeStateStepSlot,
-      ArrayFromAsyncIterableResolveContextSlots::
-          kArrayFromAsyncIterableResolvePromiseFunctionSlot,
-      ArrayFromAsyncIterableResolveContextSlots::
-          kArrayFromAsyncIterableResolveOnFulfilledFunctionSlot,
-      ArrayFromAsyncIterableResolveContextSlots::
-          kArrayFromAsyncIterableResolveOnRejectedFunctionSlot,
-      step, value);
-}
-
-// `ArrayFromAsyncIterableOnFulfilled` is the callback function for the
-// fulfilled case of the promise in `then` handler.
-transitioning javascript builtin ArrayFromAsyncIterableOnFulfilled(
-    js-implicit context: Context, receiver: JSAny, target: JSFunction)(
-    result: JSAny): JSAny {
-  const context = %RawDownCast<ArrayFromAsyncIterableResolveContext>(context);
+  const context = %RawDownCast<ArrayFromAsyncResolveContext>(context);
   *ContextSlot(
       context,
-      ArrayFromAsyncIterableResolveContextSlots::
-          kArrayFromAsyncIterableResolveResumeStateAwaitedValueSlot) = result;
+      ArrayFromAsyncResolveContextSlots::
+          kArrayFromAsyncResolveResumeStateStepSlot) =
+      SmiTag<ArrayFromAsyncLabels>(step);
+
+  const promiseFun = *ContextSlot(
+      context,
+      ArrayFromAsyncResolveContextSlots::
+          kArrayFromAsyncResolvePromiseFunctionSlot);
+  const resolve = *ContextSlot(
+      context,
+      ArrayFromAsyncResolveContextSlots::
+          kArrayFromAsyncResolveOnFulfilledFunctionSlot);
+  const reject = *ContextSlot(
+      context,
+      ArrayFromAsyncResolveContextSlots::
+          kArrayFromAsyncResolveOnRejectedFunctionSlot);
+
+  // TODO(v8:13321): Add a fast path for values that are already
+  // built-in promises.
+  const resultPromise = promise::PromiseResolve(promiseFun, value);
+
+  promise::PerformPromiseThenImpl(
+      UnsafeCast<JSPromise>(resultPromise), resolve, reject, Undefined);
+
+  return Undefined;
+}
+
+// `ArrayFromAsyncFulfilled` is the callback function for the fulfilled case of
+// the promise in `then` handler.
+transitioning javascript builtin ArrayFromAsyncOnFulfilled(
+    js-implicit context: Context, receiver: JSAny, target: JSFunction)(
+    result: JSAny): JSAny {
+  const context = %RawDownCast<ArrayFromAsyncResolveContext>(context);
+  *ContextSlot(
+      context,
+      ArrayFromAsyncResolveContextSlots::
+          kArrayFromAsyncResolveResumeStateAwaitedValueSlot) = result;
 
   return CreateArrayFromIterableAsynchronously(context);
 }
 
-// `ArrayFromAsyncIterableOnRejected` is the callback function for the rejected
-// case of the promise in `then` handler.
-transitioning javascript builtin ArrayFromAsyncIterableOnRejected(
+// `ArrayFromAsyncRejected` is the callback function for the rejected case of
+// the promise in `then` handler.
+transitioning javascript builtin ArrayFromAsyncOnRejected(
     js-implicit context: Context, receiver: JSAny, target: JSFunction)(
     result: JSAny): JSAny {
-  const context = %RawDownCast<ArrayFromAsyncIterableResolveContext>(context);
+  const context = %RawDownCast<ArrayFromAsyncResolveContext>(context);
 
   *ContextSlot(
       context,
-      ArrayFromAsyncIterableResolveContextSlots::
-          kArrayFromAsyncIterableResolveResumeStateStepSlot) =
+      ArrayFromAsyncResolveContextSlots::
+          kArrayFromAsyncResolveResumeStateStepSlot) =
       SmiTag<ArrayFromAsyncLabels>(ArrayFromAsyncLabels::kCloseAsyncIterator);
   *ContextSlot(
       context,
-      ArrayFromAsyncIterableResolveContextSlots::
-          kArrayFromAsyncIterableResolveErrorSlot) = result;
+      ArrayFromAsyncResolveContextSlots::kArrayFromAsyncResolveErrorSlot) =
+      result;
 
   return CreateArrayFromIterableAsynchronously(context);
+}
+
+// This macro reject the promise if any exception occurs in the execution of
+// the asynchronous code.
+transitioning macro RejectArrayFromAsyncPromise(
+    implicit context: Context)(): JSAny {
+  const context = %RawDownCast<ArrayFromAsyncResolveContext>(context);
+  const error = *ContextSlot(
+      context,
+      ArrayFromAsyncResolveContextSlots::kArrayFromAsyncResolveErrorSlot);
+  const promise = *ContextSlot(
+      context,
+      ArrayFromAsyncResolveContextSlots::kArrayFromAsyncResolvePromiseSlot);
+
+  return promise::RejectPromise(promise, error, False);
 }
 
 // This is the specialized implementation of `IfAbruptCloseAsyncIterator` for
@@ -431,7 +478,7 @@ transitioning macro ArrayFromAsyncAsyncIteratorCloseOnException(
     implicit context: Context)(
     iterator: iterator::IteratorRecord): void labels RejectPromise {
   try {
-    const context = %RawDownCast<ArrayFromAsyncIterableResolveContext>(context);
+    const context = %RawDownCast<ArrayFromAsyncResolveContext>(context);
     // 3. Let innerResult be GetMethod(iterator, "return").
     const method = GetProperty(iterator.object, kReturnString);
 
@@ -449,342 +496,14 @@ transitioning macro ArrayFromAsyncAsyncIteratorCloseOnException(
     //   d. If innerResult.[[Type]] is normal, set innerResult to
     //   Completion(Await(innerResult.[[Value]])).
     const step = ArrayFromAsyncLabels::kRejectPromise;
-    ArrayFromAsyncIterableAwaitPoint(context, step, innerResult);
+
+    ArrayFromAsyncAwaitPoint(step, innerResult);
   } catch (_e, _message) {
     // Swallow the exception.
   }
 
   // (5. If completion.[[Type]] is throw) return Completion(completion).
 }
-
-extern macro ArrayFromAsyncIterableOnFulfilledSharedFunConstant():
-    SharedFunctionInfo;
-extern macro ArrayFromAsyncIterableOnRejectedSharedFunConstant():
-    SharedFunctionInfo;
-
-// --- Array-like path
-
-struct ArrayFromAsyncArrayLikeResumeState {
-  step: ArrayFromAsyncLabels;
-  awaitedValue: JSAny;
-  len: Number;
-  index: Smi;
-}
-
-type ArrayFromAsyncArrayLikeResolveContext extends FunctionContext;
-extern enum ArrayFromAsyncArrayLikeResolveContextSlots extends intptr
-    constexpr 'ArrayBuiltins::ArrayFromAsyncArrayLikeResolveContextSlots' {
-  kArrayFromAsyncArrayLikeResolveResumeStateStepSlot:
-      Slot<ArrayFromAsyncArrayLikeResolveContext, Smi>,
-  kArrayFromAsyncArrayLikeResolveResumeStateAwaitedValueSlot:
-      Slot<ArrayFromAsyncArrayLikeResolveContext, JSAny>,
-  kArrayFromAsyncArrayLikeResolveResumeStateLenSlot:
-      Slot<ArrayFromAsyncArrayLikeResolveContext, Number>,
-  kArrayFromAsyncArrayLikeResolveResumeStateIndexSlot:
-      Slot<ArrayFromAsyncArrayLikeResolveContext, Smi>,
-  kArrayFromAsyncArrayLikeResolvePromiseSlot:
-      Slot<ArrayFromAsyncArrayLikeResolveContext, JSPromise>,
-  kArrayFromAsyncArrayLikeResolvePromiseFunctionSlot:
-      Slot<ArrayFromAsyncArrayLikeResolveContext, JSReceiver>,
-  kArrayFromAsyncArrayLikeResolveOnFulfilledFunctionSlot:
-      Slot<ArrayFromAsyncArrayLikeResolveContext, JSFunction|Undefined>,
-  kArrayFromAsyncArrayLikeResolveOnRejectedFunctionSlot:
-      Slot<ArrayFromAsyncArrayLikeResolveContext, JSFunction|Undefined>,
-  kArrayFromAsyncArrayLikeResolveResultArraySlot:
-      Slot<ArrayFromAsyncArrayLikeResolveContext, JSReceiver>,
-  kArrayFromAsyncArrayLikeResolveArrayLikeSlot:
-      Slot<ArrayFromAsyncArrayLikeResolveContext, JSReceiver>,
-  kArrayFromAsyncArrayLikeResolveErrorSlot:
-      Slot<ArrayFromAsyncArrayLikeResolveContext, JSAny>,
-  kArrayFromAsyncArrayLikeResolveMapfnSlot:
-      Slot<ArrayFromAsyncArrayLikeResolveContext, JSAny>,
-  kArrayFromAsyncArrayLikeResolveThisArgSlot:
-      Slot<ArrayFromAsyncArrayLikeResolveContext, JSAny>,
-  kArrayFromAsyncArrayLikeResolveLength
-}
-
-macro CreateArrayFromAsyncArrayLikeResolveContext(
-    implicit context: Context)(resumeState: ArrayFromAsyncArrayLikeResumeState,
-    promise: JSPromise, promiseFun: JSReceiver, map: Map, arrayLike: JSReceiver,
-    arr: JSReceiver, error: JSAny, mapfn: JSAny, thisArg: JSAny,
-    nativeContext: NativeContext): ArrayFromAsyncArrayLikeResolveContext {
-  const resolveContext = %RawDownCast<ArrayFromAsyncArrayLikeResolveContext>(
-      AllocateSyntheticFunctionContext(
-          nativeContext,
-          ArrayFromAsyncArrayLikeResolveContextSlots::
-              kArrayFromAsyncArrayLikeResolveLength));
-  InitContextSlot(
-      resolveContext,
-      ArrayFromAsyncArrayLikeResolveContextSlots::
-          kArrayFromAsyncArrayLikeResolveResumeStateStepSlot,
-      SmiTag<ArrayFromAsyncLabels>(resumeState.step));
-  InitContextSlot(
-      resolveContext,
-      ArrayFromAsyncArrayLikeResolveContextSlots::
-          kArrayFromAsyncArrayLikeResolveResumeStateAwaitedValueSlot,
-      resumeState.awaitedValue);
-  InitContextSlot(
-      resolveContext,
-      ArrayFromAsyncArrayLikeResolveContextSlots::
-          kArrayFromAsyncArrayLikeResolveResumeStateLenSlot,
-      resumeState.len);
-  InitContextSlot(
-      resolveContext,
-      ArrayFromAsyncArrayLikeResolveContextSlots::
-          kArrayFromAsyncArrayLikeResolveResumeStateIndexSlot,
-      resumeState.index);
-  InitContextSlot(
-      resolveContext,
-      ArrayFromAsyncArrayLikeResolveContextSlots::
-          kArrayFromAsyncArrayLikeResolvePromiseSlot,
-      promise);
-  InitContextSlot(
-      resolveContext,
-      ArrayFromAsyncArrayLikeResolveContextSlots::
-          kArrayFromAsyncArrayLikeResolvePromiseFunctionSlot,
-      promiseFun);
-  InitContextSlot(
-      resolveContext,
-      ArrayFromAsyncArrayLikeResolveContextSlots::
-          kArrayFromAsyncArrayLikeResolveOnFulfilledFunctionSlot,
-      promise::AllocateFunctionWithMapAndContext(
-          map, ArrayFromAsyncArrayLikeOnFulfilledSharedFunConstant(),
-          resolveContext));
-  InitContextSlot(
-      resolveContext,
-      ArrayFromAsyncArrayLikeResolveContextSlots::
-          kArrayFromAsyncArrayLikeResolveOnRejectedFunctionSlot,
-      promise::AllocateFunctionWithMapAndContext(
-          map, ArrayFromAsyncArrayLikeOnRejectedSharedFunConstant(),
-          resolveContext));
-  InitContextSlot(
-      resolveContext,
-      ArrayFromAsyncArrayLikeResolveContextSlots::
-          kArrayFromAsyncArrayLikeResolveResultArraySlot,
-      arr);
-  InitContextSlot(
-      resolveContext,
-      ArrayFromAsyncArrayLikeResolveContextSlots::
-          kArrayFromAsyncArrayLikeResolveArrayLikeSlot,
-      arrayLike);
-  InitContextSlot(
-      resolveContext,
-      ArrayFromAsyncArrayLikeResolveContextSlots::
-          kArrayFromAsyncArrayLikeResolveErrorSlot,
-      error);
-  InitContextSlot(
-      resolveContext,
-      ArrayFromAsyncArrayLikeResolveContextSlots::
-          kArrayFromAsyncArrayLikeResolveMapfnSlot,
-      mapfn);
-  InitContextSlot(
-      resolveContext,
-      ArrayFromAsyncArrayLikeResolveContextSlots::
-          kArrayFromAsyncArrayLikeResolveThisArgSlot,
-      thisArg);
-  return resolveContext;
-}
-
-transitioning macro CreateArrayFromArrayLikeAsynchronously(
-    context: ArrayFromAsyncArrayLikeResolveContext): JSAny {
-  try {
-    const mapfn = *ContextSlot(
-        context,
-        ArrayFromAsyncArrayLikeResolveContextSlots::
-            kArrayFromAsyncArrayLikeResolveMapfnSlot);
-
-    const thisArg = *ContextSlot(
-        context,
-        ArrayFromAsyncArrayLikeResolveContextSlots::
-            kArrayFromAsyncArrayLikeResolveThisArgSlot);
-
-    const arr = *ContextSlot(
-        context,
-        ArrayFromAsyncArrayLikeResolveContextSlots::
-            kArrayFromAsyncArrayLikeResolveResultArraySlot);
-
-    let resumeState = ArrayFromAsyncArrayLikeResumeState{
-      step: SmiUntag<ArrayFromAsyncLabels>(
-          %RawDownCast<SmiTagged<ArrayFromAsyncLabels>>(*ContextSlot(
-              context,
-              ArrayFromAsyncArrayLikeResolveContextSlots::
-                  kArrayFromAsyncArrayLikeResolveResumeStateStepSlot))),
-      awaitedValue: *ContextSlot(
-          context,
-          ArrayFromAsyncArrayLikeResolveContextSlots::
-              kArrayFromAsyncArrayLikeResolveResumeStateAwaitedValueSlot),
-      len: *ContextSlot(
-          context,
-          ArrayFromAsyncArrayLikeResolveContextSlots::
-              kArrayFromAsyncArrayLikeResolveResumeStateLenSlot),
-      index: *ContextSlot(
-          context,
-          ArrayFromAsyncArrayLikeResolveContextSlots::
-              kArrayFromAsyncArrayLikeResolveResumeStateIndexSlot)
-    };
-
-    let mappedValue: JSAny = Undefined;
-
-    // TODO(v8:14290): Replace `if/else` with `switch/case` when the support
-    // for `switch` is added.
-
-    while (true) {
-      if (resumeState.step == ArrayFromAsyncLabels::kGetArrayLikeValue) {
-        const arrayLike = *ContextSlot(
-            context,
-            ArrayFromAsyncArrayLikeResolveContextSlots::
-                kArrayFromAsyncArrayLikeResolveArrayLikeSlot);
-
-        //   vii. Repeat, while k < len,
-        //     1. Let Pk be ! ToString(𝔽(k)).
-        if (resumeState.index < resumeState.len) {
-          //     2. Let kValue be ? Get(arrayLike, Pk).
-          const kValue = GetProperty(arrayLike, resumeState.index);
-
-          //     3. Set kValue to ? Await(kValue).
-          return ArrayFromAsyncArrayLikeAwaitPoint(
-              context, ArrayFromAsyncLabels::kCheckArrayLikeValueAndMapping,
-              kValue);
-        }
-        //   viii. Perform ? Set(A, "length", 𝔽(len), true).
-        //   ix. Return Completion Record { [[Type]]: return, [[Value]]: A,
-        //   [[Target]]: empty }.
-        resumeState.step = ArrayFromAsyncLabels::kDoneAndResolvePromise;
-      } else if (
-          resumeState.step ==
-          ArrayFromAsyncLabels::kCheckArrayLikeValueAndMapping) {
-        // When mapfn is not undefined, it is guaranteed to be callable as
-        // checked upon entry.
-        const mapping: bool = (mapfn != Undefined);
-        //    4. If mapping is true, then
-        if (mapping) {
-          resumeState.step =
-              ArrayFromAsyncLabels::kGetArrayLikeValueWithMapping;
-        } else {
-          resumeState.step = ArrayFromAsyncLabels::kAddArrayLikeValueToTheArray;
-        }
-      } else if (
-          resumeState.step ==
-          ArrayFromAsyncLabels::kGetArrayLikeValueWithMapping) {
-        //      a. Let mappedValue be ? Call(mapfn, thisArg, « kValue, 𝔽(k)
-        //      »).
-        //      b. Set mappedValue to ? Await(mappedValue).
-        const mapResult = Call(
-            context, UnsafeCast<Callable>(mapfn), thisArg,
-            resumeState.awaitedValue, resumeState.index);
-        return ArrayFromAsyncArrayLikeAwaitPoint(
-            context, ArrayFromAsyncLabels::kAddArrayLikeValueToTheArray,
-            mapResult);
-      } else if (
-          resumeState.step ==
-          ArrayFromAsyncLabels::kAddArrayLikeValueToTheArray) {
-        //    5. Else, let mappedValue be kValue.
-        mappedValue = resumeState.awaitedValue;
-
-        //    6. Perform ? CreateDataPropertyOrThrow(A, Pk, mappedValue).
-        FastCreateDataProperty(arr, resumeState.index, mappedValue);
-
-        resumeState.index++;
-
-        *ContextSlot(
-            context,
-            ArrayFromAsyncArrayLikeResolveContextSlots::
-                kArrayFromAsyncArrayLikeResolveResumeStateIndexSlot) =
-            resumeState.index;
-
-        resumeState.step = ArrayFromAsyncLabels::kGetArrayLikeValue;
-      } else if (
-          resumeState.step == ArrayFromAsyncLabels::kDoneAndResolvePromise) {
-        array::SetPropertyLength(arr, resumeState.index);
-        const promise = *ContextSlot(
-            context,
-            ArrayFromAsyncArrayLikeResolveContextSlots::
-                kArrayFromAsyncArrayLikeResolvePromiseSlot);
-
-        promise::ResolvePromise(promise, arr);
-        return Undefined;
-      } else if (resumeState.step == ArrayFromAsyncLabels::kRejectPromise) {
-        return RejectArrayFromAsyncPromise<
-            ArrayFromAsyncArrayLikeResolveContext>(
-            context,
-            ArrayFromAsyncArrayLikeResolveContextSlots::
-                kArrayFromAsyncArrayLikeResolveErrorSlot,
-            ArrayFromAsyncArrayLikeResolveContextSlots::
-                kArrayFromAsyncArrayLikeResolvePromiseSlot);
-      }
-    }
-  } catch (e, _message) {
-    *ContextSlot(
-        context,
-        ArrayFromAsyncArrayLikeResolveContextSlots::
-            kArrayFromAsyncArrayLikeResolveErrorSlot) = e;
-
-    return RejectArrayFromAsyncPromise<ArrayFromAsyncArrayLikeResolveContext>(
-        context,
-        ArrayFromAsyncArrayLikeResolveContextSlots::
-            kArrayFromAsyncArrayLikeResolveErrorSlot,
-        ArrayFromAsyncArrayLikeResolveContextSlots::
-            kArrayFromAsyncArrayLikeResolvePromiseSlot);
-  }
-  return Undefined;
-}
-
-transitioning macro ArrayFromAsyncArrayLikeAwaitPoint(
-    context: ArrayFromAsyncArrayLikeResolveContext, step: ArrayFromAsyncLabels,
-    value: JSAny): JSAny {
-  return ArrayFromAsyncAwaitPoint<ArrayFromAsyncArrayLikeResolveContext>(
-      context,
-      ArrayFromAsyncArrayLikeResolveContextSlots::
-          kArrayFromAsyncArrayLikeResolveResumeStateStepSlot,
-      ArrayFromAsyncArrayLikeResolveContextSlots::
-          kArrayFromAsyncArrayLikeResolvePromiseFunctionSlot,
-      ArrayFromAsyncArrayLikeResolveContextSlots::
-          kArrayFromAsyncArrayLikeResolveOnFulfilledFunctionSlot,
-      ArrayFromAsyncArrayLikeResolveContextSlots::
-          kArrayFromAsyncArrayLikeResolveOnRejectedFunctionSlot,
-      step, value);
-}
-
-// `ArrayFromAsyncArrayLikeOnFulfilled` is the callback function for the
-// fulfilled case of the promise in `then` handler.
-transitioning javascript builtin ArrayFromAsyncArrayLikeOnFulfilled(
-    js-implicit context: Context, receiver: JSAny, target: JSFunction)(
-    result: JSAny): JSAny {
-  const context = %RawDownCast<ArrayFromAsyncArrayLikeResolveContext>(context);
-  *ContextSlot(
-      context,
-      ArrayFromAsyncArrayLikeResolveContextSlots::
-          kArrayFromAsyncArrayLikeResolveResumeStateAwaitedValueSlot) = result;
-
-  return CreateArrayFromArrayLikeAsynchronously(context);
-}
-
-// `ArrayFromAsyncArrayLikeOnRejected` is the callback function for the rejected
-// case of the promise in `then` handler.
-transitioning javascript builtin ArrayFromAsyncArrayLikeOnRejected(
-    js-implicit context: Context, receiver: JSAny, target: JSFunction)(
-    result: JSAny): JSAny {
-  const context = %RawDownCast<ArrayFromAsyncArrayLikeResolveContext>(context);
-
-  *ContextSlot(
-      context,
-      ArrayFromAsyncArrayLikeResolveContextSlots::
-          kArrayFromAsyncArrayLikeResolveResumeStateStepSlot) =
-      SmiTag<ArrayFromAsyncLabels>(ArrayFromAsyncLabels::kRejectPromise);
-  *ContextSlot(
-      context,
-      ArrayFromAsyncArrayLikeResolveContextSlots::
-          kArrayFromAsyncArrayLikeResolveErrorSlot) = result;
-
-  return CreateArrayFromArrayLikeAsynchronously(context);
-}
-
-extern macro ArrayFromAsyncArrayLikeOnFulfilledSharedFunConstant():
-    SharedFunctionInfo;
-extern macro ArrayFromAsyncArrayLikeOnRejectedSharedFunConstant():
-    SharedFunctionInfo;
-
-// --- Array.fromAsync builtin
 
 // https://tc39.es/proposal-array-from-async/#sec-array.fromAsync
 // Array.fromAsync ( asyncItems [ , mapfn [ , thisArg ] ] )
@@ -803,17 +522,16 @@ transitioning javascript builtin ArrayFromAsync(
   // 2. Let promiseCapability be ! NewPromiseCapability(%Promise%).
   const promise = promise::NewJSPromise();
 
-  const promiseFun = *NativeContextSlot(
-      context, ContextSlot::PROMISE_FUNCTION_INDEX);
-  const map = *NativeContextSlot(
-      context, ContextSlot::STRICT_FUNCTION_WITHOUT_PROTOTYPE_MAP_INDEX);
-
   // 3. Let fromAsyncClosure be a new Abstract Closure with no parameters that
   // captures C, mapfn, and thisArg and performs the following steps when
   // called:
 
   let usingAsyncIterator: JSAny = Undefined;
   let usingSyncIterator: JSAny = Undefined;
+  let iteratorRecordObject: JSReceiver;
+  let iteratorRecordNext: JSAny;
+  let arr: JSReceiver;
+  let firstStep: ArrayFromAsyncLabels;
 
   try {
     if (mapfn != Undefined) {
@@ -840,47 +558,20 @@ transitioning javascript builtin ArrayFromAsync(
       //   i. NOTE: asyncItems is neither an AsyncIterable nor an
       //   Iterable so assume it is an array-like object.
       //   ii. Let arrayLike be ! ToObject(asyncItems).
-      const arrayLike = ToObject_Inline(context, items);
-
       //   iii. Let len be ? LengthOfArrayLike(arrayLike).
-      const len = GetLengthProperty(arrayLike);
-
-      // TODO(v8:13321): Allocate an array with PACKED elements kind for
-      // fast-path rather than calling the constructor which creates an
-      // array with HOLEY kind.
-
-      let arr: JSReceiver;
-      typeswitch (c) {
-        case (c: Constructor): {
-          //   iv. If IsConstructor(C) is
-          //   true, then
-          //     1. Let A be ? Construct(C, « 𝔽(len) »).
-          arr = Construct(c, len);
-        }
-        case (JSAny): {
-          //   v. Else,
-          //     1. Let A be ? ArrayCreate(len).
-          arr = ArrayCreate(len);
-        }
-      }
-
+      //   iv. If IsConstructor(C) is
+      //   true, then
+      //     1. Let A be ? Construct(C, « 𝔽(len) »).
+      //   v. Else,
+      //     1. Let A be ? ArrayCreate(len).
       //   vi. Let k be 0.
-      // Will be done when creating resumeState later.
 
-      let resumeState = ArrayFromAsyncArrayLikeResumeState{
-        step: ArrayFromAsyncLabels::kGetArrayLikeValue,
-        awaitedValue: Undefined,
-        len: len,
-        index: 0
-      };
+      // TODO(v8:13321): Array-like path will be implemented later.
+      // That means code inside the following labels are incomplete:
+      // kGetArrayLikeValue, kCheckArrayLikeValueAndMapping,
+      // kGetArrayLikeValueWithMapping, kAddArrayLikeValueToTheArray.
 
-      const arrayLikeResolveContext =
-          CreateArrayFromAsyncArrayLikeResolveContext(
-              resumeState, promise, promiseFun, map, arrayLike, arr, Undefined,
-              mapfn, thisArg, context);
-
-      CreateArrayFromArrayLikeAsynchronously(arrayLikeResolveContext);
-      return promise;
+      // firstStep = ArrayFromAsyncLabels::kGetArrayLikeValue;
     } label SyncIteratorNotCallable(_value: JSAny)
     deferred {
       ThrowTypeError(
@@ -905,9 +596,11 @@ transitioning javascript builtin ArrayFromAsync(
     const iteratorRecord = (usingAsyncIterator != Undefined) ?
         iterator::GetIterator(items, usingAsyncIterator) :
         iterator::GetIteratorRecordAfterCreateAsyncFromSyncIterator(
-            context, iterator::GetIterator(items, usingSyncIterator));
+            iterator::GetIterator(items, usingSyncIterator));
 
-    let arr: JSReceiver;
+    iteratorRecordObject = iteratorRecord.object;
+    iteratorRecordNext = iteratorRecord.next;
+
     //  h. If iteratorRecord is not undefined, then
     typeswitch (c) {
       case (c: Constructor): {
@@ -922,22 +615,32 @@ transitioning javascript builtin ArrayFromAsync(
       }
     }
 
-    let iterableResumeState = ArrayFromAsyncIterableResumeState{
-      step: ArrayFromAsyncLabels::kGetIteratorStep,
-      awaitedValue: Undefined,
-      index: 0
-    };
-
-    const iterableResolveContext = CreateArrayFromAsyncIterableResolveContext(
-        iterableResumeState, promise, promiseFun, map, iteratorRecord.object,
-        iteratorRecord.next, arr, Undefined, mapfn, thisArg, context);
-
-    CreateArrayFromIterableAsynchronously(iterableResolveContext);
-    return promise;
-
+    firstStep = ArrayFromAsyncLabels::kGetIteratorStep;
   } catch (e, _message) {
     promise::RejectPromise(promise, e, False);
     return promise;
   }
+
+  let resumeState = ArrayFromAsyncResumeState{
+    step: firstStep,
+    awaitedValue: Undefined,
+    len: 0,
+    index: 0
+  };
+
+  const promiseFun = *NativeContextSlot(
+      context, ContextSlot::PROMISE_FUNCTION_INDEX);
+  const map = *NativeContextSlot(
+      context, ContextSlot::STRICT_FUNCTION_WITHOUT_PROTOTYPE_MAP_INDEX);
+
+  const resolveContext = CreateArrayFromAsyncResolveContext(
+      resumeState, promise, promiseFun, map, iteratorRecordObject,
+      iteratorRecordNext, arr, Undefined, mapfn, thisArg, context);
+
+  CreateArrayFromIterableAsynchronously(resolveContext);
+  return promise;
 }
+
+extern macro ArrayFromAsyncOnFulfilledSharedFunConstant(): SharedFunctionInfo;
+extern macro ArrayFromAsyncOnRejectedSharedFunConstant(): SharedFunctionInfo;
 }

@@ -16,6 +16,7 @@
 #include "src/objects/feedback-vector-inl.h"
 #include "src/objects/hash-table-inl.h"
 #include "src/objects/map-inl.h"
+#include "src/objects/object-macros.h"
 #include "src/objects/objects.h"
 
 namespace v8 {
@@ -194,29 +195,21 @@ FeedbackSlotKind FeedbackVector::GetKind(FeedbackSlot slot,
 
 // static
 Handle<ClosureFeedbackCellArray> ClosureFeedbackCellArray::New(
-    Isolate* isolate, Handle<SharedFunctionInfo> shared,
-    AllocationType allocation) {
-  int length = shared->feedback_metadata()->create_closure_slot_count();
-  if (length == 0) {
-    return isolate->factory()->empty_closure_feedback_cell_array();
-  }
+    Isolate* isolate, Handle<SharedFunctionInfo> shared) {
+  Factory* factory = isolate->factory();
 
-  // Pre-allocate the cells s.t. we can initialize `result` without further
-  // allocation.
-  Handle<HeapObject> undefined = isolate->factory()->undefined_value();
-  std::vector<Handle<FeedbackCell>> cells;
-  cells.reserve(length);
-  for (int i = 0; i < length; i++) {
-    cells.push_back(isolate->factory()->NewNoClosuresCell(undefined));
-  }
+  int num_feedback_cells =
+      shared->feedback_metadata()->create_closure_slot_count();
 
-  base::Optional<DisallowGarbageCollection> no_gc;
-  auto result = Allocate(isolate, length, &no_gc, allocation);
-  for (int i = 0; i < length; i++) {
-    result->set(i, *cells[i]);
-  }
+  Handle<ClosureFeedbackCellArray> feedback_cell_array =
+      factory->NewClosureFeedbackCellArray(num_feedback_cells);
 
-  return result;
+  for (int i = 0; i < num_feedback_cells; i++) {
+    Handle<FeedbackCell> cell =
+        factory->NewNoClosuresCell(factory->undefined_value());
+    feedback_cell_array->set(i, *cell);
+  }
+  return feedback_cell_array;
 }
 
 // static
@@ -478,36 +471,6 @@ bool FeedbackVector::ClearSlots(Isolate* isolate, ClearBehavior behavior) {
   }
   return feedback_updated;
 }
-
-#ifdef V8_TRACE_FEEDBACK_UPDATES
-
-// static
-void FeedbackVector::TraceFeedbackChange(Isolate* isolate,
-                                         Tagged<FeedbackVector> vector,
-                                         FeedbackSlot slot,
-                                         const char* reason) {
-  int slot_count = vector->metadata()->slot_count();
-  StdoutStream os;
-  if (slot.IsInvalid()) {
-    os << "[Feedback slots in ";
-  } else {
-    FeedbackSlotKind kind = vector->metadata()->GetKind(slot);
-    os << "[Feedback slot " << slot.ToInt() << "/" << slot_count << " ("
-       << FeedbackMetadata::Kind2String(kind) << ")"
-       << " in ";
-  }
-  ShortPrint(vector->shared_function_info(), os);
-  if (slot.IsInvalid()) {
-    os << " updated - ";
-  } else {
-    os << " updated to ";
-    vector->FeedbackSlotPrint(os, slot);
-    os << " - ";
-  }
-  os << reason << "]" << std::endl;
-}
-
-#endif
 
 MaybeObjectHandle NexusConfig::NewHandle(MaybeObject object) const {
   if (mode() == Mode::MainThread) {
@@ -956,10 +919,10 @@ void FeedbackNexus::ConfigureCloneObject(
             CreateArrayOfSize(2 * kCloneObjectPolymorphicEntrySize);
         DisallowGarbageCollection no_gc;
         Tagged<WeakFixedArray> raw_array = *array;
-        raw_array->set(0, HeapObjectReference::Weak(*feedback));
-        raw_array->set(1, GetFeedbackExtra());
-        raw_array->set(2, HeapObjectReference::Weak(*source_map));
-        raw_array->set(3, GetHandler());
+        raw_array->Set(0, HeapObjectReference::Weak(*feedback));
+        raw_array->Set(1, GetFeedbackExtra());
+        raw_array->Set(2, HeapObjectReference::Weak(*source_map));
+        raw_array->Set(3, GetHandler());
         SetFeedback(raw_array, UPDATE_WRITE_BARRIER,
                     HeapObjectReference::ClearedValue(isolate));
       }
@@ -970,7 +933,7 @@ void FeedbackNexus::ConfigureCloneObject(
       Handle<WeakFixedArray> array = Handle<WeakFixedArray>::cast(feedback);
       int i = 0;
       for (; i < array->length(); i += kCloneObjectPolymorphicEntrySize) {
-        MaybeObject feedback_map = array->get(i);
+        MaybeObject feedback_map = array->Get(i);
         if (feedback_map->IsCleared()) break;
         Handle<Map> cached_map(Map::cast(feedback_map.GetHeapObject()),
                                isolate);
@@ -992,14 +955,14 @@ void FeedbackNexus::ConfigureCloneObject(
         Handle<WeakFixedArray> new_array = CreateArrayOfSize(
             array->length() + kCloneObjectPolymorphicEntrySize);
         for (int j = 0; j < array->length(); ++j) {
-          new_array->set(j, array->get(j));
+          new_array->Set(j, array->Get(j));
         }
         SetFeedback(*new_array);
         array = new_array;
       }
 
-      array->set(i, HeapObjectReference::Weak(*source_map));
-      array->set(i + 1, GetHandler());
+      array->Set(i, HeapObjectReference::Weak(*source_map));
+      array->Set(i + 1, GetHandler());
       break;
     }
 
@@ -1073,8 +1036,8 @@ void FeedbackNexus::ConfigureMonomorphic(Handle<Name> name,
                   UPDATE_WRITE_BARRIER, *handler);
     } else {
       Handle<WeakFixedArray> array = CreateArrayOfSize(2);
-      array->set(0, HeapObjectReference::Weak(*receiver_map));
-      array->set(1, *handler);
+      array->Set(0, HeapObjectReference::Weak(*receiver_map));
+      array->Set(1, *handler);
       SetFeedback(*name, UPDATE_WRITE_BARRIER, *array);
     }
   }
@@ -1088,10 +1051,10 @@ void FeedbackNexus::ConfigurePolymorphic(
 
   for (int current = 0; current < receiver_count; ++current) {
     Handle<Map> map = maps_and_handlers[current].first;
-    array->set(current * 2, HeapObjectReference::Weak(*map));
+    array->Set(current * 2, HeapObjectReference::Weak(*map));
     MaybeObjectHandle handler = maps_and_handlers[current].second;
     DCHECK(IC::IsHandler(*handler));
-    array->set(current * 2 + 1, *handler);
+    array->Set(current * 2 + 1, *handler);
   }
 
   if (name.is_null()) {
@@ -1430,8 +1393,8 @@ void FeedbackIterator::AdvancePolymorphic() {
   Tagged<HeapObject> heap_object;
 
   while (index_ < length) {
-    if (polymorphic_feedback_->get(index_).GetHeapObjectIfWeak(&heap_object)) {
-      MaybeObject handler = polymorphic_feedback_->get(index_ + kHandlerOffset);
+    if (polymorphic_feedback_->Get(index_).GetHeapObjectIfWeak(&heap_object)) {
+      MaybeObject handler = polymorphic_feedback_->Get(index_ + kHandlerOffset);
       map_ = Map::cast(heap_object);
       handler_ = handler;
       index_ += kEntrySize;

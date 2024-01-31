@@ -198,30 +198,38 @@ class Utils {
   static void ReportOOMFailure(v8::internal::Isolate* isolate,
                                const char* location, const OOMDetails& details);
 
-#define DECLARE_TO_LOCAL(Name, From, To)                  \
-  static inline Local<v8::To> Name(                       \
-      v8::internal::Handle<v8::internal::From> obj);      \
-  static inline Local<v8::To> Name(                       \
-      v8::internal::DirectHandle<v8::internal::From> obj, \
+#define DECLARE_TO_LOCAL(Name, From, To)                      \
+  static inline Local<v8::To> Name(                           \
+      v8::internal::Handle<v8::internal::From> obj);          \
+  static inline Local<v8::To> Name(                           \
+      v8::internal::DirectHandle<v8::internal::From> obj,     \
+      v8::internal::Isolate* isolate);                        \
+  static inline Local<v8::To> Name(                           \
+      v8::internal::CapabilityHandle<v8::internal::From> obj, \
       v8::internal::Isolate* isolate);
 
   TO_LOCAL_LIST(DECLARE_TO_LOCAL)
 
-#define DECLARE_TO_LOCAL_TYPED_ARRAY(Type, typeName, TYPE, ctype) \
-  static inline Local<v8::Type##Array> ToLocal##Type##Array(      \
-      v8::internal::Handle<v8::internal::JSTypedArray> obj);      \
-  static inline Local<v8::Type##Array> ToLocal##Type##Array(      \
-      v8::internal::DirectHandle<v8::internal::JSTypedArray> obj, \
+#define DECLARE_TO_LOCAL_TYPED_ARRAY(Type, typeName, TYPE, ctype)     \
+  static inline Local<v8::Type##Array> ToLocal##Type##Array(          \
+      v8::internal::Handle<v8::internal::JSTypedArray> obj);          \
+  static inline Local<v8::Type##Array> ToLocal##Type##Array(          \
+      v8::internal::DirectHandle<v8::internal::JSTypedArray> obj,     \
+      v8::internal::Isolate* isolate);                                \
+  static inline Local<v8::Type##Array> ToLocal##Type##Array(          \
+      v8::internal::CapabilityHandle<v8::internal::JSTypedArray> obj, \
       v8::internal::Isolate* isolate);
 
   TYPED_ARRAYS(DECLARE_TO_LOCAL_TYPED_ARRAY)
 
-#define DECLARE_OPEN_HANDLE(From, To)                                          \
-  static inline v8::internal::Handle<v8::internal::To> OpenHandle(             \
-      const From* that, bool allow_empty_handle = false);                      \
-  static inline v8::internal::DirectHandle<v8::internal::To> OpenDirectHandle( \
-      const From* that, bool allow_empty_handle = false);                      \
-  static inline v8::internal::IndirectHandle<v8::internal::To>                 \
+#define DECLARE_OPEN_HANDLE(From, To)                                                  \
+  static inline v8::internal::Handle<v8::internal::To> OpenHandle(                     \
+      const From* that, bool allow_empty_handle = false);                              \
+  static inline v8::internal::DirectHandle<v8::internal::To> OpenDirectHandle(         \
+      const From* that, bool allow_empty_handle = false);                              \
+  static inline v8::internal::CapabilityHandle<v8::internal::To> OpenCapabilityHandle( \
+      const From* that, bool allow_empty_handle = false);                              \
+  static inline v8::internal::IndirectHandle<v8::internal::To>                         \
   OpenIndirectHandle(const From* that, bool allow_empty_handle = false);
 
   OPEN_HANDLE_LIST(DECLARE_OPEN_HANDLE)
@@ -235,6 +243,10 @@ class Utils {
 
   template <class From, class To>
   static inline Local<To> Convert(v8::internal::DirectHandle<From> obj,
+                                  v8::internal::Isolate* isolate);
+
+  template <class From, class To>
+  static inline Local<To> Convert(v8::internal::CapabilityHandle<From> obj,
                                   v8::internal::Isolate* isolate);
 
   template <class T>
@@ -252,12 +264,6 @@ class Utils {
   template <class From, class To>
   static inline v8::internal::Handle<To> OpenHandle(v8::Local<From> handle) {
     return OpenHandle(*handle);
-  }
-
-  template <class From, class To>
-  static inline v8::internal::DirectHandle<To> OpenDirectHandle(
-      v8::Local<From> handle) {
-    return OpenDirectHandle(*handle);
   }
 
  private:
@@ -278,6 +284,13 @@ inline v8::Local<T> ToApiHandle(
 template <class T>
 inline v8::Local<T> ToApiHandle(
     v8::internal::DirectHandle<v8::internal::Object> obj,
+    v8::internal::Isolate* isolate) {
+  return Utils::Convert<v8::internal::Object, T>(obj, isolate);
+}
+
+template <class T>
+inline v8::Local<T> ToApiHandle(
+    v8::internal::CapabilityHandle<v8::internal::Object> obj,
     v8::internal::Isolate* isolate) {
   return Utils::Convert<v8::internal::Object, T>(obj, isolate);
 }
@@ -353,9 +366,12 @@ class HandleScopeImplementer {
   inline bool LastEnteredContextWas(Tagged<NativeContext> context);
   inline size_t EnteredContextCount() const { return entered_contexts_.size(); }
 
+  inline void EnterMicrotaskContext(Tagged<NativeContext> context);
+
   // Returns the last entered context or an empty handle if no
   // contexts have been entered.
   inline Handle<NativeContext> LastEnteredContext();
+  inline Handle<NativeContext> LastEnteredOrMicrotaskContext();
 
   inline void SaveContext(Tagged<Context> context);
   inline Tagged<Context> RestoreContext();
@@ -371,11 +387,13 @@ class HandleScopeImplementer {
   }
 
   static const size_t kEnteredContextsOffset;
+  static const size_t kIsMicrotaskContextOffset;
 
  private:
   void ResetAfterArchive() {
     blocks_.detach();
     entered_contexts_.detach();
+    is_microtask_context_.detach();
     saved_contexts_.detach();
     spare_ = nullptr;
     last_handle_before_deferred_block_ = nullptr;
@@ -384,10 +402,12 @@ class HandleScopeImplementer {
   void Free() {
     DCHECK(blocks_.empty());
     DCHECK(entered_contexts_.empty());
+    DCHECK(is_microtask_context_.empty());
     DCHECK(saved_contexts_.empty());
 
     blocks_.free();
     entered_contexts_.free();
+    is_microtask_context_.free();
     saved_contexts_.free();
     if (spare_ != nullptr) {
       DeleteArray(spare_);
@@ -403,7 +423,12 @@ class HandleScopeImplementer {
   DetachableVector<Address*> blocks_;
 
   // Used as a stack to keep track of entered contexts.
+  // If |i|th item of |entered_contexts_| is added by EnterMicrotaskContext,
+  // `is_microtask_context_[i]` is 1.
+  // TODO(tzik): Remove |is_microtask_context_| after the deprecated
+  // v8::Isolate::GetEnteredContext() is removed.
   DetachableVector<Tagged<NativeContext>> entered_contexts_;
+  DetachableVector<int8_t> is_microtask_context_;
 
   // Used as a stack to keep track of saved contexts.
   DetachableVector<Tagged<Context>> saved_contexts_;
@@ -438,7 +463,10 @@ bool HandleScopeImplementer::HasSavedContexts() {
 
 void HandleScopeImplementer::LeaveContext() {
   DCHECK(!entered_contexts_.empty());
+  DCHECK_EQ(entered_contexts_.capacity(), is_microtask_context_.capacity());
+  DCHECK_EQ(entered_contexts_.size(), is_microtask_context_.size());
   entered_contexts_.pop_back();
+  is_microtask_context_.pop_back();
 }
 
 bool HandleScopeImplementer::LastEnteredContextWas(

@@ -261,7 +261,7 @@ TEST(TestTypeswitch) {
   CodeAssemblerTester asm_tester(isolate, JSParameterCount(kNumParams));
   TestTorqueAssembler m(asm_tester.state());
   {
-    m.TestTypeswitch(m.UncheckedCast<Context>(m.HeapConstantNoHole(context)));
+    m.TestTypeswitch(m.UncheckedCast<Context>(m.HeapConstant(context)));
     m.Return(m.UndefinedConstant());
   }
   FunctionTester ft(asm_tester.GenerateCode(), kNumParams);
@@ -278,8 +278,7 @@ TEST(TestGenericOverload) {
   CodeAssemblerTester asm_tester(isolate, JSParameterCount(kNumParams));
   TestTorqueAssembler m(asm_tester.state());
   {
-    m.TestGenericOverload(
-        m.UncheckedCast<Context>(m.HeapConstantNoHole(context)));
+    m.TestGenericOverload(m.UncheckedCast<Context>(m.HeapConstant(context)));
     m.Return(m.UndefinedConstant());
   }
   FunctionTester ft(asm_tester.GenerateCode(), kNumParams);
@@ -296,7 +295,7 @@ TEST(TestEquality) {
   CodeAssemblerTester asm_tester(isolate, JSParameterCount(kNumParams));
   TestTorqueAssembler m(asm_tester.state());
   {
-    m.TestEquality(m.UncheckedCast<Context>(m.HeapConstantNoHole(context)));
+    m.TestEquality(m.UncheckedCast<Context>(m.HeapConstant(context)));
     m.Return(m.UndefinedConstant());
   }
   FunctionTester ft(asm_tester.GenerateCode(), kNumParams);
@@ -343,7 +342,7 @@ TEST(TestCatch1) {
   TestTorqueAssembler m(asm_tester.state());
   {
     TNode<Smi> result =
-        m.TestCatch1(m.UncheckedCast<Context>(m.HeapConstantNoHole(context)));
+        m.TestCatch1(m.UncheckedCast<Context>(m.HeapConstant(context)));
     USE(result);
     CSA_DCHECK(&m, m.TaggedEqual(result, m.SmiConstant(1)));
     m.Return(m.UndefinedConstant());
@@ -363,7 +362,7 @@ TEST(TestCatch2) {
   TestTorqueAssembler m(asm_tester.state());
   {
     TNode<Smi> result =
-        m.TestCatch2(m.UncheckedCast<Context>(m.HeapConstantNoHole(context)));
+        m.TestCatch2(m.UncheckedCast<Context>(m.HeapConstant(context)));
     USE(result);
     CSA_DCHECK(&m, m.TaggedEqual(result, m.SmiConstant(2)));
     m.Return(m.UndefinedConstant());
@@ -383,7 +382,7 @@ TEST(TestCatch3) {
   TestTorqueAssembler m(asm_tester.state());
   {
     TNode<Smi> result =
-        m.TestCatch3(m.UncheckedCast<Context>(m.HeapConstantNoHole(context)));
+        m.TestCatch3(m.UncheckedCast<Context>(m.HeapConstant(context)));
     USE(result);
     CSA_DCHECK(&m, m.TaggedEqual(result, m.SmiConstant(2)));
     m.Return(m.UndefinedConstant());
@@ -402,8 +401,7 @@ TEST(TestLookup) {
   CodeAssemblerTester asm_tester(isolate, JSParameterCount(kNumParams));
   TestTorqueAssembler m(asm_tester.state());
   {
-    m.TestQualifiedAccess(
-        m.UncheckedCast<Context>(m.HeapConstantNoHole(context)));
+    m.TestQualifiedAccess(m.UncheckedCast<Context>(m.HeapConstant(context)));
     m.Return(m.UndefinedConstant());
   }
   FunctionTester ft(asm_tester.GenerateCode(), kNumParams);
@@ -419,7 +417,7 @@ TEST(TestFrame1) {
   CodeAssemblerTester asm_tester(isolate);
   TestTorqueAssembler m(asm_tester.state());
   {
-    m.TestFrame1(m.UncheckedCast<Context>(m.HeapConstantNoHole(context)));
+    m.TestFrame1(m.UncheckedCast<Context>(m.HeapConstant(context)));
     m.Return(m.UndefinedConstant());
   }
   FunctionTester ft(asm_tester.GenerateCode(), 0);
@@ -435,7 +433,7 @@ TEST(TestNew) {
   CodeAssemblerTester asm_tester(isolate);
   TestTorqueAssembler m(asm_tester.state());
   {
-    m.TestNew(m.UncheckedCast<Context>(m.HeapConstantNoHole(context)));
+    m.TestNew(m.UncheckedCast<Context>(m.HeapConstant(context)));
     m.Return(m.UndefinedConstant());
   }
   FunctionTester ft(asm_tester.GenerateCode(), 0);
@@ -451,8 +449,7 @@ TEST(TestStructConstructor) {
   CodeAssemblerTester asm_tester(isolate);
   TestTorqueAssembler m(asm_tester.state());
   {
-    m.TestStructConstructor(
-        m.UncheckedCast<Context>(m.HeapConstantNoHole(context)));
+    m.TestStructConstructor(m.UncheckedCast<Context>(m.HeapConstant(context)));
     m.Return(m.UndefinedConstant());
   }
   FunctionTester ft(asm_tester.GenerateCode(), 0);
@@ -468,8 +465,7 @@ TEST(TestInternalClass) {
   CodeAssemblerTester asm_tester(isolate);
   TestTorqueAssembler m(asm_tester.state());
   {
-    m.TestInternalClass(
-        m.UncheckedCast<Context>(m.HeapConstantNoHole(context)));
+    m.TestInternalClass(m.UncheckedCast<Context>(m.HeapConstant(context)));
     m.Return(m.UndefinedConstant());
   }
   FunctionTester ft(asm_tester.GenerateCode(), 0);
@@ -486,7 +482,7 @@ TEST(TestNewFixedArrayFromSpread) {
   TestTorqueAssembler m(asm_tester.state());
   {
     m.TestNewFixedArrayFromSpread(
-        m.UncheckedCast<Context>(m.HeapConstantNoHole(context)));
+        m.UncheckedCast<Context>(m.HeapConstant(context)));
     m.Return(m.UndefinedConstant());
   }
   FunctionTester ft(asm_tester.GenerateCode(), 0);
@@ -530,8 +526,7 @@ TEST(TestSliceEnumeration) {
   CodeAssemblerTester asm_tester(isolate);
   TestTorqueAssembler m(asm_tester.state());
   {
-    m.TestSliceEnumeration(
-        m.UncheckedCast<Context>(m.HeapConstantNoHole(context)));
+    m.TestSliceEnumeration(m.UncheckedCast<Context>(m.HeapConstant(context)));
     m.Return(m.UndefinedConstant());
   }
   FunctionTester ft(asm_tester.GenerateCode(), 0);
@@ -562,7 +557,7 @@ TEST(TestLoadEliminationFixed) {
   TestTorqueAssembler m(asm_tester.state());
   {
     m.TestLoadEliminationFixed(
-        m.UncheckedCast<Context>(m.HeapConstantNoHole(context)));
+        m.UncheckedCast<Context>(m.HeapConstant(context)));
     m.Return(m.UndefinedConstant());
   }
   asm_tester.GenerateCode();
@@ -578,7 +573,7 @@ TEST(TestLoadEliminationVariable) {
   TestTorqueAssembler m(asm_tester.state());
   {
     m.TestLoadEliminationVariable(
-        m.UncheckedCast<Context>(m.HeapConstantNoHole(context)));
+        m.UncheckedCast<Context>(m.HeapConstant(context)));
     m.Return(m.UndefinedConstant());
   }
   asm_tester.GenerateCode();
@@ -594,7 +589,7 @@ TEST(TestRedundantArrayElementCheck) {
   TestTorqueAssembler m(asm_tester.state());
   {
     m.Return(m.TestRedundantArrayElementCheck(
-        m.UncheckedCast<Context>(m.HeapConstantNoHole(context))));
+        m.UncheckedCast<Context>(m.HeapConstant(context))));
   }
   asm_tester.GenerateCode();
 }
@@ -609,7 +604,7 @@ TEST(TestRedundantSmiCheck) {
   TestTorqueAssembler m(asm_tester.state());
   {
     m.Return(m.TestRedundantSmiCheck(
-        m.UncheckedCast<Context>(m.HeapConstantNoHole(context))));
+        m.UncheckedCast<Context>(m.HeapConstant(context))));
   }
   asm_tester.GenerateCode();
 }
@@ -650,7 +645,7 @@ TEST(TestBranchOnBoolOptimization) {
   TestTorqueAssembler m(asm_tester.state());
   {
     m.TestBranchOnBoolOptimization(
-        m.UncheckedCast<Context>(m.HeapConstantNoHole(context)),
+        m.UncheckedCast<Context>(m.HeapConstant(context)),
         m.UncheckedParameter<Smi>(0));
     m.Return(m.UndefinedConstant());
   }
@@ -814,7 +809,7 @@ TEST(TestTestParentFrameArguments) {
   TestTorqueAssembler m(asm_tester.state());
   {
     m.TestParentFrameArguments(
-        m.UncheckedCast<Context>(m.HeapConstantNoHole(context)));
+        m.UncheckedCast<Context>(m.HeapConstant(context)));
     m.Return(m.UndefinedConstant());
   }
   asm_tester.GenerateCode();
@@ -847,7 +842,7 @@ TEST(TestGeneratedCastOperators) {
     Handle<Context> context =
         Utils::OpenHandle(*v8::Isolate::GetCurrent()->GetCurrentContext());
     m.TestGeneratedCastOperators(
-        m.UncheckedCast<Context>(m.HeapConstantNoHole(context)));
+        m.UncheckedCast<Context>(m.HeapConstant(context)));
     m.Return(m.UndefinedConstant());
   }
   FunctionTester ft(asm_tester.GenerateCode(), kNumParams);
@@ -864,8 +859,7 @@ TEST(TestNewPretenured) {
   {
     Handle<Context> context =
         Utils::OpenHandle(*v8::Isolate::GetCurrent()->GetCurrentContext());
-    m.TestNewPretenured(
-        m.UncheckedCast<Context>(m.HeapConstantNoHole(context)));
+    m.TestNewPretenured(m.UncheckedCast<Context>(m.HeapConstant(context)));
     m.Return(m.UndefinedConstant());
   }
   FunctionTester ft(asm_tester.GenerateCode(), kNumParams);
@@ -915,7 +909,7 @@ TEST(TestCallMultiReturnBuiltin) {
     Handle<Context> context =
         Utils::OpenHandle(*v8::Isolate::GetCurrent()->GetCurrentContext());
     m.TestCallMultiReturnBuiltin(
-        m.UncheckedCast<Context>(m.HeapConstantNoHole(context)));
+        m.UncheckedCast<Context>(m.HeapConstant(context)));
     m.Return(m.UndefinedConstant());
   }
   FunctionTester ft(asm_tester.GenerateCode(), kNumParams);
