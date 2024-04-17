@@ -111,6 +111,13 @@ inline Register Register::WRegFromCode(unsigned code) {
   }
 }
 
+#ifdef CHERI_HYBRID
+inline Register Register::CRegFromCode(unsigned code) {
+  DCHECK_LT(code, static_cast<unsigned>(kNumberOfRegisters));
+  return Register::Create(code, kCRegSizeInBits, CPURegister::kCRegister);
+}
+#endif
+
 inline VRegister VRegister::BRegFromCode(unsigned code) {
   DCHECK_LT(code, static_cast<unsigned>(kNumberOfVRegisters));
   return VRegister::Create(code, kBRegSizeInBits);
@@ -190,6 +197,13 @@ inline VRegister CPURegister::Q() const {
   DCHECK(IsVRegister());
   return VRegister::QRegFromCode(code());
 }
+
+#ifdef CHERI_HYBRID
+inline Register CPURegister::C() const {
+  DCHECK(IsRegister());
+  return Register::CRegFromCode(code());
+}
+#endif
 
 // Immediate.
 // Default initializer is for int types
@@ -783,6 +797,15 @@ LoadStoreOp Assembler::StoreOpFor(const CPURegister& rt) {
 LoadStorePairOp Assembler::LoadPairOpFor(const CPURegister& rt,
                                          const CPURegister& rt2) {
   DCHECK_EQ(STP_w | LoadStorePairLBit, LDP_w);
+#ifdef CHERI_HYBRID
+  // Morello STP/LDP pairs don't satisfy the trick used for non-morello
+  // operations: if we're on legacy architectures there's a single bit
+  // signalling whether we're loading or storing. For Morello, that doesn't
+  // appear to be the case! Deal with them specially.
+  if (rt.IsC()) {
+    return static_cast<LoadStorePairOp>(LDP_CAP_post);
+  }
+#endif
   return static_cast<LoadStorePairOp>(StorePairOpFor(rt, rt2) |
                                       LoadStorePairLBit);
 }
@@ -792,6 +815,13 @@ LoadStorePairOp Assembler::StorePairOpFor(const CPURegister& rt,
   DCHECK(AreSameSizeAndType(rt, rt2));
   USE(rt2);
   if (rt.IsRegister()) {
+    switch (rt.SizeInBits()) {
+      case 32: return STP_w;
+      case 64: return STP_x;
+#ifdef CHERI_HYBRID
+      case 128: return STP_CAP_pre;
+#endif
+    }
     return rt.Is64Bits() ? STP_x : STP_w;
   } else {
     DCHECK(rt.IsVRegister());

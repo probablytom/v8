@@ -38,6 +38,14 @@ constexpr uint8_t kLoadLiteralScaleLog2 = 2;
 constexpr uint8_t kLoadLiteralScale = 1 << kLoadLiteralScaleLog2;
 constexpr int kMaxLoadLiteralRange = 1 * MB;
 
+#ifdef CHERI_HYBRID
+const int kNumberOfCRegisters = 32;
+const int kCRegSizeInBits = 128;
+const int kCRegSizeInBitsLog2 = 7;
+const int kCRegSize = kCRegSizeInBits >> 3;
+const int kCRegSizeLog2 = kCRegSizeInBitsLog2 - 3;
+#endif
+
 constexpr int kNumberOfRegisters = 32;
 constexpr int kNumberOfVRegisters = 32;
 // Callee saved registers are x19-x28.
@@ -451,6 +459,11 @@ enum BarrierType {
 // This information is not encoded as one field but as the concatenation of
 // multiple fields (Op0<0>, Op1, Crn, Crm, Op2).
 enum SystemRegister {
+#ifdef CHERI_HYBRID
+  DDC = ((0x1 << SysO0_offset) | (0x3 << SysOp1_offset) | (0x4 << CRn_offset) |
+          (0x1 << CRm_offset) | (0x1 << SysOp2_offset)) >>
+        ImmSystemRegister_offset,
+#endif
   NZCV = ((0x1 << SysO0_offset) | (0x3 << SysOp1_offset) | (0x4 << CRn_offset) |
           (0x2 << CRm_offset) | (0x0 << SysOp2_offset)) >>
          ImmSystemRegister_offset,
@@ -2563,6 +2576,47 @@ constexpr NEONScalar3DiffOp NEON_SQDMLSL_scalar =
     NEON_Q | NEONScalar | NEON_SQDMLSL;
 constexpr NEONScalar3DiffOp NEON_SQDMULL_scalar =
     NEON_Q | NEONScalar | NEON_SQDMULL;
+
+#ifdef CHERI_HYBRID
+// TODO masks etc. This is a start, but probably wants restructuring and
+// masks added to mirror other instruction definitions in this file.
+using MorelloOp = uint32_t;
+constexpr MorelloOp MorelloInstruction = 0x02000000;
+constexpr MorelloOp MorelloAddSub = MorelloInstruction | 0x00000000;
+constexpr MorelloOp MorelloLoadStoreMisc1 = MorelloInstruction | 0x20000000;
+constexpr MorelloOp MorelloLoadStoreMisc2 = MorelloInstruction | 0x40000000;
+constexpr MorelloOp MorelloLoadStoreMisc3 = MorelloInstruction | 0x60000000;
+constexpr MorelloOp MorelloLDRLiteral = MorelloInstruction | 0x80000000; // TODO: consider refactoring. These ones are a little strange...
+constexpr MorelloOp MorelloLoadStoreAlternateBase = MorelloInstruction | 0x80000000;
+constexpr MorelloOp MorelloLoadStoreMisc4 = MorelloInstruction | 0xA0000000;
+constexpr MorelloOp MorelloLoadStoreUnsigned = MorelloInstruction | 0xC0000000;
+constexpr MorelloOp MorelloSysReg = MorelloInstruction | 0xC0000000;
+constexpr MorelloOp MorelloAddExtended = MorelloInstruction | 0xC0000000;
+constexpr MorelloOp MorelloMisc = MorelloInstruction | 0xC0000000;
+constexpr MorelloOp MorelloLoadStoreUnscaled = MorelloInstruction | 0xE0000000;
+
+constexpr MorelloOp MSR_CAP = MorelloSysReg | 0x00800000;
+constexpr MorelloOp MRS_CAP = MorelloSysReg | 0x00900000;
+
+constexpr MorelloOp STURNormalBase_CAP = MorelloLoadStoreMisc4 | 0x00000000;
+constexpr MorelloOp STURAlternateBase_CAP = MorelloLoadStoreMisc4 | 0x00800600;
+constexpr MorelloOp STURAlternateBaseIntegerWord_CAP = MorelloLoadStoreMisc4 | 0x00C00000;
+
+constexpr MorelloOp SCVALUE = MorelloMisc | 0x00C04000;
+constexpr MorelloOp SCBNDSE = MorelloMisc | 0x00C02000;
+constexpr MorelloOp SCFLGS = MorelloMisc | 0x00C0E000;
+constexpr MorelloOp SCOFF = MorelloMisc | 0x00C06000;
+
+constexpr MorelloOp BLR_CAP_indirect = MorelloMisc | 0x00C23000;
+
+// We use post-index LDP and pre-index STP because they're the ones used by the
+// PCC restriction example in CapableVMs' cheri-examples repo.
+constexpr MorelloOp LDP_CAP_post = MorelloLoadStoreMisc1 | 0x00C00000;
+constexpr MorelloOp STP_CAP_pre = MorelloLoadStoreMisc3 | 0x00B00000;
+
+constexpr MorelloOp CVTP_capability = MorelloMisc | 0x00C5B000;
+constexpr MorelloOp CVTP_pointer = MorelloMisc | 0x00C53000;
+#endif
 
 // Unimplemented and unallocated instructions. These are defined to make fixed
 // bit assertion easier.

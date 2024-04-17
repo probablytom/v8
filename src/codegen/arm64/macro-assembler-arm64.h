@@ -223,13 +223,18 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
   }
   void LeaveFrame(StackFrame::Type type);
 
+  #ifdef CHERI_HYBRID
+  void EnterCheriCompartment();
+  void ExitCheriCompartment();
+  #endif
+
   inline void InitializeRootRegister();
 
   void Mov(const Register& rd, const Operand& operand,
            DiscardMoveMode discard_mode = kDontDiscardForSameWReg);
   void Mov(const Register& rd, uint64_t imm);
   void Mov(const VRegister& vd, int vd_index, const VRegister& vn,
-           int vn_index) {
+          int vn_index) {
     DCHECK(allow_macro_instructions());
     mov(vd, vd_index, vn, vn_index);
   }
@@ -1447,6 +1452,18 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
 
   inline void Mrs(const Register& rt, SystemRegister sysreg);
   inline void Msr(SystemRegister sysreg, const Register& rt);
+
+#ifdef CHERI_HYBRID
+  inline void Mrs(const CRegister& rt, SystemRegister sysreg);
+  inline void Msr(SystemRegister sysreg, const CRegister& rt);
+  inline void Blr(const CRegister& cn);
+  inline void Cvtp(const CRegister& cd, const Register& rn);
+  inline void Cvtp(const Register& rd, const CRegister& cn);
+  inline void Scbndse(const CRegister& cd, const CRegister& cn, const Register& rm);
+  inline void Scvalue(const CRegister& cd, const CRegister& cn, const Register& rm);
+  inline void Scflgs(const CRegister& cd, const CRegister& cn, const Register& rm);
+  inline void Scoff(const CRegister& cd, const CRegister& cn, const Register& rm);
+#endif
 
   // Prologue claims an extra slot due to arm64's alignement constraints.
   static constexpr int kExtraSlotClaimedByPrologue = 1;

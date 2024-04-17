@@ -35,6 +35,20 @@ namespace internal {
          R(x19) R(x20) R(x21) R(x22) R(x23) R(x24) R(x25) \
   R(x27)
 
+#ifdef CHERI_HYBRID
+#define CAPABILITY_REGISTER_CODE_LIST(R)                  \
+  R(0)  R(1)  R(2)  R(3)  R(4)  R(5)  R(6)  R(7)          \
+  R(8)  R(9)  R(10) R(11) R(12) R(13) R(14) R(15)         \
+  R(16) R(17) R(18) R(19) R(20) R(21) R(22) R(23)         \
+  R(24) R(25) R(26) R(27) R(28) R(29) R(30) R(31)
+
+#define CAPABILITY_REGISTERS(R)                           \
+  R(c0)  R(c1)  R(c2)  R(c3)  R(c4)  R(c5)  R(c6)  R(c7)  \
+  R(c8)  R(c9)  R(c10) R(c11) R(c12) R(c13) R(c14) R(c15) \
+  R(c16) R(c17) R(c18) R(c19) R(c20) R(c21) R(c22) R(c23) \
+  R(c24) R(c25) R(c26) R(c27) R(c28) R(c29) R(c30) R(c31)
+#endif
+
 #ifdef V8_COMPRESS_POINTERS
 #define MAYBE_ALLOCATABLE_GENERAL_REGISTERS(R)
 #else
@@ -96,7 +110,7 @@ enum RegisterCode {
 
 class CPURegister : public RegisterBase<CPURegister, kRegAfterLast> {
  public:
-  enum RegisterType : int8_t { kRegister, kVRegister, kNoRegister };
+  enum RegisterType : int8_t { kRegister, kVRegister, kCRegister, kNoRegister };
 
   static constexpr CPURegister no_reg() {
     return CPURegister{kCode_no_reg, 0, kNoRegister};
@@ -153,13 +167,16 @@ class CPURegister : public RegisterBase<CPURegister, kRegAfterLast> {
   bool IsZero() const;
   bool IsSP() const;
 
-  bool IsRegister() const { return reg_type_ == kRegister; }
+  bool IsRegister() const { return reg_type_ == kRegister || reg_type_ == kCRegister; }
   bool IsVRegister() const { return reg_type_ == kVRegister; }
 
   bool IsFPRegister() const { return IsS() || IsD(); }
 
   bool IsW() const { return IsRegister() && Is32Bits(); }
   bool IsX() const { return IsRegister() && Is64Bits(); }
+#ifdef CHERI_HYBRID
+  bool IsC() const { return IsRegister() && Is128Bits(); }
+#endif
 
   // These assertions ensure that the size and type of the register are as
   // described. They do not consider the number of lanes that make up a vector.
@@ -185,6 +202,9 @@ class CPURegister : public RegisterBase<CPURegister, kRegAfterLast> {
   VRegister D() const;
   VRegister S() const;
   VRegister Q() const;
+#ifdef CHERI_HYBRID
+  Register C() const;
+#endif
 
   bool IsSameSizeAndType(const CPURegister& other) const;
 
@@ -224,8 +244,17 @@ class CPURegister : public RegisterBase<CPURegister, kRegAfterLast> {
            code < kNumberOfVRegisters;
   }
 
+  #ifdef CHERI_HYBRID
+  static constexpr bool IsValidCRegister(int code, int size) {
+    return size == kCRegSizeInBits && code < kNumberOfCRegisters;
+  }
+  #endif
+
   static constexpr bool IsValid(int code, int size, RegisterType type) {
     return (type == kRegister && IsValidRegister(code, size)) ||
+    #ifdef CHERI_HYBRID
+           (type == kCRegister && IsValidCRegister(code, size)) ||
+    #endif
            (type == kVRegister && IsValidVRegister(code, size));
   }
 
@@ -246,8 +275,15 @@ class Register : public CPURegister {
     return Register(CPURegister::Create(code, size, CPURegister::kRegister));
   }
 
+  static constexpr Register Create(int code, int size, RegisterType type) {
+    return Register(CPURegister::Create(code, size, type));
+  }
+
   static Register XRegFromCode(unsigned code);
   static Register WRegFromCode(unsigned code);
+#ifdef CHERI_HYBRID
+  static Register CRegFromCode(unsigned code);
+#endif
 
   static constexpr Register from_code(int code) {
     // Always return an X register.
@@ -265,6 +301,35 @@ class Register : public CPURegister {
 ASSERT_TRIVIALLY_COPYABLE(Register);
 static_assert(sizeof(Register) <= sizeof(int),
               "Register can efficiently be passed by value");
+
+#ifdef CHERI_HYBRID
+class CRegister : public CPURegister {
+ public:
+  static constexpr CRegister no_reg() { return CRegister(CPURegister::no_reg()); }
+
+  static constexpr CRegister Create(int code, int size) {
+    return CRegister(CPURegister::Create(code, size, CPURegister::kCRegister));
+  }
+
+  static CRegister CRegFromCode(unsigned code);
+
+  static constexpr CRegister from_code(int code) {
+    // Always return a C register.
+    return CRegister::Create(code, kCRegSizeInBits);
+  }
+
+  static const char* GetSpecialRegisterName(int code) {
+    return "UNKNOWN";
+  }
+
+ private:
+  constexpr explicit CRegister(const CPURegister& r) : CPURegister(r) {}
+};
+
+ASSERT_TRIVIALLY_COPYABLE(CRegister);
+static_assert(sizeof(CRegister) <= sizeof(int),
+              "Capability register can efficiently be passed by value");
+#endif // CHERI_HYBRID
 
 // Assign |source| value to |no_reg| and return the |source|'s previous value.
 inline Register ReassignRegister(Register& source) {
@@ -475,6 +540,13 @@ constexpr VRegister no_dreg = NoVReg;
 GENERAL_REGISTER_CODE_LIST(DEFINE_REGISTERS)
 #undef DEFINE_REGISTERS
 
+#ifdef CHERI_HYBRID
+#define DEFINE_REGISTERS(N)                            \
+  DEFINE_REGISTER(CRegister, c##N, N, kCRegSizeInBits);
+CAPABILITY_REGISTER_CODE_LIST(DEFINE_REGISTERS)
+#undef DEFINE_REGISTERS
+#endif
+
 DEFINE_REGISTER(Register, wsp, kSPRegInternalCode, kWRegSizeInBits);
 DEFINE_REGISTER(Register, sp, kSPRegInternalCode, kXRegSizeInBits);
 
@@ -583,6 +655,9 @@ using Simd128Register = VRegister;
 // Define a {RegisterName} method for {Register} and {VRegister}.
 DEFINE_REGISTER_NAMES(Register, GENERAL_REGISTERS)
 DEFINE_REGISTER_NAMES(VRegister, VECTOR_REGISTERS)
+#ifdef CHERI_HYBRID
+DEFINE_REGISTER_NAMES(CRegister, CAPABILITY_REGISTERS)
+#endif
 
 // Give alias names to registers for calling conventions.
 constexpr Register kReturnRegister0 = x0;
