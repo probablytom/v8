@@ -1294,6 +1294,16 @@ void Assembler::LoadStorePair(const CPURegister& rt, const CPURegister& rt2,
   Instr memop = op | Rt(rt) | Rt2(rt2) | RnSP(addr.base()) |
                 ImmLSPair(offset, CalcLSPairDataSize(op));
 
+#ifdef CHERI_HYBRID
+  // We currently support very few load/store pair ops for cheri, so don't go
+  // messing with additional bits if we're working with morello instructions —
+  // `memop` is already correct.
+  if (rt.IsC()) {
+    Emit(memop);
+    return;
+  }
+#endif
+
   Instr addrmodeop;
   if (addr.IsImmediateOffset()) {
     addrmodeop = LoadStorePairOffsetFixed;
@@ -2402,6 +2412,49 @@ void Assembler::msr(SystemRegister sysreg, const Register& rt) {
   DCHECK(rt.Is64Bits());
   Emit(MSR | Rt(rt) | ImmSystemRegister(sysreg));
 }
+
+#ifdef CHERI_HYBRID
+// TODO: I imagine there should be some DCHECKs in these instruction impls…
+void Assembler::msr(SystemRegister sysreg, const CRegister& rt) {
+  Emit(MSR_CAP | Rt(rt) | ImmSystemRegister(sysreg));
+}
+
+void Assembler::mrs(const CRegister& rt, SystemRegister sysreg) {
+    Emit(MRS_CAP | ImmSystemRegister(sysreg) | Rt(rt));
+}
+
+// Branch and link to capability register
+void Assembler::blr(const CRegister& cn) {
+  DCHECK(cn.Is128Bits());
+  Emit(BLR_CAP_indirect | Rn(cn));
+}
+
+// To capability
+void Assembler::cvtp(const CRegister& cd, const Register& rn) {
+  Emit(CVTP_capability | Rn(rn) | Rd(cd));
+}
+
+// To pointer
+void Assembler::cvtp(const Register& rd, const CRegister& cn) {
+  Emit(CVTP_pointer | Rn(cn) | Rd(rd));
+}
+
+void Assembler::scvalue(const CRegister& cd, const CRegister& cn, const Register& rm) {
+  Emit(SCVALUE | Rd(cd) | Rn(cn) | Rm(rm));
+}
+
+void Assembler::scbndse(const CRegister& cd, const CRegister& cn, const Register& rm) {
+  Emit(SCBNDSE | Rd(cd) | Rn(cn) | Rm(rm));
+}
+
+void Assembler::scflgs(const CRegister& cd, const CRegister& cn, const Register& rm) {
+  Emit(SCFLGS | Rd(cd) | Rn(cn) | Rm(rm));
+}
+
+void Assembler::scoff(const CRegister& cd, const CRegister& cn, const Register& rm) {
+  Emit(SCOFF | Rd(cd) | Rn(cn) | Rm(rm));
+}
+#endif
 
 void Assembler::hint(SystemHint code) { Emit(HINT | ImmHint(code) | Rt(xzr)); }
 
