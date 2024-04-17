@@ -840,7 +840,13 @@ void Generate_JSEntryVariant(MacroAssembler* masm, StackFrame::Type type,
   //
   // Invoke the function by calling through JS entry trampoline builtin and
   // pop the faked function when we return.
+  #ifdef CHERI_HYBRID
+  __ EnterCheriCompartment();
+  #endif
   __ CallBuiltin(entry_trampoline);
+  #ifdef CHERI_HYBRID
+  __ ExitCheriCompartment();
+  #endif
 
   // Pop the stack handler and unlink this frame from the handler chain.
   static_assert(StackHandlerConstants::kNextOffset == 0 * kSystemPointerSize,

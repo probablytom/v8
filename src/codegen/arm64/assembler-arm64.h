@@ -1552,6 +1552,36 @@ class V8_EXPORT_PRIVATE Assembler : public AssemblerBase {
   // Move from register to system register.
   void msr(SystemRegister sysreg, const Register& rt);
 
+#ifdef CHERI_HYBRID
+  // System instructions.
+  // Move to register from system register.
+  void mrs(const CRegister& rt, SystemRegister sysreg);
+
+  // Move from register to system register.
+  void msr(SystemRegister sysreg, const CRegister& rt);
+
+  // Branch and link to capability register
+  void blr(const CRegister& cn);
+
+  // Convert pointer to capability offset (from PCC)
+  void cvtp(const CRegister& rd, const Register& rn);
+
+  // Convert capability offset to pointer (from PCC)
+  void cvtp(const Register& rd, const CRegister& rn);
+
+  // Set value field of a capability
+  void scvalue(const CRegister& cd, const CRegister& cn, const Register& rm);
+
+  // Set bounds of a capability (exactly, clearing capability tag if inexact)
+  void scbndse(const CRegister& cd, const CRegister& cn, const Register& rm);
+
+  // Set flags field of a capability
+  void scflgs(const CRegister& cd, const CRegister& cn, const Register& rm);
+
+  // Set offset field of a capability
+  void scoff(const CRegister& cd, const CRegister& cn, const Register& rm);
+#endif
+
   // System hint.
   void hint(SystemHint code);
 

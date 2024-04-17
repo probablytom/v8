@@ -1372,6 +1372,12 @@ void MacroAssembler::PushCalleeSavedRegisters() {
 
     stp(x29, x30, tos);  // fp, lr
 
+// Also push the current DDC if operating in hybrid CHERI
+// #ifdef CHERI_HYBRID
+//     mrs(c16, DDC);
+//     str(c16, tos);
+// #endif
+
     static_assert(
         EntryFrameConstants::kCalleeSavedRegisterBytesPushedAfterFpLrPair == 0);
 }
@@ -4656,6 +4662,49 @@ void CallApiFunctionAndReturn(MacroAssembler* masm, bool with_profiling,
     __ B(&leave_exit_frame);
   }
 }
+
+#ifdef CHERI_HYBRID
+void MacroAssembler::EnterCheriCompartment() {
+  // TODO: implement. Requires instructions to be implemented. 
+  // TODO: restrict DDC
+  // TODO: restrict PCC
+
+  // Note that there are some direct references to heap objects
+  // (v8/src/heap/factory.cc:220) and jumps to at least baseline code
+  // (v8/src/baseline/baseline-compiler.cc:308), so we know there are edge cases
+  // for both of these restrictions. However, both seem well marked already: there
+  // are "valid indirect jump targets" which presumably get jumped to specially,
+  // so we can jump to those with exit/enter trampoline instructions inserted, and
+  // references to external things seem to get external treatment — there's a
+  // `Finalize` call at v8/src/heap/factory.cc:227 which gives a hint as to how
+  // this works for example, see the implementation of `Finalize` — so perhaps
+  // there's useful structure in place to help us identify external references and
+  // jumps.
+
+  // Note that the existing DDC should be saved somewhere sensible when entering
+  // the cheri compartment. That might mean entering somewhere within the
+  // prologue, rather than where EnterCheriCompartment is called just now, to
+  // avoid clobbering registers.
+
+  {
+    // TODO: stash the old c16 compartment value so that we can continually
+    // restrict the compartment…this might want to happen in the prelude?! Yet
+    // to pay any attention to it.
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.AcquireX();
+    Mrs(c16, DDC); // Grab a copy of the DDC in c16
+    Mov(scratch, 0xFFFFFFFF);
+    Scvalue(c16, c16, scratch); // Set the address to 0xFFFFFFFF, which is obviously wild
+    Scbndse(c16, c16, scratch); // Set the bounds to 0xFFFFFFFF, which is theoretically v permissive
+    Msr(DDC, c16); // Install to DDC
+  }
+}
+
+void MacroAssembler::ExitCheriCompartment() {
+  // TODO
+}
+#endif
+
 
 }  // namespace internal
 }  // namespace v8
