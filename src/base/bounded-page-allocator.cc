@@ -30,7 +30,12 @@ size_t BoundedPageAllocator::size() const { return region_allocator_.size(); }
 
 void* BoundedPageAllocator::AllocatePages(void* hint, size_t size,
                                           size_t alignment,
+#if defined(CHERI_HYBRID)
+                                          PageAllocator::Permission access,
+                                          PageAllocator::Permission max_access) {
+#else
                                           PageAllocator::Permission access) {
+#endif // CHERI_HYBRID
   MutexGuard guard(&mutex_);
   DCHECK(IsAligned(alignment, region_allocator_.page_size()));
   DCHECK(IsAligned(alignment, allocate_page_size_));

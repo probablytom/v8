@@ -55,8 +55,13 @@ Address CodeRangeAddressHint::GetAddressHint(size_t code_range_size,
       // with a higher chances to point to the free address space range.
       return RoundUp(preferred_region.begin(), alignment);
     }
+#if defined(CHERI_HYBRID)
+    return static_cast<ptraddr_t>(RoundUp(FUNCTION_ADDR(&FunctionInStaticBinaryForAddressHint),
+                                  alignment));
+#else
     return RoundUp(FUNCTION_ADDR(&FunctionInStaticBinaryForAddressHint),
                    alignment);
+#endif
   }
 
   // Try to reuse near code range first.
@@ -381,7 +386,12 @@ uint8_t* CodeRange::RemapEmbeddedBuiltins(Isolate* isolate,
   embedded_blob_code_copy =
       reinterpret_cast<uint8_t*>(page_allocator()->AllocatePages(
           hint, allocate_code_size, kAllocatePageSize,
+#if defined(CHERI_HYBRID)
+          PageAllocator::kNoAccessWillJitLater,
           PageAllocator::kNoAccessWillJitLater));
+#else
+          PageAllocator::kNoAccessWillJitLater));
+#endif // CHERI_HYBRID
 
   if (!embedded_blob_code_copy) {
     V8::FatalProcessOutOfMemory(
@@ -402,7 +412,12 @@ uint8_t* CodeRange::RemapEmbeddedBuiltins(Isolate* isolate,
 
       void* result = page_allocator()->AllocatePages(
           reinterpret_cast<void*>(unreachable_start), unreachable_size,
+#if defined(CHERI_HYBRID)
+          kAllocatePageSize, PageAllocator::kNoAccess,
+          PageAllocator::kNoAccess);
+#else
           kAllocatePageSize, PageAllocator::kNoAccess);
+#endif // CHERI_HYBRID
       CHECK_EQ(reinterpret_cast<Address>(result), unreachable_start);
     }
   }

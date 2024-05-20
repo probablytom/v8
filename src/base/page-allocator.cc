@@ -43,17 +43,29 @@ void* PageAllocator::GetRandomMmapAddr() {
 }
 
 void* PageAllocator::AllocatePages(void* hint, size_t size, size_t alignment,
+#if defined(CHERI_HYBRID)
+                                   PageAllocator::Permission access,
+                                   PageAllocator::Permission max_access) {
+#else
                                    PageAllocator::Permission access) {
+#endif // !__CHERI_PURE_CAPABILITY
 #if !V8_HAS_PTHREAD_JIT_WRITE_PROTECT && !V8_HAS_BECORE_JIT_WRITE_PROTECT
   // kNoAccessWillJitLater is only used on Apple Silicon. Map it to regular
   // kNoAccess on other platforms, so code doesn't have to handle both enum
   // values.
+#if !defined(CHERI_HYBRID)
   if (access == PageAllocator::kNoAccessWillJitLater) {
     access = PageAllocator::kNoAccess;
   }
+#endif // !__CHERI_PURE_CAPABILITY
 #endif
   return base::OS::Allocate(hint, size, alignment,
+#if defined(CHERI_HYBRID)
+                            static_cast<base::OS::MemoryPermission>(access),
+                            static_cast<base::OS::MemoryPermission>(max_access));
+#else
                             static_cast<base::OS::MemoryPermission>(access));
+#endif // CHERI_HYBRID
 }
 
 class SharedMemoryMapping : public ::v8::PageAllocator::SharedMemoryMapping {

@@ -185,7 +185,12 @@ class ShellArrayBufferAllocator : public ArrayBufferAllocatorBase {
     size_t page_size = page_allocator->AllocatePageSize();
     size_t allocated = RoundUp(length, page_size);
     return i::AllocatePages(page_allocator, nullptr, allocated, page_size,
+#if (CHERI_HYBRID)
+                            PageAllocator::kReadWrite,
                             PageAllocator::kReadWrite);
+#else
+                            PageAllocator::kReadWrite);
+#endif // CHERI_HYBRID
   }
 
   void FreeVM(void* data, size_t length) {

@@ -504,7 +504,12 @@ class PageAllocator {
    * Allocates memory in range with the given alignment and permission.
    */
   virtual void* AllocatePages(void* address, size_t length, size_t alignment,
+#if defined(CHERI_HYBRID)
+                              Permission permissions,
+                              Permission max_permissions) = 0;
+#else
                               Permission permissions) = 0;
+#endif // CHERI_HYBRID
 
   /**
    * Frees memory in a range that was allocated by a call to AllocatePages.

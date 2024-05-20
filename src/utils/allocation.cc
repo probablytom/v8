@@ -162,7 +162,12 @@ void* GetRandomMmapAddr() {
 }
 
 void* AllocatePages(v8::PageAllocator* page_allocator, void* hint, size_t size,
+#if defined(CHERI_HYBRID)
+                    size_t alignment, PageAllocator::Permission access,
+                    PageAllocator::Permission max_access) {
+#else
                     size_t alignment, PageAllocator::Permission access) {
+#endif // !__CHERI_PURE_CAPABILITY
   DCHECK_NOT_NULL(page_allocator);
   DCHECK(IsAligned(reinterpret_cast<Address>(hint), alignment));
   DCHECK(IsAligned(size, page_allocator->AllocatePageSize()));
@@ -171,7 +176,12 @@ void* AllocatePages(v8::PageAllocator* page_allocator, void* hint, size_t size,
   }
   void* result = nullptr;
   for (int i = 0; i < kAllocationTries; ++i) {
+#if defined(CHERI_HYBRID)
+    result = page_allocator->AllocatePages(hint, size, alignment, access,
+					   max_access);
+#else
     result = page_allocator->AllocatePages(hint, size, alignment, access);
+#endif // !__CHERI_PURE_CAPABILITY
     if (V8_LIKELY(result != nullptr)) break;
     OnCriticalMemoryPressure();
   }
@@ -216,7 +226,7 @@ VirtualMemory::VirtualMemory(v8::PageAllocator* page_allocator, size_t size,
   size_t page_size = page_allocator_->AllocatePageSize();
   alignment = RoundUp(alignment, page_size);
   Address address = reinterpret_cast<Address>(AllocatePages(
-      page_allocator_, hint, RoundUp(size, page_size), alignment, permissions));
+  page_allocator_, hint, RoundUp(size, page_size), alignment, permissions, permissions));
   if (address != kNullAddress) {
     DCHECK(IsAligned(address, alignment));
     region_ = base::AddressRegion(address, size);

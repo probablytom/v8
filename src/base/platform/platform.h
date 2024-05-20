@@ -368,8 +368,12 @@ class V8_BASE_EXPORT OS {
 
   V8_WARN_UNUSED_RESULT static void* Allocate(void* address, size_t size,
                                               size_t alignment,
+#if defined(CHERI_HYBRID)
+                                              MemoryPermission access,
+                                              MemoryPermission max_access);
+#else
                                               MemoryPermission access);
-
+#endif // CHERI_HYBRID
   V8_WARN_UNUSED_RESULT static void* AllocateShared(size_t size,
                                                     MemoryPermission access);
 
@@ -451,7 +455,12 @@ class V8_BASE_EXPORT AddressSpaceReservation {
   }
 
   V8_WARN_UNUSED_RESULT bool Allocate(void* address, size_t size,
+#if defined(CHERI_HYBRID)
+                                      OS::MemoryPermission access,
+                                      OS::MemoryPermission max_access);
+#else
                                       OS::MemoryPermission access);
+#endif // CHERI_HYBRID
 
   V8_WARN_UNUSED_RESULT bool Free(void* address, size_t size);
 

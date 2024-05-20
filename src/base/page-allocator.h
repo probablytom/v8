@@ -31,7 +31,12 @@ class V8_BASE_EXPORT PageAllocator
   void* GetRandomMmapAddr() override;
 
   void* AllocatePages(void* hint, size_t size, size_t alignment,
+#if defined(CHERI_HYBRID)
+                      PageAllocator::Permission access,
+                      PageAllocator::Permission max_access) override;
+#else
                       PageAllocator::Permission access) override;
+#endif // CHERI_HYBRID
 
   bool CanAllocateSharedPages() override;
 

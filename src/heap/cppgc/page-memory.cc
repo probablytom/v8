@@ -55,7 +55,12 @@ v8::base::Optional<MemoryRegion> ReserveMemoryRegion(PageAllocator& allocator,
                                                      size_t allocation_size) {
   void* region_memory =
       allocator.AllocatePages(nullptr, allocation_size, kPageSize,
+#if defined(CHERI_HYBRID)
+                              PageAllocator::Permission::kNoAccess,
+                              PageAllocator::Permission::kReadWrite);
+#else
                               PageAllocator::Permission::kNoAccess);
+#endif // CHERI_HYBRID
   if (!region_memory) {
     return v8::base::nullopt;
   }

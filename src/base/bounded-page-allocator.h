@@ -90,7 +90,12 @@ class V8_BASE_EXPORT BoundedPageAllocator : public v8::PageAllocator {
   }
 
   void* AllocatePages(void* hint, size_t size, size_t alignment,
+#if defined(CHERI_HYBRID)
+                      Permission access,
+                      Permission max_access) override;
+#else
                       Permission access) override;
+#endif // CHERI_HYBRID
 
   bool ReserveForSharedMemoryMapping(void* address, size_t size) override;
 

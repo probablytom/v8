@@ -27,6 +27,10 @@ class PosixTimezoneCache : public TimezoneCache {
 
 #if !V8_OS_FUCHSIA
 int GetProtectionFromMemoryPermission(OS::MemoryPermission access);
+#if defined(CHERI_HYBRID)
+int GetProtectionFromMemoryPermission(OS::MemoryPermission access,
+		                       OS::MemoryPermission max_access);
+#endif // CHERI_HYBRID
 #endif
 
 }  // namespace base

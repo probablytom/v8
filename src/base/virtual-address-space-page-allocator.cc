@@ -13,7 +13,12 @@ VirtualAddressSpacePageAllocator::VirtualAddressSpacePageAllocator(
 
 void* VirtualAddressSpacePageAllocator::AllocatePages(
     void* hint, size_t size, size_t alignment,
+#if defined(CHERI_HYBRID)
+    PageAllocator::Permission access,
+    PageAllocator::Permission max_access) {
+#else
     PageAllocator::Permission access) {
+#endif // CHERI_HYBRID
   return reinterpret_cast<void*>(
       vas_->AllocatePages(reinterpret_cast<Address>(hint), size, alignment,
                           static_cast<PagePermissions>(access)));
