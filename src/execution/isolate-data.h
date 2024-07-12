@@ -82,7 +82,21 @@ class Isolate;
   V(kBuiltinEntryTableOffset, Builtins::kBuiltinCount* kSystemPointerSize,     \
     builtin_entry_table)                                                       \
   V(kBuiltinTableOffset, Builtins::kBuiltinCount* kSystemPointerSize,          \
-    builtin_table)
+    builtin_table)                                                            \
+  ISOLATE_CHERI_DATA_FIELDS(V)                                                
+
+#ifdef CHERI_HYBRID
+#define ISOLATE_CHERI_DATA_FIELDS(V)                                                            \
+  V(kCapabilityEntryTablesAlignmentPaddingOffset, 8, capability_entry_tables_alignment_padding) \
+  V(kBuiltinEntryCapabilityTableOffset, Builtins::kBuiltinCount* sizeof(void* __capability),    \
+    builtin_entry_capability_table)                                                             \
+  V(kBuiltinCapabilityTableOffset, Builtins::kBuiltinCount* sizeof(void* __capability),         \
+    builtin_capability_table)                                                                   \
+  V(kSuperPCCOffset, sizeof(void *__capability), super_pcc)                                     \
+  V(kSuperDDCOffset, sizeof(void *__capability), super_ddc)
+#else
+#define ISOLATE_CHERI_DATA_FIELDS(V)
+#endif // CHERI_HYBRID
 
 #ifdef V8_COMPRESS_POINTERS
 #define ISOLATE_DATA_FIELDS_POINTER_COMPRESSION(V)            \
@@ -242,9 +256,9 @@ class IsolateData final {
   // the beginning of IsolateData.
 #define FIELDS(V)                                                      \
   ISOLATE_DATA_FIELDS(V)                                               \
-  /* This padding aligns IsolateData size by 8 bytes. */               \
+  /* This padding aligns IsolateData size by 16 bytes. */               \
   V(kPaddingOffset,                                                    \
-    8 + RoundUp<8>(static_cast<int>(kPaddingOffset)) - kPaddingOffset) \
+    16 + RoundUp<16>(static_cast<int>(kPaddingOffset)) - kPaddingOffset) \
   /* Total size. */                                                    \
   V(kSize, 0)
 
@@ -364,13 +378,26 @@ class IsolateData final {
   // The entries in this array are tagged pointers to Code objects.
   Address builtin_table_[Builtins::kBuiltinCount] = {};
 
-  // Ensure the size is 8-byte aligned in order to make alignment of the field
+
+#ifdef CHERI_HYBRID
+  // For escaping compartments, we make copies of the builtin tables.
+  // capability_entry_tables_alignment_padding_ ensures they're aligned correctly.
+  static_assert(FIELD_SIZE(kCapabilityEntryTablesAlignmentPaddingOffset) > 0);
+  uint8_t capability_entry_tables_alignment_padding_[FIELD_SIZE(kCapabilityEntryTablesAlignmentPaddingOffset)];
+
+  void* __capability builtin_entry_capability_table_[Builtins::kBuiltinCount];
+  void* __capability builtin_capability_table_[Builtins::kBuiltinCount];
+  void *__capability super_pcc_;
+  void *__capability super_ddc_;
+#endif
+
+  // Ensure the size is 16-byte aligned in order to make alignment of the field
   // following the IsolateData field predictable. This solves the issue with
   // C++ compilers for 32-bit platforms which are not consistent at aligning
   // int64_t fields.
   // In order to avoid dealing with zero-size arrays the padding size is always
-  // in the range [8, 15).
-  static_assert(kPaddingOffsetEnd + 1 - kPaddingOffset >= 8);
+  // in the range [16, 31).
+  static_assert(kPaddingOffsetEnd + 1 - kPaddingOffset >= 16);
   char padding_[kPaddingOffsetEnd + 1 - kPaddingOffset];
 
   V8_INLINE static void AssertPredictableLayout();

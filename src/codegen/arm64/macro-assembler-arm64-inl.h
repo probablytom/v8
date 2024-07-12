@@ -946,6 +946,38 @@ void MacroAssembler::Blr(const CRegister& cn) {
   blr(cn);
 }
 
+void MacroAssembler::Blrr(const CRegister& cn) {
+  DCHECK(allow_macro_instructions());
+  DCHECK(!cn.IsZero());
+  blrr(cn);
+}
+
+void MacroAssembler::Brr(const CRegister& cn) {
+  DCHECK(allow_macro_instructions());
+  DCHECK(!cn.IsZero());
+  brr(cn);
+}
+
+void MacroAssembler::Cvt(const CRegister& cd, const CRegister& cn, const Register& rm) {
+  DCHECK(allow_macro_instructions());
+  cvt(cd, cn, rm);
+}
+
+void MacroAssembler::Cvt(const Register& rd, const CRegister& cn, const CRegister& cm) {
+  DCHECK(allow_macro_instructions());
+  cvt(rd, cn, cm);
+}
+
+void MacroAssembler::Cvtd(const CRegister& cd, const Register& rn) {
+  DCHECK(allow_macro_instructions());
+  cvtd(cd, rn);
+}
+
+void MacroAssembler::Cvtd(const Register& rd, const CRegister& cn) {
+  DCHECK(allow_macro_instructions());
+  cvtd(rd, cn);
+}
+
 void MacroAssembler::Cvtp(const CRegister& cd, const Register& rn) {
   DCHECK(allow_macro_instructions());
   cvtp(cd, rn);
@@ -954,6 +986,56 @@ void MacroAssembler::Cvtp(const CRegister& cd, const Register& rn) {
 void MacroAssembler::Cvtp(const Register& rd, const CRegister& cn) {
   DCHECK(allow_macro_instructions());
   cvtp(rd, cn);
+}
+
+void MacroAssembler::Gcbase(const CRegister& cn, const Register& rd) {
+  DCHECK(allow_macro_instructions());
+  gcbase(cn, rd);
+}
+
+void MacroAssembler::Gcflgs(const CRegister& cn, const Register& rd) {
+  DCHECK(allow_macro_instructions());
+  gcflgs(cn, rd);
+}
+
+void MacroAssembler::Gclen(const CRegister& cn, const Register& rd) {
+  DCHECK(allow_macro_instructions());
+  gclen(cn, rd);
+}
+
+void MacroAssembler::Gclim(const CRegister& cn, const Register& rd) {
+  DCHECK(allow_macro_instructions());
+  gclim(cn, rd);
+}
+
+void MacroAssembler::Gcoff(const CRegister& cn, const Register& rd) {
+  DCHECK(allow_macro_instructions());
+  gcoff(cn, rd);
+}
+
+void MacroAssembler::Gcperm(const CRegister& cn, const Register& rd) {
+  DCHECK(allow_macro_instructions());
+  gcperm(cn, rd);
+}
+
+void MacroAssembler::Gcseal(const CRegister& cn, const Register& rd) {
+  DCHECK(allow_macro_instructions());
+  gcseal(cn, rd);
+}
+
+void MacroAssembler::Gctag(const CRegister& cn, const Register& rd) {
+  DCHECK(allow_macro_instructions());
+  gctag(cn, rd);
+}
+
+void MacroAssembler::Gctype(const CRegister& cn, const Register& rd) {
+  DCHECK(allow_macro_instructions());
+  gctype(cn, rd);
+}
+
+void MacroAssembler::Gcvalue(const CRegister& cn, const Register& rd) {
+  DCHECK(allow_macro_instructions());
+  gcvalue(cn, rd);
 }
 
 void MacroAssembler::Scvalue(const CRegister& cd, const CRegister& cn, const Register& rm) {
@@ -966,6 +1048,11 @@ void MacroAssembler::Scbndse(const CRegister& cd, const CRegister& cn, const Reg
   scbndse(cd, cn, rm);
 }
 
+void MacroAssembler::Scbnds(const CRegister& cd, const CRegister& cn, const Register& rm) {
+  DCHECK(allow_macro_instructions());
+  scbnds(cd, cn, rm);
+}
+
 void MacroAssembler::Scflgs(const CRegister& cd, const CRegister& cn, const Register& rm) {
   DCHECK(allow_macro_instructions());
   scflgs(cd, cn, rm);
@@ -974,6 +1061,68 @@ void MacroAssembler::Scflgs(const CRegister& cd, const CRegister& cn, const Regi
 void MacroAssembler::Scoff(const CRegister& cd, const CRegister& cn, const Register& rm) {
   DCHECK(allow_macro_instructions());
   scoff(cd, cn, rm);
+}
+
+void MacroAssembler::Clrperm(const CRegister& cd, const CRegister& cn, const Register& rm) {
+  DCHECK(allow_macro_instructions());
+  clrperm(cd, cn, rm);
+}
+
+void MacroAssembler::Clrperm(const CRegister& cd, const CRegister& cn, const CapabilityPerms perms) {
+  DCHECK(allow_macro_instructions());
+  clrperm(cd, cn, perms);
+}
+
+void MacroAssembler::Br(const CRegister& cn) {
+  DCHECK(allow_macro_instructions());
+  br(cn);
+}
+
+void MacroAssembler::GetPCC(const Register& reg) {
+  Label currPos;
+  Adr(reg, &currPos);
+  Cvtp(reg.C(), reg);
+  Bind(&currPos);
+}
+
+void MacroAssembler::Ldr(const CRegister& ct, const CRegister& cn) {
+  DCHECK(allow_macro_instructions());
+  ldr(ct, cn);
+}
+
+void MacroAssembler::Ldr(const CRegister& ct, const Register& rn) {
+  DCHECK(allow_macro_instructions());
+  ldr(ct, rn);
+}
+
+void MacroAssembler::Str(const CRegister& ct, const CRegister& cn) {
+  DCHECK(allow_macro_instructions());
+  str(ct, cn);
+}
+
+void MacroAssembler::Str(const CRegister& ct, const Register& rn) {
+  DCHECK(allow_macro_instructions());
+  str(ct, rn);
+}
+
+void MacroAssembler::Swp(const CRegister& regSourceDest, const CRegister& regAddr) {
+  DCHECK(allow_macro_instructions());
+  swp(regSourceDest, regSourceDest, regAddr);
+}
+
+void MacroAssembler::Swp(const CRegister& regSourceDest, const Register& regAddr) {
+  DCHECK(allow_macro_instructions());
+  swp(regSourceDest, regSourceDest, regAddr);
+}
+
+void MacroAssembler::Swp(const CRegister& regSource, const CRegister& regDest, const CRegister& regAddr) {
+  DCHECK(allow_macro_instructions());
+  swp(regSource, regDest, regAddr);
+}
+
+void MacroAssembler::Swp(const CRegister& regSource, const CRegister& regDest, const Register& regAddr) {
+  DCHECK(allow_macro_instructions());
+  swp(regSource, regDest, regAddr);
 }
 #endif // CHERI_HYBRID
 

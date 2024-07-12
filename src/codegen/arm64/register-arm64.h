@@ -100,6 +100,9 @@ namespace internal {
 // need to declare them in advance.
 class Register;
 class VRegister;
+#ifdef CHERI_HYBRID
+class CRegister;
+#endif
 
 enum RegisterCode {
 #define REGISTER_CODE(R) kRegCode_##R,
@@ -203,7 +206,7 @@ class CPURegister : public RegisterBase<CPURegister, kRegAfterLast> {
   VRegister S() const;
   VRegister Q() const;
 #ifdef CHERI_HYBRID
-  Register C() const;
+  CRegister C() const;
 #endif
 
   bool IsSameSizeAndType(const CPURegister& other) const;
@@ -296,6 +299,7 @@ class Register : public CPURegister {
 
  private:
   constexpr explicit Register(const CPURegister& r) : CPURegister(r) {}
+  friend class CRegister;
 };
 
 ASSERT_TRIVIALLY_COPYABLE(Register);
@@ -303,7 +307,7 @@ static_assert(sizeof(Register) <= sizeof(int),
               "Register can efficiently be passed by value");
 
 #ifdef CHERI_HYBRID
-class CRegister : public CPURegister {
+class CRegister : public Register {
  public:
   static constexpr CRegister no_reg() { return CRegister(CPURegister::no_reg()); }
 
@@ -318,17 +322,15 @@ class CRegister : public CPURegister {
     return CRegister::Create(code, kCRegSizeInBits);
   }
 
-  static const char* GetSpecialRegisterName(int code) {
-    return "UNKNOWN";
-  }
-
  private:
-  constexpr explicit CRegister(const CPURegister& r) : CPURegister(r) {}
+  constexpr explicit CRegister(const CPURegister& r) : Register(r) {}
 };
 
 ASSERT_TRIVIALLY_COPYABLE(CRegister);
 static_assert(sizeof(CRegister) <= sizeof(int),
               "Capability register can efficiently be passed by value");
+
+typedef uint32_t CapabilityPerms;
 #endif // CHERI_HYBRID
 
 // Assign |source| value to |no_reg| and return the |source|'s previous value.

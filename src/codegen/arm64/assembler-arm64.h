@@ -1553,6 +1553,9 @@ class V8_EXPORT_PRIVATE Assembler : public AssemblerBase {
   void msr(SystemRegister sysreg, const Register& rt);
 
 #ifdef CHERI_HYBRID
+  // Capability move between C registers — required for reading CSP…?
+  void mov(const CRegister& cd, const CRegister& cn);
+
   // System instructions.
   // Move to register from system register.
   void mrs(const CRegister& rt, SystemRegister sysreg);
@@ -1563,11 +1566,59 @@ class V8_EXPORT_PRIVATE Assembler : public AssemblerBase {
   // Branch and link to capability register
   void blr(const CRegister& cn);
 
+  // Branch and link to capability register, possibly entering restricted PE.
+  void blrr(const CRegister& cn);
+
+  // Branch and capability register, possibly entering restricted PE.
+  void brr(const CRegister& cn);
+
+  // Convert pointer to capability
+  void cvt(const CRegister& rd, const CRegister& cn, const Register& rm);
+
+  // Convert capability to pointer
+  void cvt(const Register& rd, const CRegister& cn, const CRegister& cm);
+
+  // Convert pointer to capability offset (from DDC)
+  void cvtd(const CRegister& rd, const Register& rn);
+
+  // Convert capability offset to pointer (from DDC)
+  void cvtd(const Register& rd, const CRegister& rn);
+
   // Convert pointer to capability offset (from PCC)
   void cvtp(const CRegister& rd, const Register& rn);
 
   // Convert capability offset to pointer (from PCC)
   void cvtp(const Register& rd, const CRegister& rn);
+
+  // Get capability base
+  void gcbase(const CRegister& cn, const Register& rd);
+
+  // Get capability flags
+  void gcflgs(const CRegister& cn, const Register& rd);
+
+  // Get capability length
+  void gclen(const CRegister& cn, const Register& rd);
+
+  // Get capability limit
+  void gclim(const CRegister& cn, const Register& rd);
+
+  // Get capability offset
+  void gcoff(const CRegister& cn, const Register& rd);
+
+  // Get capability permissions
+  void gcperm(const CRegister& cn, const Register& rd);
+
+  // Get capability sealed status (zero to rd if object type is zero, else 1)
+  void gcseal(const CRegister& cn, const Register& rd);
+
+  // Get capability tag
+  void gctag(const CRegister& cn, const Register& rd);
+
+  // Get capability object type
+  void gctype(const CRegister& cn, const Register& rd);
+
+  // Get capability value field
+  void gcvalue(const CRegister& cn, const Register& rd);
 
   // Set value field of a capability
   void scvalue(const CRegister& cd, const CRegister& cn, const Register& rm);
@@ -1575,11 +1626,32 @@ class V8_EXPORT_PRIVATE Assembler : public AssemblerBase {
   // Set bounds of a capability (exactly, clearing capability tag if inexact)
   void scbndse(const CRegister& cd, const CRegister& cn, const Register& rm);
 
+  // Set bounds of a capability (inexactly, currently only supporting register variant)
+  void scbnds(const CRegister& cd, const CRegister& cn, const Register& rm);
+
   // Set flags field of a capability
   void scflgs(const CRegister& cd, const CRegister& cn, const Register& rm);
 
   // Set offset field of a capability
   void scoff(const CRegister& cd, const CRegister& cn, const Register& rm);
+
+  // Clear permissions of a capability using value in a register
+  void clrperm(const CRegister& cd, const CRegister& cn, const CapabilityPerms perm);
+
+  // Clear permissions of a capability using value in a register
+  void clrperm(const CRegister& cd, const CRegister& cn, const Register& rm);
+
+  // Branch to a capability register with a hint that it's not a subroutine
+  // return.
+  void br(const CRegister& cn);
+
+  void str(const CRegister& ct, const CRegister& cn);
+  void str(const CRegister& ct, const Register& rn);
+  void ldr(const CRegister& ct, const CRegister& cn);
+  void ldr(const CRegister& ct, const Register& rn);
+
+  void swp(const CRegister& regSource, const CRegister& regDest, const CRegister& regAddr);
+  void swp(const CRegister& regSource, const CRegister& regDest, const Register& regAddr);
 #endif
 
   // System hint.
@@ -2749,6 +2821,18 @@ class V8_EXPORT_PRIVATE Assembler : public AssemblerBase {
   ptrdiff_t InstructionOffset(Instruction* instr) const {
     return reinterpret_cast<uint8_t*>(instr) - buffer_start_;
   }
+
+#ifdef CHERI_HYBRID
+  static Instr CapPerm(CPURegister perm_reg) {
+    DCHECK_NE(perm_reg.code(), kSPRegInternalCode);
+    return perm_reg.code() << CapabilityPermission_offset;
+  }
+
+  static Instr CapPerm(uint32_t perms_immediate) {
+    DCHECK(perms_immediate < 8); // TODO confirm num of perm options
+    return perms_immediate << CapabilityPermission_offset;
+  }
+#endif
 
   // Register encoding.
   static Instr Rd(CPURegister rd) {

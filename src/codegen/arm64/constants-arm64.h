@@ -272,10 +272,16 @@ using float16 = uint16_t;
   V_(NEONModImmOp, 29, 29, Bits)                        \
   V_(NEONCmode, 15, 12, Bits)                           \
                                                         \
+                                                        \
   /* NEON Shift Immediate fields */                     \
   V_(ImmNEONImmhImmb, 22, 16, Bits)                     \
   V_(ImmNEONImmh, 22, 19, Bits)                         \
   V_(ImmNEONImmb, 18, 16, Bits)
+
+#ifdef CHERI_HYBRID
+#define MORELLO_FIELDS_LIST(V_)        \
+  V_(CapabilityPermission, 15, 13, Bits)
+#endif
 
 #define SYSTEM_REGISTER_FIELDS_LIST(V_, M_) \
   /* NZCV */                                \
@@ -302,6 +308,9 @@ using float16 = uint16_t;
   DECLARE_FIELDS_OFFSETS(Name, HighBit, LowBit, unused_1, unused_2)
 INSTRUCTION_FIELDS_LIST(DECLARE_INSTRUCTION_FIELDS_OFFSETS)
 SYSTEM_REGISTER_FIELDS_LIST(DECLARE_FIELDS_OFFSETS, NOTHING)
+#ifdef CHERI_HYBRID
+MORELLO_FIELDS_LIST(DECLARE_INSTRUCTION_FIELDS_OFFSETS)
+#endif
 #undef DECLARE_FIELDS_OFFSETS
 #undef DECLARE_INSTRUCTION_FIELDS_OFFSETS
 
@@ -462,8 +471,26 @@ enum BarrierType {
 // multiple fields (Op0<0>, Op1, Crn, Crm, Op2).
 enum SystemRegister {
 #ifdef CHERI_HYBRID
-  DDC = ((0x1 << SysO0_offset) | (0x3 << SysOp1_offset) | (0x4 << CRn_offset) |
+  DDC     = ((0x1 << SysO0_offset) | (0x3 << SysOp1_offset) | (0x4 << CRn_offset) |
           (0x1 << CRm_offset) | (0x1 << SysOp2_offset)) >>
+        ImmSystemRegister_offset,
+  RDDC    = ((0x1 << SysO0_offset) | (0x3 << SysOp1_offset) | (0x4 << CRn_offset) |
+          (0x3 << CRm_offset) | (0x1 << SysOp2_offset)) >>
+        ImmSystemRegister_offset,
+  CSP     = ((0x1 << SysO0_offset) | (0x0 << SysOp1_offset) | (0x4 << CRn_offset) |
+          (0x1 << CRm_offset) | (0x0 << SysOp2_offset)) >>
+        ImmSystemRegister_offset,
+  RCSP    = ((0x1 << SysO0_offset) | (0x7 << SysOp1_offset) | (0x4 << CRn_offset) |
+          (0x1 << CRm_offset) | (0x3 << SysOp2_offset)) >>
+        ImmSystemRegister_offset,
+  CTPIDR = ((0x1 << SysO0_offset) | (0x3 << SysOp1_offset) | (0xD << CRn_offset) |
+          (0x0 << CRm_offset) | (0x2 << SysOp2_offset)) >>
+        ImmSystemRegister_offset,
+  RCTPIDR = ((0x1 << SysO0_offset) | (0x3 << SysOp1_offset) | (0xD << CRn_offset) |
+          (0x0 << CRm_offset) | (0x4 << SysOp2_offset)) >>
+        ImmSystemRegister_offset,
+  CCTLR = ((0x1 << SysO0_offset) | (0x3 << SysOp1_offset) | (0x1 << CRn_offset) |
+          (0x2 << CRm_offset) | (0x2 << SysOp2_offset)) >>
         ImmSystemRegister_offset,
 #endif
   NZCV = ((0x1 << SysO0_offset) | (0x3 << SysOp1_offset) | (0x4 << CRn_offset) |
@@ -2600,7 +2627,7 @@ constexpr MorelloOp MorelloLDRLiteral = MorelloInstruction | 0x80000000; // TODO
 constexpr MorelloOp MorelloLoadStoreAlternateBase = MorelloInstruction | 0x80000000;
 constexpr MorelloOp MorelloLoadStoreMisc4 = MorelloInstruction | 0xA0000000;
 constexpr MorelloOp MorelloLoadStoreUnsigned = MorelloInstruction | 0xC0000000;
-constexpr MorelloOp MorelloSysReg = MorelloInstruction | 0xC0000000;
+constexpr MorelloOp MorelloSysReg = MorelloInstruction | 0xC2000000;
 constexpr MorelloOp MorelloAddExtended = MorelloInstruction | 0xC0000000;
 constexpr MorelloOp MorelloMisc = MorelloInstruction | 0xC0000000;
 constexpr MorelloOp MorelloLoadStoreUnscaled = MorelloInstruction | 0xE0000000;
@@ -2612,20 +2639,48 @@ constexpr MorelloOp STURNormalBase_CAP = MorelloLoadStoreMisc4 | 0x00000000;
 constexpr MorelloOp STURAlternateBase_CAP = MorelloLoadStoreMisc4 | 0x00800600;
 constexpr MorelloOp STURAlternateBaseIntegerWord_CAP = MorelloLoadStoreMisc4 | 0x00C00000;
 
+constexpr MorelloOp GCBASE = MorelloMisc | 0x00C01000;
+constexpr MorelloOp GCFLGS = MorelloMisc | 0x00C13000;
+constexpr MorelloOp GCLEN = MorelloMisc | 0x00C03000;
+constexpr MorelloOp GCLIM = MorelloMisc | 0x00C11000;
+constexpr MorelloOp GCOFF = MorelloMisc | 0x00C07000;
+constexpr MorelloOp GCPERM = MorelloMisc | 0x00C0D000;
+constexpr MorelloOp GCSEAL = MorelloMisc | 0x00C0B000;
+constexpr MorelloOp GCTAG = MorelloMisc | 0x00C09000;
+constexpr MorelloOp GCTYPE = MorelloMisc | 0x00C0F000;
+constexpr MorelloOp GCVALUE = MorelloMisc | 0x00C05000;
+
 constexpr MorelloOp SCVALUE = MorelloMisc | 0x00C04000;
 constexpr MorelloOp SCBNDSE = MorelloMisc | 0x00C02000;
+constexpr MorelloOp SCBNDS_register = MorelloMisc | 0x00C00000;
 constexpr MorelloOp SCFLGS = MorelloMisc | 0x00C0E000;
 constexpr MorelloOp SCOFF = MorelloMisc | 0x00C06000;
 
+constexpr MorelloOp CLRPERM_IMMEDIATE = MorelloMisc | 0x00C61000;
+constexpr MorelloOp CLRPERM_REGISTER = MorelloMisc | 0x00C0A000;
+
 constexpr MorelloOp BLR_CAP_indirect = MorelloMisc | 0x00C23000;
+constexpr MorelloOp BLRR = MorelloMisc | 0x00C23003;
+constexpr MorelloOp BRR = MorelloMisc | 0x00C21003;
+constexpr MorelloOp BR_CAP_indirect = MorelloMisc | 0x00C21000;
 
 // We use post-index LDP and pre-index STP because they're the ones used by the
 // PCC restriction example in CapableVMs' cheri-examples repo.
 constexpr MorelloOp LDP_CAP_post = MorelloLoadStoreMisc1 | 0x00C00000;
 constexpr MorelloOp STP_CAP_pre = MorelloLoadStoreMisc3 | 0x00B00000;
 
+constexpr MorelloOp CVT_capability = MorelloMisc | 0x00E01800;
+constexpr MorelloOp CVT_pointer = MorelloMisc | 0x00D0C000;
+constexpr MorelloOp CVTD_capability = MorelloMisc | 0x00C59000;
+constexpr MorelloOp CVTD_pointer = MorelloMisc | 0x00C51000;
 constexpr MorelloOp CVTP_capability = MorelloMisc | 0x00C5B000;
 constexpr MorelloOp CVTP_pointer = MorelloMisc | 0x00C53000;
+
+constexpr MorelloOp MOV_cap = MorelloMisc | 0x00C1D000;
+constexpr MorelloOp STR_CAP_post = MorelloLoadStoreMisc4 | 0x00000400;
+constexpr MorelloOp LDR_CAP_post = MorelloLoadStoreMisc4 | 0x00400400;
+
+constexpr MorelloOp SWP_CAP = MorelloLoadStoreMisc4 | 0x00208000;
 #endif
 
 // Unimplemented and unallocated instructions. These are defined to make fixed
