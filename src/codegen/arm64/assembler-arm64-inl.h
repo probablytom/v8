@@ -16,6 +16,10 @@
 #include "src/objects/smi.h"
 #include "src/objects/tagged.h"
 
+#ifdef CHERI_HYBRID
+#include <cheriintrin.h>
+#endif
+
 namespace v8 {
 namespace internal {
 
@@ -199,9 +203,9 @@ inline VRegister CPURegister::Q() const {
 }
 
 #ifdef CHERI_HYBRID
-inline Register CPURegister::C() const {
+inline CRegister CPURegister::C() const {
   DCHECK(IsRegister());
-  return Register::CRegFromCode(code());
+  return CRegister::from_code(code());
 }
 #endif
 
@@ -216,6 +220,18 @@ struct ImmediateInitializer {
     return t;
   }
 };
+
+#ifdef CHERI_HYBRID
+template <>
+struct ImmediateInitializer<void *__capability> {
+  static inline RelocInfo::Mode rmode_for(void *__capability t) {
+    return RelocInfo::NO_INFO; // is this correct for capabilities...?!
+  }
+  static inline int64_t immediate_for(void *__capability t) {
+    return static_cast<int64_t>(cheri_address_get(t)); // Not sure this cast is correct either. Do we need a uintcap_t here? Are caps _ever_ used as immediates?! Maybe this should actually trap. Feels like it. I don't know.
+  }
+};
+#endif //CHERI_HYBRID
 
 template <>
 struct ImmediateInitializer<Tagged<Smi>> {

@@ -2065,6 +2065,12 @@ void Assembler::ssubw2(const VRegister& vd, const VRegister& vn,
   NEON3DifferentW(vd, vn, vm, NEON_SSUBW2);
 }
 
+#ifdef CHERI_HYBRID
+void Assembler::mov(const CRegister& cd, const CRegister& cn) {
+  Emit(MOV_cap | Rd(cd) | Rn(cn));
+}
+#endif
+
 void Assembler::mov(const Register& rd, const Register& rm) {
   // Moves involving the stack pointer are encoded as add immediate with
   // second operand of zero. Otherwise, orr with first operand zr is
@@ -2448,14 +2454,84 @@ void Assembler::blr(const CRegister& cn) {
   Emit(BLR_CAP_indirect | Rn(cn));
 }
 
+void Assembler::blrr(const CRegister& cn) {
+  DCHECK(cn.Is128Bits());
+  Emit(BLRR | Rn(cn));
+}
+
+void Assembler::brr(const CRegister& cn) {
+  DCHECK(cn.Is128Bits());
+  Emit(BRR | Rn(cn));
+}
+
 // To capability
+void Assembler::cvt(const CRegister& cd, const CRegister& cn, const Register& rm) {
+  Emit(CVT_capability | Rn(cn) | Rd(cd) | Rm(rm));
+}
+
+// To pointer
+void Assembler::cvt(const Register& rd, const CRegister& cn, const CRegister& cm) {
+  Emit(CVT_pointer | Rn(cn) | Rd(rd) | Rm(cm));
+}
+
+// To capability — DDC base
+void Assembler::cvtd(const CRegister& cd, const Register& rn) {
+  Emit(CVTD_capability | Rn(rn) | Rd(cd));
+}
+
+// To pointer — DDC base
+void Assembler::cvtd(const Register& rd, const CRegister& cn) {
+  Emit(CVTD_pointer | Rn(cn) | Rd(rd));
+}
+
+// To capability — PCC base
 void Assembler::cvtp(const CRegister& cd, const Register& rn) {
   Emit(CVTP_capability | Rn(rn) | Rd(cd));
 }
 
-// To pointer
+// To pointer — PCC base
 void Assembler::cvtp(const Register& rd, const CRegister& cn) {
   Emit(CVTP_pointer | Rn(cn) | Rd(rd));
+}
+
+void Assembler::gcbase(const CRegister& cn, const Register& rd) {
+  Emit(GCBASE | Rn(cn) | Rd(rd));
+}
+
+void Assembler::gcflgs(const CRegister& cn, const Register& rd) {
+  Emit(GCFLGS | Rn(cn) | Rd(rd));
+}
+
+void Assembler::gclen(const CRegister& cn, const Register& rd) {
+  Emit(GCLEN | Rn(cn) | Rd(rd));
+}
+
+void Assembler::gclim(const CRegister& cn, const Register& rd) {
+  Emit(GCLIM | Rn(cn) | Rd(rd));
+}
+
+void Assembler::gcoff(const CRegister& cn, const Register& rd) {
+  Emit(GCOFF | Rn(cn) | Rd(rd));
+}
+
+void Assembler::gcperm(const CRegister& cn, const Register& rd) {
+  Emit(GCPERM | Rn(cn) | Rd(rd));
+}
+
+void Assembler::gcseal(const CRegister& cn, const Register& rd) {
+  Emit(GCSEAL | Rn(cn) | Rd(rd));
+}
+
+void Assembler::gctag(const CRegister& cn, const Register& rd) {
+  Emit(GCTAG | Rn(cn) | Rd(rd));
+}
+
+void Assembler::gctype(const CRegister& cn, const Register& rd) {
+  Emit(GCTYPE | Rn(cn) | Rd(rd));
+}
+
+void Assembler::gcvalue(const CRegister& cn, const Register& rd) {
+  Emit(GCVALUE | Rn(cn) | Rd(rd));
 }
 
 void Assembler::scvalue(const CRegister& cd, const CRegister& cn, const Register& rm) {
@@ -2466,12 +2542,57 @@ void Assembler::scbndse(const CRegister& cd, const CRegister& cn, const Register
   Emit(SCBNDSE | Rd(cd) | Rn(cn) | Rm(rm));
 }
 
+void Assembler::scbnds(const CRegister& cd, const CRegister& cn, const Register& rm) {
+  Emit(SCBNDS_register | Rd(cd) | Rn(cn) | Rm(rm)); // Todo: immediate variants, scaled and unscaled.
+}
+
 void Assembler::scflgs(const CRegister& cd, const CRegister& cn, const Register& rm) {
   Emit(SCFLGS | Rd(cd) | Rn(cn) | Rm(rm));
 }
 
 void Assembler::scoff(const CRegister& cd, const CRegister& cn, const Register& rm) {
   Emit(SCOFF | Rd(cd) | Rn(cn) | Rm(rm));
+}
+
+void Assembler::clrperm(const CRegister& cd, const CRegister& cn, const CapabilityPerms perm) {
+  Emit(CLRPERM_IMMEDIATE | Rd(cd) | Rn(cn) | CapPerm(perm));
+}
+
+void Assembler::clrperm(const CRegister& cd, const CRegister& cn, const Register& rm) {
+  Emit(CLRPERM_REGISTER | Rd(cd) | Rn(cn) | Rm(rm));
+}
+
+void Assembler::br(const CRegister& cn) {
+  Emit(BR_CAP_indirect | Rn(cn));
+}
+
+// TODO: This is a naive impl of str which stores the capability value in ct at
+// the address in register cn. The offset is always zero. This _should_ be
+// integrated into the existing ldr/str mechanisms, but they're complex and not
+// worth figuring out right now...
+void Assembler::str(const CRegister& ct, const CRegister& cn) {
+  Emit(STR_CAP_post | Rt(ct) | Rn(cn));
+}
+void Assembler::str(const CRegister& ct, const Register& rn) {
+  Emit(STR_CAP_post | Rt(ct) | Rn(rn));
+}
+
+// TODO: This is a naive impl of ldr which stores the capability value in ct at
+// the address in register cn. The offset is always zero. This _should_ be
+// integrated into the existing ldr/str mechanisms, but they're complex and not
+// worth figuring out right now...
+void Assembler::ldr(const CRegister& ct, const CRegister& cn) {
+  Emit(LDR_CAP_post | Rt(ct) | Rn(cn));
+}
+void Assembler::ldr(const CRegister& ct, const Register& rn) {
+  Emit(LDR_CAP_post | Rt(ct) | Rn(rn));
+}
+
+void Assembler::swp(const CRegister& regSource, const CRegister& regDest, const CRegister& regAddr) {
+  Emit(SWP_CAP | Rs(regSource) | Rt(regDest) | Rn(regAddr));
+}
+void Assembler::swp(const CRegister& regSource, const CRegister& regDest, const Register& regAddr) {
+  Emit(SWP_CAP | Rs(regSource) | Rt(regDest) | Rn(regAddr));
 }
 #endif
 

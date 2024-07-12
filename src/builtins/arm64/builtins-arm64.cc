@@ -833,12 +833,12 @@ void Generate_JSEntryVariant(MacroAssembler* masm, StackFrame::Type type,
   // Invoke the function by calling through JS entry trampoline builtin and
   // pop the faked function when we return.
   #ifdef CHERI_HYBRID
-  __ EnterCheriCompartment();
-  #endif
+  // __ EnterCheriCompartment(x4, x5);
   __ CallBuiltin(entry_trampoline);
-  #ifdef CHERI_HYBRID
-  __ ExitCheriCompartment();
-  #endif
+  // __ ExitCheriCompartment(x4, x5);
+  #else
+  __ CallBuiltin(entry_trampoline);
+  #endif // CHERI_HYBRID
 
   // Pop the stack handler and unlink this frame from the handler chain.
   static_assert(StackHandlerConstants::kNextOffset == 0 * kSystemPointerSize,
@@ -1011,7 +1011,13 @@ static void Generate_JSEntryTrampolineHelper(MacroAssembler* masm,
     // x29 : frame pointer (fp).
 
     Builtin builtin = is_construct ? Builtin::kConstruct : Builtins::Call();
+#ifdef CHERI_HYBRID
+  __ ExitCheriCompartment(x4, x5);
+  __ CallBuiltin(builtin);
+  __ EnterCheriCompartment(x4, x5);
+#else
     __ CallBuiltin(builtin);
+#endif
 
     // Exit the JS internal frame and remove the parameters (except function),
     // and return.
@@ -1467,7 +1473,13 @@ void Builtins::Generate_InterpreterEntryTrampoline(
   __ Mov(x1, Operand(x23, LSL, kSystemPointerSizeLog2));
   __ Ldr(kJavaScriptCallCodeStartRegister,
          MemOperand(kInterpreterDispatchTableRegister, x1));
+  #ifdef CHERI_HYBRID
+  // __ EnterCheriCompartment(x4, x5);
+  #endif //CHERI_HYBRID
   __ Call(kJavaScriptCallCodeStartRegister);
+  #ifdef CHERI_HYBRID
+  // __ ExitCheriCompartment(x4, x5);
+  #endif //CHERI_HYBRID
 
   __ RecordComment("--- InterpreterEntryReturnPC point ---");
   if (mode == InterpreterEntryTrampolineMode::kDefault) {

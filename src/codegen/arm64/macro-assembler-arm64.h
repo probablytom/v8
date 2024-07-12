@@ -224,8 +224,25 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
   void LeaveFrame(StackFrame::Type type);
 
   #ifdef CHERI_HYBRID
+  void RestrictDDC(Register superddc_address_reg, Register ddc_val_reg);
+  void DerestrictDDC(Register superddc_address_reg, Register ddc_val_reg);
+  void RestrictPCC(Register scratch, Register jumpPointReg);
+  void DerestrictPCC(Register scratch, Register jumpPointReg);
+  void EnterCheriCompartment(Register r1, Register r2);
+  void EnterCheriCompartment(Register r1);
   void EnterCheriCompartment();
+  void ExitCheriCompartment(Register r1, Register r2);
+  void ExitCheriCompartment(Register r1);
   void ExitCheriCompartment();
+  void ClearExecutivePermission(CRegister r);
+  void SetupRestrictedRegisters();
+  void MovSysReg(SystemRegister dest, SystemRegister src);
+  // A capability to be used to construct RDDC compartment-escaping capabilities
+  // to jump to (i.e. a jump-able capability with the executive bit set)
+  // void *__capability CompartmentEscapeHatch = NULL; 
+  bool ddc_restricted = false;
+  bool pcc_restricted = false;
+  bool within_cheri_compartment = false;
   #endif
 
   inline void InitializeRootRegister();
@@ -1454,15 +1471,46 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
   inline void Msr(SystemRegister sysreg, const Register& rt);
 
 #ifdef CHERI_HYBRID
+  CRegister csp = c31; // TODO move this away from the MacroAssember namespace…!
+  inline void Mov(const CRegister& cd, const CRegister& cn);
   inline void Mrs(const CRegister& rt, SystemRegister sysreg);
   inline void Msr(SystemRegister sysreg, const CRegister& rt);
   inline void Blr(const CRegister& cn);
+  inline void Blrr(const CRegister& cn);
+  inline void Brr(const CRegister& cn);
+  inline void Cvt(const CRegister& cd, const CRegister& cn, const Register& rm);
+  inline void Cvt(const Register& rd, const CRegister& cn, const CRegister& cm);
+  inline void Cvtd(const CRegister& cd, const Register& rn);
+  inline void Cvtd(const Register& rd, const CRegister& cn);
   inline void Cvtp(const CRegister& cd, const Register& rn);
   inline void Cvtp(const Register& rd, const CRegister& cn);
+  inline void Gcbase(const CRegister& cn, const Register& rd);
+  inline void Gcflgs(const CRegister& cn, const Register& rd);
+  inline void Gclen(const CRegister& cn, const Register& rd);
+  inline void Gclim(const CRegister& cn, const Register& rd);
+  inline void Gcoff(const CRegister& cn, const Register& rd);
+  inline void Gcperm(const CRegister& cn, const Register& rd);
+  inline void Gcseal(const CRegister& cn, const Register& rd);
+  inline void Gctag(const CRegister& cn, const Register& rd);
+  inline void Gctype(const CRegister& cn, const Register& rd);
+  inline void Gcvalue(const CRegister& cn, const Register& rd);
   inline void Scbndse(const CRegister& cd, const CRegister& cn, const Register& rm);
+  inline void Scbnds(const CRegister& cd, const CRegister& cn, const Register& rm);
   inline void Scvalue(const CRegister& cd, const CRegister& cn, const Register& rm);
   inline void Scflgs(const CRegister& cd, const CRegister& cn, const Register& rm);
   inline void Scoff(const CRegister& cd, const CRegister& cn, const Register& rm);
+  inline void Clrperm(const CRegister& cd, const CRegister& cn, const Register& rm);
+  inline void Clrperm(const CRegister& cd, const CRegister& cn, const CapabilityPerms perms);
+  inline void Br(const CRegister& cn);
+  inline void GetPCC(const Register& reg);
+  inline void Ldr(const CRegister& ct, const CRegister& cn);
+  inline void Ldr(const CRegister& ct, const Register& rn);
+  inline void Str(const CRegister& ct, const CRegister& cn);
+  inline void Str(const CRegister& ct, const Register& rn);
+  inline void Swp(const CRegister& regSourceDest, const CRegister& regAddr);
+  inline void Swp(const CRegister& regSourceDest, const Register& regAddr);
+  inline void Swp(const CRegister& regSource, const CRegister& regDest, const CRegister& regAddr);
+  inline void Swp(const CRegister& regSource, const CRegister& regDest, const Register& regAddr);
 #endif
 
   // Prologue claims an extra slot due to arm64's alignement constraints.
@@ -2372,6 +2420,11 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
 
   void JumpHelper(int64_t offset, RelocInfo::Mode rmode, Condition cond = al);
 
+  #ifdef CHERI_HYBRID
+  bool restrict_next_jump = false;
+  void *__capability capto_cheri_builtin_table;
+  #endif
+
   DISALLOW_IMPLICIT_CONSTRUCTORS(MacroAssembler);
 };
 
@@ -2449,6 +2502,9 @@ class V8_NODISCARD UseScratchRegisterScope {
   // automatically when the scope ends.
   Register AcquireW() { return AcquireNextAvailable(available_).W(); }
   Register AcquireX() { return AcquireNextAvailable(available_).X(); }
+#ifdef CHERI_HYBRID
+  CRegister AcquireC() { return AcquireNextAvailable(available_).C(); }
+#endif
   VRegister AcquireS() { return AcquireNextAvailable(availablefp_).S(); }
   VRegister AcquireD() { return AcquireNextAvailable(availablefp_).D(); }
   VRegister AcquireQ() { return AcquireNextAvailable(availablefp_).Q(); }
