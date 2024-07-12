@@ -297,6 +297,15 @@ void MacroAssembler::LogicalMacro(const Register& rd, const Register& rn,
   }
 }
 
+#ifdef CHERI_HYBRID
+void MacroAssembler::Mov(const CRegister& cd, const CRegister& cn) {
+  // TODO: should probably by more DCHECKs here, just hacking together an
+  // attempt at a solution to moving CSP right now…
+  DCHECK(allow_macro_instructions());
+  mov(cd, cn);
+}
+#endif
+
 void MacroAssembler::Mov(const Register& rd, uint64_t imm) {
   DCHECK(allow_macro_instructions());
   DCHECK(is_uint32(imm) || is_int32(imm) || rd.Is64Bits());
@@ -1372,12 +1381,6 @@ void MacroAssembler::PushCalleeSavedRegisters() {
 
     stp(x29, x30, tos);  // fp, lr
 
-// Also push the current DDC if operating in hybrid CHERI
-// #ifdef CHERI_HYBRID
-//     mrs(c16, DDC);
-//     str(c16, tos);
-// #endif
-
     static_assert(
         EntryFrameConstants::kCalleeSavedRegisterBytesPushedAfterFpLrPair == 0);
 }
@@ -2124,7 +2127,18 @@ void MacroAssembler::CallCFunction(Register function, int num_of_reg_args,
 
   // Call directly. The function called cannot cause a GC, or allow preemption,
   // so the return address in the link register stays correct.
+  #ifdef CHERI_HYBRID
+  bool inComp = this->within_cheri_compartment;
+  if (inComp) {
+    ExitCheriCompartment(x4, x5);
+  }
+  #endif
   Call(function);
+  #ifdef CHERI_HYBRID
+  if (inComp) {
+    EnterCheriCompartment(x4, x5);
+  }
+  #endif
 
   if (set_isolate_data_slots == SetIsolateDataSlots::kYes) {
     // We don't unset the PC; the FP is the source of truth.
@@ -2291,6 +2305,33 @@ void MacroAssembler::Jump(const ExternalReference& reference) {
   Jump(scratch);
 }
 
+#ifdef CHERI_HYBRID
+void MacroAssembler::ClearExecutivePermission(CRegister cxx) {
+  UseScratchRegisterScope temps(this);
+  Register scratch = temps.AcquireX();
+  Add(scratch, scratch, 0x00000002); // TODO: reg is not necessarily cleared already here…! Should likely be a Mov.
+  Clrperm(cxx, cxx, scratch); // I have no idea why I can't use the immediate variant of this.
+}
+
+void MacroAssembler::MovSysReg(SystemRegister dest, SystemRegister src) {
+  UseScratchRegisterScope temps(this);
+  CRegister scratch = temps.AcquireC();
+  if (src != CSP) {
+    Mrs(scratch, src);
+  } else {
+    Mov(scratch, c31);
+  }
+
+  Msr(dest, scratch);
+}
+
+void MacroAssembler::SetupRestrictedRegisters() {
+  // Set up RCSP
+  MovSysReg(RCTPIDR, CTPIDR);
+  MovSysReg(RCSP, CSP);
+}
+#endif
+
 void MacroAssembler::Call(Register target) {
   BlockPoolsScope scope(this);
   Blr(target);
@@ -2359,7 +2400,7 @@ void MacroAssembler::LoadEntryFromBuiltinIndex(Register builtin_index,
 
 void MacroAssembler::LoadEntryFromBuiltin(Builtin builtin,
                                           Register destination) {
-  Ldr(destination, EntryFromBuiltinAsOperand(builtin));
+  Ldr(destination, EntryFromBuiltinAsOperand(builtin)); // TODO: [CHERI] this LDR might need to be capability-aware if EntryFromBuiltinAsOperand returns a capability to escape from compartments with.
 }
 
 MemOperand MacroAssembler::EntryFromBuiltinAsOperand(Builtin builtin) {
@@ -2372,12 +2413,24 @@ MemOperand MacroAssembler::EntryFromBuiltinAsOperand(Builtin builtin) {
 void MacroAssembler::CallBuiltinByIndex(Register builtin_index,
                                         Register target) {
   ASM_CODE_COMMENT(this);
+  #ifdef CHERI_HYBRID
+  ExitCheriCompartment(x4, x5);
+  #endif
   LoadEntryFromBuiltinIndex(builtin_index, target);
   Call(target);
+  #ifdef CHERI_HYBRID
+  EnterCheriCompartment(x4, x5);
+  #endif
 }
 
 void MacroAssembler::CallBuiltin(Builtin builtin) {
   ASM_CODE_COMMENT_STRING(this, CommentForOffHeapTrampoline("call", builtin));
+#ifdef CHERI_HYBRID
+  bool inComp = this->within_cheri_compartment;
+  if (inComp) {
+    ExitCheriCompartment(x4, x5);
+  }
+#endif
   switch (options().builtin_call_jump_mode) {
     case BuiltinCallJumpMode::kAbsolute: {
       UseScratchRegisterScope temps(this);
@@ -2411,6 +2464,11 @@ void MacroAssembler::CallBuiltin(Builtin builtin) {
       break;
     }
   }
+#ifdef CHERI_HYBRID
+  if (inComp) {
+    EnterCheriCompartment(x4, x5);
+  }
+#endif
 }
 
 // TODO(ishell): remove cond parameter from here to simplify things.
@@ -2428,6 +2486,14 @@ void MacroAssembler::TailCallBuiltin(Builtin builtin, Condition cond) {
   // x17 is used to allow using "Call" (i.e. `bti c`) rather than "Jump"
   // (i.e. `bti j`) landing pads for the tail-called code.
   Register temp = x17;
+
+  #ifdef CHERI_HYBRID
+  // We're just jumping, so we don't know where to insert a sequence to re-enter
+  // the cheri compartment…
+  if (this->within_cheri_compartment) {
+    ExitCheriCompartment();
+  }
+  #endif
 
   switch (options().builtin_call_jump_mode) {
     case BuiltinCallJumpMode::kAbsolute: {
@@ -2497,22 +2563,65 @@ void MacroAssembler::JumpCodeObject(Register code_object, JumpMode jump_mode) {
 
 void MacroAssembler::CallJSFunction(Register function_object) {
   Register code = kJavaScriptCallCodeStartRegister;
+
+#ifdef CHERI_HYBRID
+#define COMP_ENTRYSEQ                                                   \
+  bool enteringCompartment = !(this->within_cheri_compartment);         \
+  if (enteringCompartment) {                                            \
+    EnterCheriCompartment(x4, x5);                                      \
+  }                                                                     
+#else
+#define COMP_ENTRYSEQ
+#endif // CHERI_HYBRID
+
+#ifdef CHERI_HYBRID
+#define COMP_EXITSEQ                                                   \
+  if (enteringCompartment) {                                           \
+    ExitCheriCompartment(x4, x5);                                      \
+  }
+#else
+#define COMP_EXITSEQ
+#endif // CHERI_HYBRID
+
 #ifdef V8_ENABLE_SANDBOX
   // When the sandbox is enabled, we can directly fetch the entrypoint pointer
   // from the code pointer table instead of going through the Code object. In
   // this way, we avoid one memory load on this code path.
   LoadCodeEntrypointViaCodePointer(
       code, FieldMemOperand(function_object, JSFunction::kCodeOffset));
+  COMP_ENTRYSEQ
   Call(code);
+  COMP_EXITSEQ
 #else
   LoadTaggedField(code,
                   FieldMemOperand(function_object, JSFunction::kCodeOffset));
+  COMP_ENTRYSEQ
   CallCodeObject(code);
+  COMP_EXITSEQ
 #endif
 }
 
 void MacroAssembler::JumpJSFunction(Register function_object,
                                     JumpMode jump_mode) {
+#ifdef CHERI_HYBRID
+#define COMP_ENTRYSEQ                                                   \
+  bool enteringCompartment = !(this->within_cheri_compartment);         \
+  if (enteringCompartment) {                                            \
+    EnterCheriCompartment(x4, x5);                                      \
+  }                                                                     
+#else
+#define COMP_ENTRYSEQ
+#endif // CHERI_HYBRID
+
+#ifdef CHERI_HYBRID
+#define COMP_EXITSEQ                                                   \
+  if (enteringCompartment) {                                           \
+    ExitCheriCompartment(x4, x5);                                      \
+  }
+#else
+#define COMP_EXITSEQ
+#endif // CHERI_HYBRID
+
   Register code = kJavaScriptCallCodeStartRegister;
 #ifdef V8_ENABLE_SANDBOX
   // When the sandbox is enabled, we can directly fetch the entrypoint pointer
@@ -2526,11 +2635,15 @@ void MacroAssembler::JumpJSFunction(Register function_object,
   // code. See TailCallBuiltin for more information.
   DCHECK_NE(code, x17);
   Mov(x17, code);
+  COMP_ENTRYSEQ
   Jump(x17);
+  COMP_EXITSEQ
 #else
   LoadTaggedField(code,
                   FieldMemOperand(function_object, JSFunction::kCodeOffset));
+  // COMP_ENTRYSEQ
   JumpCodeObject(code, jump_mode);
+  // COMP_EXITSEQ
 #endif
 }
 
@@ -4599,44 +4712,161 @@ void CallApiFunctionAndReturn(MacroAssembler* masm, bool with_profiling,
 }
 
 #ifdef CHERI_HYBRID
-void MacroAssembler::EnterCheriCompartment() {
-  // TODO: implement. Requires instructions to be implemented. 
-  // TODO: restrict DDC
-  // TODO: restrict PCC
+// Restricts the DDC, saving the previous one in IsolateData so we can leave the
+// compartment later.
+// TODO: move to e.g. restricted mode or a comp manager or similar.
+//       This is really naive, but useful for testing!
+void MacroAssembler::RestrictDDC(Register superddc_address_reg, Register ddc_val_reg) {
+  if (this->within_cheri_compartment && !this->ddc_restricted) {
 
-  // Note that there are some direct references to heap objects
-  // (v8/src/heap/factory.cc:220) and jumps to at least baseline code
-  // (v8/src/baseline/baseline-compiler.cc:308), so we know there are edge cases
-  // for both of these restrictions. However, both seem well marked already: there
-  // are "valid indirect jump targets" which presumably get jumped to specially,
-  // so we can jump to those with exit/enter trampoline instructions inserted, and
-  // references to external things seem to get external treatment — there's a
-  // `Finalize` call at v8/src/heap/factory.cc:227 which gives a hint as to how
-  // this works for example, see the implementation of `Finalize` — so perhaps
-  // there's useful structure in place to help us identify external references and
-  // jumps.
+    // Calculate address of privileged DDC stored in IsolateData
+    Mov(superddc_address_reg, kRootRegister);
+    Add(superddc_address_reg, superddc_address_reg, IsolateData::super_ddc_offset());
 
-  // Note that the existing DDC should be saved somewhere sensible when entering
-  // the cheri compartment. That might mean entering somewhere within the
-  // prologue, rather than where EnterCheriCompartment is called just now, to
-  // avoid clobbering registers.
+    // Load current DDC and save in IsolateData for later restoration
+    Mrs(ddc_val_reg.C(), DDC);
+    Str(ddc_val_reg.C(), superddc_address_reg.C());
+    
+    // Set address for restricted DDC
+    int shiftToRestrict = 0x200000000000;
+    Register new_address = superddc_address_reg; // Not necessary, just for readability...
+    Mov(new_address, shiftToRestrict);
+    Scvalue(ddc_val_reg.C(), ddc_val_reg.C(), new_address);
 
-  {
-    // TODO: stash the old c16 compartment value so that we can continually
-    // restrict the compartment…this might want to happen in the prelude?! Yet
-    // to pay any attention to it.
-    UseScratchRegisterScope temps(this);
-    Register scratch = temps.AcquireX();
-    Mrs(c16, DDC); // Grab a copy of the DDC in c16
-    Mov(scratch, 0xFFFFFFFF);
-    Scvalue(c16, c16, scratch); // Set the address to 0xFFFFFFFF, which is obviously wild
-    Scbndse(c16, c16, scratch); // Set the bounds to 0xFFFFFFFF, which is theoretically v permissive
-    Msr(DDC, c16); // Install to DDC
+    // Set bounds for restricted DDC
+    Register new_bounds = superddc_address_reg; // Not necessary, just for readability...
+    Gclim(ddc_val_reg.C(), new_bounds);
+    Sub(new_bounds, new_bounds, Operand(shiftToRestrict));
+    Scbnds(ddc_val_reg.C(), ddc_val_reg.C(), new_bounds);
+
+    // Mov replacement ddc into reg
+    Msr(DDC, ddc_val_reg.C());
+    this->ddc_restricted = true;
   }
 }
 
+void MacroAssembler::DerestrictDDC(Register superddc_address_reg, Register ddc_val_reg) {
+  if (this->within_cheri_compartment && this->ddc_restricted) {
+    Mov(superddc_address_reg, kRootRegister);
+    Add(superddc_address_reg, superddc_address_reg,
+        IsolateData::super_ddc_offset());
+    Ldr(ddc_val_reg.C(), superddc_address_reg.C());
+    Msr(DDC, ddc_val_reg.C());
+    this->ddc_restricted = false;
+  }
+}
+
+// Restricts the PCC, saving the previous one in IsolateData so we can leave the
+// compartment later.
+// TODO: move to e.g. restricted mode or a comp manager or similar.
+//       This is really naive, but useful for testing!
+void MacroAssembler::RestrictPCC(Register scratch, Register jumpPointReg) {
+  if (this->within_cheri_compartment && !this->pcc_restricted) {
+    Label jumpPoint;
+
+    // Calculate address of privileged PCC stored in IsolateData
+    Mov(scratch, kRootRegister);
+    Add(scratch, scratch, IsolateData::super_pcc_offset());
+
+    // Load the PCC into jumpPointReg
+    Adr(jumpPointReg, &jumpPoint);
+    Cvtp(jumpPointReg.C(), jumpPointReg);
+
+    // Store the PCC in IsolateData for later restoration
+    Str(jumpPointReg.C(), scratch.C());
+
+    // Calculate new bounds for the PCC
+    Gclim(jumpPointReg.C(), scratch);
+    Sub(scratch, scratch, Operand(0x200000000000));
+    Scbnds(jumpPointReg.C(), jumpPointReg.C(), scratch);
+
+    
+    Br(jumpPointReg.C());  // jump to next instruction using the restricted cap in jumpPointReg
+    Bind(&jumpPoint);
+    this->pcc_restricted = true;
+  }
+}
+
+void MacroAssembler::DerestrictPCC(Register scratch, Register jumpPointReg) {
+  if (this->within_cheri_compartment && this->pcc_restricted) {
+    Label jumpPoint;
+
+    Mov(scratch, kRootRegister);
+    Add(scratch, scratch, IsolateData::super_pcc_offset());
+    Ldr(jumpPointReg.C(), scratch.C());
+    Adr(scratch, &jumpPoint);
+    Cvt(jumpPointReg.C(), jumpPointReg.C(), scratch);
+    Br(jumpPointReg.C());
+
+    Bind(&jumpPoint);
+    this->pcc_restricted = false;
+  }
+}
+
+void MacroAssembler::EnterCheriCompartment(Register r1, Register r2) {
+  this->within_cheri_compartment = true;
+
+  Push(r1, r2);
+  RestrictPCC(r1, r2);
+  RestrictDDC(r1, r2);
+  Pop(r1, r2);
+}
+
+void MacroAssembler::EnterCheriCompartment(Register r1) {
+  this->within_cheri_compartment = true;
+
+  Push(r1);
+  {
+    UseScratchRegisterScope temps(this);
+    Register r2 = temps.AcquireX();
+    RestrictPCC(r1, r2);
+    RestrictDDC(r1, r2);
+  }
+  Pop(r1);
+}
+
+void MacroAssembler::EnterCheriCompartment() {
+  this->within_cheri_compartment = true;
+  {
+    UseScratchRegisterScope temps(this);
+    Register r1 = temps.AcquireX();
+    Register r2 = temps.AcquireX();
+    RestrictPCC(r1, r2);
+    RestrictDDC(r1, r2);
+  }
+}
+
+void MacroAssembler::ExitCheriCompartment(Register r1, Register r2) {
+  Push(r1, r2);
+  DerestrictDDC(r1, r2);
+  DerestrictPCC(r1, r2);
+  Pop(r1, r2);
+
+  this->within_cheri_compartment = false;
+}
+
+void MacroAssembler::ExitCheriCompartment(Register r1) {
+  Push(r1);
+  {
+    UseScratchRegisterScope temps(this);
+    Register r2 = temps.AcquireX();
+    DerestrictDDC(r1, r2);
+    DerestrictPCC(r1, r2);
+  }
+  Pop(r1);
+
+  this->within_cheri_compartment = false;
+}
+
 void MacroAssembler::ExitCheriCompartment() {
-  // TODO
+  {
+    UseScratchRegisterScope temps(this);
+    Register r1 = temps.AcquireX();
+    Register r2 = temps.AcquireX();
+    DerestrictDDC(r1, r2);
+    DerestrictPCC(r1, r2);
+  }
+  this->within_cheri_compartment = false;
 }
 #endif
 
