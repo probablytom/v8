@@ -243,6 +243,12 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
   bool ddc_restricted = false;
   bool pcc_restricted = false;
   bool within_cheri_compartment = false;
+  #include <list>
+  #include <stack>
+  Label pcc_storage_label;
+  Label ddc_storage_label;
+  void SetupNewCompartmentStoragePoints();
+  void TearDownCompartmentStoragePoints();
   #endif
 
   inline void InitializeRootRegister();
