@@ -4781,16 +4781,35 @@ void CallApiFunctionAndReturn(MacroAssembler* masm, bool with_profiling,
 // compartment later.
 // TODO: move to e.g. restricted mode or a comp manager or similar.
 //       This is really naive, but useful for testing!
-void MacroAssembler::RestrictDDC(Register superddc_address_reg, Register ddc_val_reg) {
+
+void MacroAssembler::SetupNewCompartmentStoragePoints() {
+  Label hopTo;
+
+  B(&hopTo);
+
+  Bind(&(this->pcc_storage_label));
+  Nop();
+  Nop();
+  Bind(&(this->ddc_storage_label));
+  Nop();
+  Nop();
+  Bind(&hopTo);
+}
+
+void MacroAssembler::TearDownCompartmentStoragePoints() {
+  // Currently I _think_ this is a no-op.
+}
+
+void MacroAssembler::RestrictDDC(Register superddc_address_reg, Register ddc_val_reg, Label *ddc_storage_location) {
   if (this->within_cheri_compartment && !this->ddc_restricted) {
 
     // Calculate address of privileged DDC stored in IsolateData
-    Mov(superddc_address_reg, kRootRegister);
-    Add(superddc_address_reg, superddc_address_reg, IsolateData::super_ddc_offset());
+    // Mov(superddc_address_reg, kRootRegister);
+    // Add(superddc_address_reg, superddc_address_reg, IsolateData::super_ddc_offset());
 
     // Load current DDC and save in IsolateData for later restoration
     Mrs(ddc_val_reg.C(), DDC);
-    Str(ddc_val_reg.C(), superddc_address_reg.C());
+    Str(ddc_val_reg.C(), ddc_storage_location);
     
     // Set address for restricted DDC
     int shiftToRestrict = 0x200000000000;
@@ -4810,12 +4829,12 @@ void MacroAssembler::RestrictDDC(Register superddc_address_reg, Register ddc_val
   }
 }
 
-void MacroAssembler::DerestrictDDC(Register superddc_address_reg, Register ddc_val_reg) {
+void MacroAssembler::DerestrictDDC(Register superddc_address_reg, Register ddc_val_reg, Label *ddc_storage_location) {
   if (this->within_cheri_compartment && this->ddc_restricted) {
-    Mov(superddc_address_reg, kRootRegister);
-    Add(superddc_address_reg, superddc_address_reg,
-        IsolateData::super_ddc_offset());
-    Ldr(ddc_val_reg.C(), superddc_address_reg.C());
+    // Mov(superddc_address_reg, kRootRegister);
+    // Add(superddc_address_reg, superddc_address_reg,
+    //     IsolateData::super_ddc_offset());
+    Ldr(ddc_val_reg.C(), ddc_storage_location);
     Msr(DDC, ddc_val_reg.C());
     this->ddc_restricted = false;
   }
@@ -4825,20 +4844,20 @@ void MacroAssembler::DerestrictDDC(Register superddc_address_reg, Register ddc_v
 // compartment later.
 // TODO: move to e.g. restricted mode or a comp manager or similar.
 //       This is really naive, but useful for testing!
-void MacroAssembler::RestrictPCC(Register scratch, Register jumpPointReg) {
+void MacroAssembler::RestrictPCC(Register scratch, Register jumpPointReg, Label *pcc_storage_location) {
   if (this->within_cheri_compartment && !this->pcc_restricted) {
     Label jumpPoint;
 
     // Calculate address of privileged PCC stored in IsolateData
-    Mov(scratch, kRootRegister);
-    Add(scratch, scratch, IsolateData::super_pcc_offset());
+    // Mov(scratch, kRootRegister);
+    // Add(scratch, scratch, IsolateData::super_pcc_offset());
 
     // Load the PCC into jumpPointReg
     Adr(jumpPointReg, &jumpPoint);
     Cvtp(jumpPointReg.C(), jumpPointReg);
 
     // Store the PCC in IsolateData for later restoration
-    Str(jumpPointReg.C(), scratch.C());
+    Str(jumpPointReg.C(), pcc_storage_location);
 
     // Calculate new bounds for the PCC
     Gclim(jumpPointReg.C(), scratch);
@@ -4852,13 +4871,13 @@ void MacroAssembler::RestrictPCC(Register scratch, Register jumpPointReg) {
   }
 }
 
-void MacroAssembler::DerestrictPCC(Register scratch, Register jumpPointReg) {
+void MacroAssembler::DerestrictPCC(Register scratch, Register jumpPointReg, Label *pcc_storage_location) {
   if (this->within_cheri_compartment && this->pcc_restricted) {
     Label jumpPoint;
 
-    Mov(scratch, kRootRegister);
-    Add(scratch, scratch, IsolateData::super_pcc_offset());
-    Ldr(jumpPointReg.C(), scratch.C());
+    // Mov(scratch, kRootRegister);
+    // Add(scratch, scratch, IsolateData::super_pcc_offset());
+    Ldr(jumpPointReg.C(), pcc_storage_location);
     Adr(scratch, &jumpPoint);
     Cvt(jumpPointReg.C(), jumpPointReg.C(), scratch);
     Br(jumpPointReg.C());
@@ -4871,41 +4890,51 @@ void MacroAssembler::DerestrictPCC(Register scratch, Register jumpPointReg) {
 void MacroAssembler::EnterCheriCompartment(Register r1, Register r2) {
   this->within_cheri_compartment = true;
 
+  SetupNewCompartmentStoragePoints();
+
   Push(r1, r2);
-  RestrictPCC(r1, r2);
-  RestrictDDC(r1, r2);
+  RestrictPCC(r1, r2, &(this->pcc_storage_point));
+  RestrictDDC(r1, r2, &(this->ddc_storage_point));
   Pop(r1, r2);
+
 }
 
 void MacroAssembler::EnterCheriCompartment(Register r1) {
   this->within_cheri_compartment = true;
 
+  SetupNewCompartmentStoragePoints();
+
   Push(r1);
   {
     UseScratchRegisterScope temps(this);
     Register r2 = temps.AcquireX();
-    RestrictPCC(r1, r2);
-    RestrictDDC(r1, r2);
+    RestrictPCC(r1, r2, &(this->pcc_storage_point));
+    RestrictDDC(r1, r2, &(this->ddc_storage_point));
   }
   Pop(r1);
 }
 
 void MacroAssembler::EnterCheriCompartment() {
   this->within_cheri_compartment = true;
+
+  SetupNewCompartmentStoragePoints();
+
   {
     UseScratchRegisterScope temps(this);
     Register r1 = temps.AcquireX();
     Register r2 = temps.AcquireX();
-    RestrictPCC(r1, r2);
-    RestrictDDC(r1, r2);
+    RestrictPCC(r1, r2, &(this->pcc_storage_point));
+    RestrictDDC(r1, r2, &(this->ddc_storage_point));
   }
 }
 
 void MacroAssembler::ExitCheriCompartment(Register r1, Register r2) {
   Push(r1, r2);
-  DerestrictDDC(r1, r2);
-  DerestrictPCC(r1, r2);
+  DerestrictDDC(r1, r2, &(this->ddc_storage_point));
+  DerestrictPCC(r1, r2, &(this->pcc_storage_point));
   Pop(r1, r2);
+
+  TearDownCompartmentStoragePoints();
 
   this->within_cheri_compartment = false;
 }
@@ -4915,10 +4944,12 @@ void MacroAssembler::ExitCheriCompartment(Register r1) {
   {
     UseScratchRegisterScope temps(this);
     Register r2 = temps.AcquireX();
-    DerestrictDDC(r1, r2);
-    DerestrictPCC(r1, r2);
+    DerestrictDDC(r1, r2, &(this->ddc_storage_point));
+    DerestrictPCC(r1, r2, &(this->pcc_storage_point));
   }
   Pop(r1);
+
+  TearDownCompartmentStoragePoints();
 
   this->within_cheri_compartment = false;
 }
@@ -4928,9 +4959,12 @@ void MacroAssembler::ExitCheriCompartment() {
     UseScratchRegisterScope temps(this);
     Register r1 = temps.AcquireX();
     Register r2 = temps.AcquireX();
-    DerestrictDDC(r1, r2);
-    DerestrictPCC(r1, r2);
+    DerestrictDDC(r1, r2, &(this->ddc_storage_point));
+    DerestrictPCC(r1, r2, &(this->pcc_storage_point));
   }
+
+  TearDownCompartmentStoragePoints();
+
   this->within_cheri_compartment = false;
 }
 #endif
