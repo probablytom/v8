@@ -35,12 +35,12 @@ void TestBasicPageAllocation(v8::VirtualAddressSpace* space) {
     if (!IsAligned(size, space->allocation_granularity())) continue;
     Address allocation =
         space->AllocatePages(VirtualAddressSpace::kNoHint, size, alignment,
-#if defined(__CHERI_PURE_CAPABILITY__)
+#if defined(CHERI_HYBRID)
                              PagePermissions::kReadWrite,
                              PagePermissions::kReadWrite);
-#else   // !__CHERI_PURE_CAPABILITY__
+#else   // !CHERI_HYBRID
                              PagePermissions::kReadWrite);
-#endif  // !__CHERI_PURE_CAPABILITY__
+#endif  // !CHERI_HYBRID
 
     ASSERT_NE(kNullAddress, allocation);
     EXPECT_GE(allocation, space->base());
@@ -73,12 +73,12 @@ void TestPageAllocationAlignment(v8::VirtualAddressSpace* space) {
     size_t alignment = alignments[i] * space->allocation_granularity();
     Address allocation =
         space->AllocatePages(VirtualAddressSpace::kNoHint, size, alignment,
-#if defined(__CHERI_PURE_CAPABILITY__)
+#if defined(CHERI_HYBRID)
                              PagePermissions::kReadWrite,
                              PagePermissions::kReadWrite);
-#else   // !__CHERI_PURE_CAPABILITY__
+#else   // !CHERI_HYBRID
                              PagePermissions::kReadWrite);
-#endif  // !__CHERI_PURE_CAPABILITY__
+#endif  // !CHERI_HYBRID
 
     ASSERT_NE(kNullAddress, allocation);
     EXPECT_TRUE(IsAligned(allocation, alignment));
@@ -101,12 +101,12 @@ void TestParentSpaceCannotAllocateInChildSpace(v8::VirtualAddressSpace* parent,
   for (int i = 0; i < 10; i++) {
     Address hint = child->RandomPageAddress();
     Address allocation = parent->AllocatePages(hint, chunksize, alignment,
-#if defined(__CHERI_PURE_CAPABILITY__)
+#if defined(CHERI_HYBRID)
                                                PagePermissions::kNoAccess,
                                                PagePermissions::kNoAccess);
-#else   // !__CHERI_PURE_CAPABILITY__
+#else   // !CHERI_HYBRID
                                                PagePermissions::kNoAccess);
-#endif  // !__CHERI_PURE_CAPABILITY__
+#endif  // !CHERI_HYBRID
     ASSERT_NE(kNullAddress, allocation);
     EXPECT_TRUE(allocation < start || allocation >= end);
 
@@ -247,23 +247,23 @@ TEST(VirtualAddressSpaceTest, TestEmulatedSubspace) {
     Address hint = rootspace.RandomPageAddress();
     reservation = rootspace.AllocatePages(hint, kSubspaceSize,
                                           rootspace.allocation_granularity(),
-#if defined(__CHERI_PURE_CAPABILITY__)
+#if defined(CHERI_HYBRID)
                                           PagePermissions::kNoAccess,
                                           PagePermissions::kNoAccess);
-#else   // !__CHERI_PURE_CAPABILITY__
+#else   // !CHERI_HYBRID
                                           PagePermissions::kNoAccess);
-#endif  // !__CHERI_PURE_CAPABILITY__
+#endif  // !CHERI_HYBRID
     ASSERT_NE(kNullAddress, reservation);
     hint = reservation;
     rootspace.FreePages(reservation, kSubspaceSize);
     reservation =
         rootspace.AllocatePages(hint, kSubspaceMappedSize, subspace_alignment,
-#if defined(__CHERI_PURE_CAPABILITY__)
+#if defined(CHERI_HYBRID)
                                 PagePermissions::kNoAccess,
                                 PagePermissions::kNoAccess);
-#else   // !__CHERI_PURE_CAPABILITY__
+#else   // !CHERI_HYBRID
                                 PagePermissions::kNoAccess);
-#endif  // !__CHERI_PURE_CAPABILITY__
+#endif  // !CHERI_HYBRID
     if (reservation == hint) {
       break;
     } else {

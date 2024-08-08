@@ -792,7 +792,7 @@ void SandboxTesting::Enable(Mode mode) {
     target_page_size_ = vas->page_size();
     target_page_base_ =
         vas->AllocatePages(vas->RandomPageAddress(), target_page_size_,
-                           target_page_size_, PagePermissions::kRead);
+                           target_page_size_, PagePermissions::kRead, PagePermissions::kReadWrite);
     CHECK_NE(target_page_base_, kNullAddress);
     fprintf(stderr,
             "Sandbox testing mode is enabled. Write to the page starting at "

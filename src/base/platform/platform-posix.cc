@@ -198,20 +198,21 @@ void* Allocate(void* hint, size_t size, OS::MemoryPermission access,
 int GetProtectionFromMemoryPermission(OS::MemoryPermission access,
 				      OS::MemoryPermission max_access) {
   int prot = GetProtectionFromMemoryPermission(access);
-  switch (max_access) {
-    case OS::MemoryPermission::kNoAccessWillJitLater:
-      return PROT_MAX(PROT_READ | PROT_WRITE | PROT_EXEC) | prot;
-    case OS::MemoryPermission::kRead:
-      return PROT_MAX(PROT_READ) | prot;
-    case OS::MemoryPermission::kReadWrite:
-      return PROT_MAX(PROT_READ | PROT_WRITE) | prot;
-    case OS::MemoryPermission::kReadExecute:
-      return PROT_MAX(PROT_READ | PROT_EXEC) | prot;
-    case OS::MemoryPermission::kReadWriteExecute:
-      return PROT_MAX(PROT_READ | PROT_WRITE | PROT_EXEC) | prot;
-    default:
-      return prot;
-  }
+  return prot;
+  //switch (max_access) {
+  //  case OS::MemoryPermission::kNoAccessWillJitLater:
+  //    return PROT_MAX(PROT_READ | PROT_WRITE | PROT_EXEC) | prot;
+  //  case OS::MemoryPermission::kRead:
+  //    return PROT_MAX(PROT_READ) | prot;
+  //  case OS::MemoryPermission::kReadWrite:
+  //    return PROT_MAX(PROT_READ | PROT_WRITE) | prot;
+  //  case OS::MemoryPermission::kReadExecute:
+  //    return PROT_MAX(PROT_READ | PROT_EXEC) | prot;
+  //  case OS::MemoryPermission::kReadWriteExecute:
+  //    return PROT_MAX(PROT_READ | PROT_WRITE | PROT_EXEC) | prot;
+  //  default:
+  //    return prot;
+  //}
   UNREACHABLE();
 }
 #endif // CHERI_HYBRID

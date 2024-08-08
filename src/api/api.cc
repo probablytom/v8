@@ -393,12 +393,12 @@ class ArrayBufferAllocator : public v8::ArrayBuffer::Allocator {
              backing_memory_size >= min_backing_memory_size) {
         backing_memory_base = vas->AllocatePages(
             VirtualAddressSpace::kNoHint, backing_memory_size, kChunkSize,
-#if defined(__CHERI_PURE_CAPABILITY__)
+#if defined(CHERI_HYBRID)
             PagePermissions::kReadWrite,
             PagePermissions::kReadWrite);
-#else   // !__CHERI_PURE_CAPABILITY__
+#else   // !CHERI_HYBRID
             PagePermissions::kNoAccess);
-#endif  // !__CHERI_PURE_CAPABILITY__
+#endif  // !CHERI_HYBRID
         if (!backing_memory_base) {
           backing_memory_size /= 2;
         }

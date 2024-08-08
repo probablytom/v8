@@ -61,12 +61,12 @@ void IsolateAllocator::InitializeOncePerProcess() {
   CHECK(sandbox->is_initialized());
   Address base = sandbox->address_space()->AllocatePages(
       sandbox->base(), params.reservation_size, params.base_alignment,
-#if defined(__CHERI_PURE_CAPABILITY__)
+#if defined(CHERI_HYBRID)
       PagePermissions::kNoAccess,
       PagePermissions::kNoAccess);
-#else   // !__CHERI_PURE_CAPABILITY__
+#else   // !CHERI_HYBRID
       PagePermissions::kNoAccess);
-#endif  // !__CHERI_PURE_CAPABILITY__
+#endif  // !CHERI_HYBRID
   CHECK_EQ(sandbox->base(), base);
   existing_reservation = base::AddressRegion(base, params.reservation_size);
   params.page_allocator = sandbox->page_allocator();

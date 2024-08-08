@@ -74,12 +74,12 @@ Address VirtualAddressSpace::RandomPageAddress() {
 
 Address VirtualAddressSpace::AllocatePages(Address hint, size_t size,
                                            size_t alignment,
-#if defined(__CHERI_PURE_CAPABILITY__)
+#if defined(CHERI_HYBRID)
                                            PagePermissions permissions,
                                            PagePermissions max_permissions) {
-#else  // !__CHERI_PURE_CAPABILITY__
+#else  // !CHERI_HYBRID
                                            PagePermissions permissions) {
-#endif // !__CHERI_PURE_CAPABILITY__
+#endif // !CHERI_HYBRID
   DCHECK(IsAligned(alignment, allocation_granularity()));
   DCHECK(IsAligned(hint, alignment));
   DCHECK(IsAligned(size, allocation_granularity()));
@@ -251,12 +251,12 @@ Address VirtualAddressSubspace::RandomPageAddress() {
 
 Address VirtualAddressSubspace::AllocatePages(Address hint, size_t size,
                                               size_t alignment,
-#if defined(__CHERI_PURE_CAPABILITY__)
+#if defined(CHERI_HYBRID)
                                               PagePermissions permissions,
                                               PagePermissions max_permissions) {
-#else   // !__CHERI_PURE_CAPABILITY__
+#else   // !CHERI_HYBRID
                                               PagePermissions permissions) {
-#endif  // !__CHERI_PURE_CAPABILITY__
+#endif  // !CHERI_HYBRID
   DCHECK(IsAligned(alignment, allocation_granularity()));
   DCHECK(IsAligned(hint, alignment));
   DCHECK(IsAligned(size, allocation_granularity()));

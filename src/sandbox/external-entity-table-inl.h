@@ -99,15 +99,15 @@ void ExternalEntityTable<Entry, size>::Initialize() {
     // fully-backed emulated subspace.
     Address reservation_base = root_space->AllocatePages(
         VirtualAddressSpace::kNoHint, kReservationSize, kSegmentSize,
-#if defined(__CHERI_PURE_CAPABILITY__)
+#if defined(CHERI_HYBRID)
       // As the entity table is writing capability values to the allocated
       // pages in must be mapped with kReadWrite as there is currently
       // no mechanism to control the cap write protection.
-      root_space->allocation_granularity(), PagePermissions::kReadWrite,
-      PagePermissions::kReadWrite);
-#else   // !__CHERI_PURE_CAPABILITY__
+      // root_space->allocation_granularity(),      // == TW 240723 commented out from Graeme's fork --- seems unneccessary for more recent V9 versions
+      PagePermissions::kReadWrite, PagePermissions::kReadWrite);
+#else   // !CHERI_HYBRID
         PagePermissions::kNoAccess);
-  #endif  // !__CHERI_PURE_CAPABILITY__
+  #endif  // !CHERI_HYBRID
   if (reservation_base) {
       vas_ = new base::EmulatedVirtualAddressSubspace(
           root_space, reservation_base, kReservationSize, kReservationSize);
@@ -124,7 +124,7 @@ void ExternalEntityTable<Entry, size>::Initialize() {
   // kNullAddress) at index 0. It may later be temporarily marked read-write,
   // see UnsealedReadOnlySegmentScope.
   Address first_segment = vas_->AllocatePages(
-      vas_->base(), kSegmentSize, kSegmentSize, PagePermissions::kRead);
+      vas_->base(), kSegmentSize, kSegmentSize, PagePermissions::kRead, PagePermissions::kRead);
   if (first_segment != vas_->base()) {
     V8::FatalProcessOutOfMemory(
         nullptr,
@@ -430,7 +430,7 @@ typename ExternalEntityTable<Entry, size>::Segment
 ExternalEntityTable<Entry, size>::AllocateTableSegment() {
   Address start =
       vas_->AllocatePages(VirtualAddressSpace::kNoHint, kSegmentSize,
-                          kSegmentSize, PagePermissions::kReadWrite);
+                          kSegmentSize, PagePermissions::kReadWrite, PagePermissions::kReadWrite);
   if (!start) {
     V8::FatalProcessOutOfMemory(nullptr,
                                 "ExternalEntityTable::AllocateSegment");

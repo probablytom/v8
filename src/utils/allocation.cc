@@ -226,7 +226,7 @@ VirtualMemory::VirtualMemory(v8::PageAllocator* page_allocator, size_t size,
   size_t page_size = page_allocator_->AllocatePageSize();
   alignment = RoundUp(alignment, page_size);
   Address address = reinterpret_cast<Address>(AllocatePages(
-  page_allocator_, hint, RoundUp(size, page_size), alignment, permissions, permissions));
+  page_allocator_, hint, RoundUp(size, page_size), alignment, permissions, PageAllocator::kReadWrite));
   if (address != kNullAddress) {
     DCHECK(IsAligned(address, alignment));
     region_ = base::AddressRegion(address, size);

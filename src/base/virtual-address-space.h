@@ -57,12 +57,12 @@ class V8_BASE_EXPORT VirtualAddressSpace : public VirtualAddressSpaceBase {
   Address RandomPageAddress() override;
 
   Address AllocatePages(Address hint, size_t size, size_t alignment,
-#if defined(__CHERI_PURE_CAPABILITY__)
+#if defined(CHERI_HYBRID)
                         PagePermissions access,
                         PagePermissions max_access) override;
-#else   // !__CHERI_PURE_CAPABILITY__
+#else   // !CHERI_HYBRID
                         PagePermissions access) override;
-#endif  // !__CHERI_PURE_CAPABILITY__
+#endif  // !CHERI_HYBRID
 
   void FreePages(Address address, size_t size) override;
 
@@ -110,12 +110,12 @@ class V8_BASE_EXPORT VirtualAddressSubspace : public VirtualAddressSpaceBase {
   Address RandomPageAddress() override;
 
   Address AllocatePages(Address hint, size_t size, size_t alignment,
-#if defined(__CHERI_PURE_CAPABILITY__)
+#if defined(CHERI_HYBRID)
                         PagePermissions permissions,
                         PagePermissions max_permissions) override;
-#else   // !__CHERI_PURE_CAPABILITY__
+#else   // !CHERI_HYBRID
                         PagePermissions permissions) override;
-#endif  // !__CHERI_PURE_CAPABILITY__
+#endif  // !CHERI_HYBRID
 
   void FreePages(Address address, size_t size) override;
 

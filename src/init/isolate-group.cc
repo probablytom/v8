@@ -71,7 +71,11 @@ void IsolateGroup::InitializeOncePerProcess() {
   CHECK(sandbox->is_initialized());
   Address base = sandbox->address_space()->AllocatePages(
     sandbox->base(), params.reservation_size, params.base_alignment,
+    #ifdef CHERI_HYBRID
+    PagePermissions::kNoAccess, PagePermissions::kReadWrite);
+    #else
     PagePermissions::kNoAccess);
+    #endif
   CHECK_EQ(sandbox->base(), base);
   existing_reservation = base::AddressRegion(base, params.reservation_size);
   params.page_allocator = sandbox->page_allocator();
