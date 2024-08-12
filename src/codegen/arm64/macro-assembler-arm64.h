@@ -224,10 +224,10 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
   void LeaveFrame(StackFrame::Type type);
 
   #ifdef CHERI_HYBRID
-  void RestrictDDC(Register superddc_address_reg, Register ddc_val_reg);
-  void DerestrictDDC(Register superddc_address_reg, Register ddc_val_reg);
-  void RestrictPCC(Register scratch, Register jumpPointReg);
-  void DerestrictPCC(Register scratch, Register jumpPointReg);
+  void RestrictDDC(Register superddc_address_reg, Register ddc_val_reg, Label *ddc_storage_location);
+  void DerestrictDDC(Register superddc_address_reg, Register ddc_val_reg, Label *ddc_storage_location);
+  void RestrictPCC(Register scratch, Register jumpPointReg, Label *ddc_storage_location);
+  void DerestrictPCC(Register scratch, Register jumpPointReg, Label *ddc_storage_location);
   void EnterCheriCompartment(Register r1, Register r2);
   void EnterCheriCompartment(Register r1);
   void EnterCheriCompartment();
@@ -247,8 +247,11 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
   #include <stack>
   Label pcc_storage_label;
   Label ddc_storage_label;
+  void AlignPCTo(int alignment);
   void SetupNewCompartmentStoragePoints();
   void TearDownCompartmentStoragePoints();
+  void SwapPCCCompartmentBoundary(Register s1, Register s2);
+  void LoadPCCAddress(Register r);
   #endif
 
   inline void InitializeRootRegister();

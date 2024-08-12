@@ -92,6 +92,7 @@ class Isolate;
     builtin_entry_capability_table)                                                             \
   V(kBuiltinCapabilityTableOffset, Builtins::kBuiltinCount* sizeof(void* __capability),         \
     builtin_capability_table)                                                                   \
+  V(kSuperCapAlignmentPaddingOffset, 16, super_cap_alignment_padding)                           \
   V(kSuperPCCOffset, sizeof(void *__capability), super_pcc)                                     \
   V(kSuperDDCOffset, sizeof(void *__capability), super_ddc)
 #else
@@ -387,6 +388,10 @@ class IsolateData final {
 
   void* __capability builtin_entry_capability_table_[Builtins::kBuiltinCount];
   void* __capability builtin_capability_table_[Builtins::kBuiltinCount];
+
+  static_assert(FIELD_SIZE(kSuperCapAlignmentPaddingOffset) > 0);
+  uint8_t super_cap_alignment_padding_[FIELD_SIZE(kSuperCapAlignmentPaddingOffset)];
+
   void *__capability super_pcc_;
   void *__capability super_ddc_;
 #endif

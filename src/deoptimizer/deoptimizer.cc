@@ -2564,9 +2564,15 @@ unsigned Deoptimizer::ComputeInputFrameSize() const {
     }
   } else {
     unsigned outgoing_size = 0;
+    #ifdef CHERI_HYBRID
     CHECK_EQ(fixed_size_above_fp + (stack_slots * kSystemPointerSize) -
                  CommonFrameConstants::kFixedFrameSizeAboveFp + outgoing_size,
              result);
+    #else
+    CHECK_EQ(fixed_size_above_fp + (stack_slots * kSystemPointerSize) -
+                 CommonFrameConstants::kFixedFrameSizeAboveFp + outgoing_size,
+             result);
+    #endif
   }
   return result;
 }

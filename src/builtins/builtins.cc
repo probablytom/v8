@@ -138,7 +138,13 @@ void Builtins::set_code(Builtin builtin, Tagged<Code> code) {
   DCHECK_EQ(builtin, code->builtin_id());
   DCHECK(Internals::HasHeapObjectTag(code.ptr()));
   // The given builtin may be uninitialized thus we cannot check its type here.
+// #ifdef CHERI_HYBRID
+//   #include <cheriintrin.h>
+//   // TODO unsure that this cast to uintcap_t is sufficient…this might fail type checking when compiling. Let's see.
+//   isolate_->builtin_table()[Builtins::ToInt(builtin)] = cheri_cap_build(cheri_pcc_get(), (uintcap_t)code.ptr());
+// #else
   isolate_->builtin_table()[Builtins::ToInt(builtin)] = code.ptr();
+// #endif
 }
 
 Tagged<Code> Builtins::code(Builtin builtin) {

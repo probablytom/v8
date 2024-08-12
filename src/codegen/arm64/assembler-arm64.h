@@ -56,6 +56,9 @@ class Immediate {
 
  private:
   int64_t value_;
+// #ifdef CHERI_HYBRID
+//   void *__capability capvalue_ = 0;
+// #endif
   RelocInfo::Mode rmode_;
 };
 

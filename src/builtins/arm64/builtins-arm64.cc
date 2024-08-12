@@ -840,13 +840,7 @@ void Generate_JSEntryVariant(MacroAssembler* masm, StackFrame::Type type,
   //
   // Invoke the function by calling through JS entry trampoline builtin and
   // pop the faked function when we return.
-  #ifdef CHERI_HYBRID
-  // __ EnterCheriCompartment(x4, x5);
   __ CallBuiltin(entry_trampoline);
-  // __ ExitCheriCompartment(x4, x5);
-  #else
-  __ CallBuiltin(entry_trampoline);
-  #endif // CHERI_HYBRID
 
   // Pop the stack handler and unlink this frame from the handler chain.
   static_assert(StackHandlerConstants::kNextOffset == 0 * kSystemPointerSize,
@@ -1031,9 +1025,9 @@ static void Generate_JSEntryTrampolineHelper(MacroAssembler* masm,
 
     Builtin builtin = is_construct ? Builtin::kConstruct : Builtins::Call();
 #ifdef CHERI_HYBRID
-  __ ExitCheriCompartment(x4, x5);
+  // __ ExitCheriCompartment(x4, x5);
   __ CallBuiltin(builtin);
-  __ EnterCheriCompartment(x4, x5);
+  // __ EnterCheriCompartment(x4, x5);
 #else
     __ CallBuiltin(builtin);
 #endif
@@ -1363,6 +1357,15 @@ void Builtins::Generate_InterpreterEntryTrampoline(
     MacroAssembler* masm, InterpreterEntryTrampolineMode mode) {
   Register closure = x1;
 
+#ifdef CHERI_HYBRID
+  // We shouldn't be in a compartment here.
+  bool returnToCompartment = masm->within_cheri_compartment;
+  returnToCompartment = true;
+  if (returnToCompartment) {
+    // __ ExitCheriCompartment();
+  }
+#endif
+
   // Get the bytecode array from the function object and load it into
   // kInterpreterBytecodeArrayRegister.
   Register sfi = x4;
@@ -1489,13 +1492,13 @@ void Builtins::Generate_InterpreterEntryTrampoline(
   __ Mov(x1, Operand(x23, LSL, kSystemPointerSizeLog2));
   __ Ldr(kJavaScriptCallCodeStartRegister,
          MemOperand(kInterpreterDispatchTableRegister, x1));
-  #ifdef CHERI_HYBRID
+#ifdef CHERI_HYBRID
   // __ EnterCheriCompartment(x4, x5);
-  #endif //CHERI_HYBRID
+#endif
   __ Call(kJavaScriptCallCodeStartRegister);
-  #ifdef CHERI_HYBRID
+#ifdef CHERI_HYBRID
   // __ ExitCheriCompartment(x4, x5);
-  #endif //CHERI_HYBRID
+#endif
 
   __ RecordComment("--- InterpreterEntryReturnPC point ---");
   if (mode == InterpreterEntryTrampolineMode::kDefault) {
@@ -1533,7 +1536,13 @@ void Builtins::Generate_InterpreterEntryTrampoline(
   __ bind(&do_return);
   // The return value is in x0.
   LeaveInterpreterFrame(masm, x2, x4);
+  #ifdef CHERI_HYBRID
+  if (returnToCompartment) {
+    // __ EnterCheriCompartment();
+  }
+  #endif
   __ Ret();
+
 
   __ bind(&stack_check_interrupt);
   // Modify the bytecode offset in the stack to be kFunctionEntryBytecodeOffset

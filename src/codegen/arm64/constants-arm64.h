@@ -492,6 +492,9 @@ enum SystemRegister {
   CCTLR = ((0x1 << SysO0_offset) | (0x3 << SysOp1_offset) | (0x1 << CRn_offset) |
           (0x2 << CRm_offset) | (0x2 << SysOp2_offset)) >>
         ImmSystemRegister_offset,
+  CID = ((0x1 << SysO0_offset) | (0x3 << SysOp1_offset) | (0xD << CRn_offset) |
+          (0x0 << CRm_offset) | (0x7 << SysOp2_offset)) >>
+        ImmSystemRegister_offset,
 #endif
   NZCV = ((0x1 << SysO0_offset) | (0x3 << SysOp1_offset) | (0x4 << CRn_offset) |
           (0x2 << CRm_offset) | (0x0 << SysOp2_offset)) >>

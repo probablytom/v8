@@ -270,6 +270,18 @@ Immediate::Immediate(T t, RelocInfo::Mode rmode)
   static_assert(std::is_integral<T>::value);
 }
 
+// template <>
+// Immediate::Immediate(void *__capability capOp)
+//     : value_(ImmediateInitializer<void *__capability>::immediate_for(capOp)),
+//       capvalue_(capOp),
+//       rmode_(ImmediateInitializer<void *__capability>::rmode_for(capOp)) {}
+
+// template <>
+// Immediate::Immediate(void *__capability capOp, RelocInfo::Mode rmode)
+//     : value_(ImmediateInitializer<void *__capability>::immediate_for(capOp)),
+//       capvalue_(capOp),
+//       rmode_(rmode) {}
+
 template <typename T>
 Operand::Operand(T t) : immediate_(t), reg_(NoReg) {}
 

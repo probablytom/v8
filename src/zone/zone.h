@@ -233,12 +233,12 @@ class V8_EXPORT_PRIVATE Zone final {
 
   // All pointers returned from New() are 8-byte aligned.
   // ASan requires 8-byte alignment. MIPS also requires 8-byte alignment.
-  // #ifdef CHERI_HYBRID
-  // // Align to 16 bytes if we're in CHERI-world, to correctly align capabilities.
-  // static const size_t kAlignmentInBytes = 16;
-  // #else
+  #ifdef CHERI_HYBRID
+  // Align to 16 bytes if we're in CHERI-world, to correctly align capabilities.
+  static const size_t kAlignmentInBytes = 16;
+  #else
   static const size_t kAlignmentInBytes = 8;
-  // #endif
+  #endif
 
   // Never allocate segments smaller than this size in bytes.
   static const size_t kMinimumSegmentSize = 8 * KB;
