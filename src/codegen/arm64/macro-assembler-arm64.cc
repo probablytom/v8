@@ -2138,17 +2138,11 @@ int MacroAssembler::CallCFunction(Register function, int num_of_reg_args,
   // Call directly. The function called cannot cause a GC, or allow preemption,
   // so the return address in the link register stays correct.
   #ifdef CHERI_HYBRID
-  bool inComp = this->within_cheri_compartment;
-  inComp = true;
-  if (inComp) {
-    SwapPCCCompartmentBoundary(x20, x21);
-  }
+  CallOutsideOfSecurityDomain(x20, x21, typicalCall);
   #endif
   Call(function);
   #ifdef CHERI_HYBRID
-  if (inComp) {
-    SwapPCCCompartmentBoundary(x20, x21);
-  }
+  CompartmentCheckFollowingCallWithinCompartment(x20, x21, typicalCall); // TODO: unsure whether this is _always_ called within a compartment, or whether this can be called by builtins as well as JS! If it's not always called within JS then this is wrong.
   #endif
   int call_pc_offset = pc_offset();
   bind(&get_pc);
@@ -2430,15 +2424,9 @@ void MacroAssembler::CallBuiltinByIndex(Register builtin_index,
   ASM_CODE_COMMENT(this);
   LoadEntryFromBuiltinIndex(builtin_index, target);
   #ifdef CHERI_HYBRID
-  bool inComp = this->within_cheri_compartment;
-  inComp = true;
-  if (inComp) {
-    SwapPCCCompartmentBoundary(x20, x21);
-  }
+  CallOutsideOfSecurityDomain(x20, x21, typicalCall);
   Call(target);
-  if (inComp) {
-    SwapPCCCompartmentBoundary(x20, x21);
-  }
+  CompartmentCheckFollowingCallWithinCompartment(x20, x21, typicalCall); // TODO: [CHERI] this might not be appropriate. Are builtins ever called by builtins using this mechanism, or is this always used from within JS?
   #else
   Call(target);
   #endif
@@ -2447,11 +2435,7 @@ void MacroAssembler::CallBuiltinByIndex(Register builtin_index,
 void MacroAssembler::CallBuiltin(Builtin builtin) {
   ASM_CODE_COMMENT_STRING(this, CommentForOffHeapTrampoline("call", builtin));
 #ifdef CHERI_HYBRID
-  bool inComp = this->within_cheri_compartment;
-  inComp = true;
-  if (inComp) {
-    SwapPCCCompartmentBoundary(x20, x21);
-  }
+  CallOutsideOfSecurityDomain(x20, x21, typicalCall);
 #endif
   switch (options().builtin_call_jump_mode) {
     case BuiltinCallJumpMode::kAbsolute: {
@@ -2487,9 +2471,7 @@ void MacroAssembler::CallBuiltin(Builtin builtin) {
     }
   }
 #ifdef CHERI_HYBRID
-  if (inComp) {
-    SwapPCCCompartmentBoundary(x20, x21);
-  }
+  CompartmentCheckFollowingCallWithinCompartment(x20, x21, typicalCall); // TODO: [CHERI] this might not be appropriate. Are builtins ever called by builtins using this mechanism, or is this always used from within JS?
 #endif
 }
 
@@ -2522,7 +2504,7 @@ void MacroAssembler::TailCallBuiltin(Builtin builtin, Condition cond) {
   #endif
 
 #ifdef CHERI_HYBRID
-#define SWPCOMP SwapPCCCompartmentBoundary(x20, x21);
+#define SWPCOMP CallOutsideOfSecurityDomain(x20, x21, tailCall);
 #else
 #define SWPCOMP
 #endif // CHERI_HYBRID
@@ -2605,23 +2587,23 @@ void MacroAssembler::CallJSFunction(Register function_object) {
   Register code = kJavaScriptCallCodeStartRegister;
 
 #ifdef CHERI_HYBRID
-#define COMP_ENTRYSEQ                                                   \
-  bool enteringCompartment = !(this->within_cheri_compartment);         \
-  enteringCompartment = true;                                           \
-  if (enteringCompartment) {                                            \
-    EnterCheriCompartment(x20, x21);                                    \
-    this->within_cheri_compartment = true; \
-  }                                                                     
+#define COMP_ENTRYSEQ EnterSecurityDomain(x20, x21, typicalCall);
+  // bool enteringCompartment = !(this->within_cheri_compartment);         \
+  // enteringCompartment = true;                                           \
+  // if (enteringCompartment) {                                            \
+  //   EnterCheriCompartment(x20, x21);                                    \
+  //   this->within_cheri_compartment = true; \
+  // }                                                                     
 #else
 #define COMP_ENTRYSEQ
 #endif // CHERI_HYBRID
 
 #ifdef CHERI_HYBRID
-#define COMP_EXITSEQ                                                   \
-  if (enteringCompartment) {                                           \
-    ExitCheriCompartment(x20, x21);                                    \
-    this->within_cheri_compartment = false; \
-  }
+#define COMP_EXITSEQ CheckReturningWithinCompartment(x20, x21, typicalCall);
+  // if (enteringCompartment) {                                           \
+  //   ExitCheriCompartment(x20, x21);                                    \
+  //   this->within_cheri_compartment = false; \
+  // }
 #else
 #define COMP_EXITSEQ
 #endif // CHERI_HYBRID
@@ -2724,28 +2706,11 @@ void MacroAssembler::StoreReturnAddressAndCall(Register target) {
   }
 
   #ifdef CHERI_HYBRID
-  // if (this.CompartmentEscapeHatch != NULL) {
-  //   // TODO: Should ExitCheriCompartment be reworked to be these instructions?
-  //   // Create executive permission holding jump target
-    
-  //   UseScratchRegisterScope temps(this);
-  //   CRegister escapehatch_tmpreg = temps.AcquireC();
-  //   // TODO: load escape hatch into escapehatchreg
-  //   Cvt(target.C(), escapehatch_tmpreg, target); // Convert target to capability using metadata bits from escapehatch
-  //   blessedTarget = target.C();
-  // }
-  // Blrr(target);
-    // Blrr(target.C());
-    bool inComp = this->within_cheri_compartment;
-    inComp = true;
-    if (inComp) {
-      SwapPCCCompartmentBoundary(x20, x21);
-    }
+
+    CallOutsideOfSecurityDomain(x20, x21, typicalCall);
     Blr(target);
-    if (inComp) {
-      SwapPCCCompartmentBoundary(x20, x21);
-    }
-  #else
+    CompartmentCheckFollowingCallWithinCompartment(x20, x21, typicalCall);
+#else
     Blr(target);
   #endif
   Bind(&return_location);
@@ -4837,7 +4802,7 @@ void CallApiFunctionAndReturn(MacroAssembler* masm, bool with_profiling,
 
 
 #ifdef CHERI_HYBRID
-void MacroAssembler::LoadPCCAddress(Register r) {
+void MacroAssembler::LoadSuperPCCAddress(Register r) {
   // We add using cap registers to avoid using extra scratch registers in the
   // Add macro which might not be available.
   UseScratchRegisterScope temps(this);
@@ -4945,7 +4910,7 @@ void MacroAssembler::RestrictPCC(Register scratch, Register jumpPointReg, Label 
     B(&skip, Condition::kNotEqual);
 
     // Calculate address of privileged PCC stored in IsolateData
-    LoadPCCAddress(scratch);
+    LoadSuperPCCAddress(scratch);
     // Adr(scratch, pcc_storage_location); // TW: for storing supercap in heap
 
     // Load the PCC into jumpPointReg
@@ -5005,7 +4970,7 @@ void MacroAssembler::DerestrictPCC(Register scratch, Register jumpPointReg, Labe
     B(&pccInstallJumpPoint, Condition::kNotEqual);
 
     // Derestrict the PCC --- RDDC is 0 so we're leaving the compartment.
-    LoadPCCAddress(scratch);
+    LoadSuperPCCAddress(scratch);
     // Adr(scratch, pcc_storage_location); // TW: for storing supercap in heap
     Ldr(jumpPointReg.C(), scratch);
     Adr(scratch, &pccInstallJumpPoint);
@@ -5129,7 +5094,7 @@ void MacroAssembler::SwapPCCCompartmentBoundary(Register s1, Register s2) {
   // entering / leaving a compartment.
 
   // Load stored PCC address into s1
-  LoadPCCAddress(s1);
+  LoadSuperPCCAddress(s1);
   
   // Get current PCC in s2
   Adr(s2, &pccInstallationJumpPoint);
@@ -5148,6 +5113,246 @@ void MacroAssembler::SwapPCCCompartmentBoundary(Register s1, Register s2) {
   Bind(&pccInstallationJumpPoint);
   Pop(s1, s2);
 }
+
+void MacroAssembler::SetupSuperPCC(Register r1, Register r2) {
+  Push(r1, r2); // TODO: optimise these pushes & pops away
+  GetPCC(r2);
+  LoadSuperPCCAddress(r1);
+  Swp(r2.C(), r1);
+  Pop(r1, r2); // TODO: optimise these pushes & pops away
+}
+
+void MacroAssembler::LoadSuperPCC(Register reg) {
+  LoadSuperPCCAddress(reg);
+  Ldr(reg.C(), reg);
+}
+
+void MacroAssembler::EnterCompartment(Register r1, Register r2) {
+
+  Label PCCINSTALL;
+
+  LoadSuperPCC(r1);
+  
+  // Set superpcc value to compartment start
+  Adr(r2, &PCCINSTALL);
+  And(r2, r2, 0xF0000000); // Gets "compartment start"
+  Scvalue(r1.C(), r1.C(), r2);
+
+  // Calculate new bounds
+  Mov(r2, this->compartment_width);
+
+  // Set superpcc bounds to new bounds
+  Scbnds(r1.C(), r1.C(), r2);
+
+  // Subtract lower bound of superpcc from PCCINSTALL label
+  Gcbase(r1.C(), r2);
+  // TODO: check this does the right thing. Using the PC here simplifies the implementation, but means the comp will potentially be 8 bytes too small. I'm not sure whether pc_offset does the right thing.
+  Sub(r2, r2, pc_offset());
+
+  // Set offset to result of subtraction
+  Scoff(r1.C(), r1.C(), r2);
+
+  // Jump to capability calculated
+  Br(r1.C());
+
+  Bind(&PCCINSTALL);
+}
+
+void MacroAssembler::ExitCompartment(Register r1, Register r2) {
+
+  Label PCCINSTALL;
+
+  LoadSuperPCC(r1);
+
+  // Set value to label PCCINSTALL
+  Adr(r2, &PCCINSTALL);
+  Scvalue(r1.C(), r1.C(), r2);
+
+  // Branch to capability calculated
+  Br(r1.C());
+
+  Bind(&PCCINSTALL);
+}
+
+void MacroAssembler::CMPCompartmentBoundaryWidth(Register r1, Register scratchToAddToPile) {
+  // Get bounds of PCC
+  GetPCC(r1);
+  Gclim(r1.C(), r1);
+
+  // CMP against this->max_compartment_width
+  UseScratchRegisterScope temps(this);
+  temps.Include(scratchToAddToPile);
+  Cmp(r1, this->max_compartment_width);
+  temps.Exclude(scratchToAddToPile);
+}
+
+void MacroAssembler::PushCurrentCompBoundaries(Register scratch) {
+  GetPCC(scratch);
+  Gclim(scratch.C(), scratch);
+  Push(scratch);
+}
+
+void MacroAssembler::PopEarlierCompBoundaries(Register scratch) {
+  Pop(scratch);
+}
+
+void MacroAssembler::QuickStash(Register reg) {
+  Msr(stashSystemReg, reg.C());
+}
+
+void MacroAssembler::QuickUnStash(Register reg) {
+  Mrs(reg.C(), stashSystemReg);
+}
+
+// Rule 1: Any JS function must immediately check whether it's in a compartment
+//         and enter one if it isn't.
+void MacroAssembler::EnterSecurityDomain(Register r1, Register r2, CallType calltype) {
+
+  Label END;
+
+  if (calltype == typicalCall) {
+    UseScratchRegisterScope temps(this);
+    if (temps.CanAcquire()) {
+      PushCurrentCompBoundaries(temps.AcquireX());
+    } else {
+      QuickStash(r1);
+      PushCurrentCompBoundaries(r1);
+      QuickUnStash(r1);
+    }
+  }
+
+  Push(r1, r2);
+
+  CMPCompartmentBoundaryWidth(r1, r2);
+
+  // Branch to label END if LE
+  B(le, &END);
+
+  SetupSuperPCC(r1, r2); // TODO: find a better place to do this! Can't do it _every_ time we enter a comp
+  EnterCompartment(r1, r2);
+
+  // Label END gets bound here
+  Bind(&END);
+
+  Pop(r1, r2);
+
+}
+
+
+// Rule 2: Any call or tail call to something outside of our security domain
+//        (i.e. a Builtin) must be preceded by a check as to whether the call
+//         occurs within a compartment, and exit it if so.
+void MacroAssembler::CallOutsideOfSecurityDomain(Register r1, Register r2, CallType calltype) {
+
+  Label END;
+
+  if (calltype == typicalCall) {
+    UseScratchRegisterScope temps(this);
+    if (temps.CanAcquire()) {
+      PushCurrentCompBoundaries(temps.AcquireX());
+    } else {
+      QuickStash(r1);
+      PushCurrentCompBoundaries(r1);
+      QuickUnStash(r1);
+    }
+  }
+
+  Push(r1, r2);
+
+  CMPCompartmentBoundaryWidth(r1, r2); 
+
+  // Branch to label END if GREATER
+  B(gt, &END);
+
+  ExitCompartment(r1, r2);
+
+  // Label END gets bound here
+  Bind(&END);
+
+  Pop(r1, r2);
+}
+
+
+// Rule 3: Any call from within our security boundary (i.e. JITted JS) must be
+//         followed by a check as to whether compartment boundaries are
+//         installed following the call, and boundaries restored if not.
+void MacroAssembler::CompartmentCheckFollowingCallWithinCompartment(Register r1, Register r2, CallType calltype) {
+
+  Label END;
+  Label SKIP;
+
+  if (calltype == typicalCall) {
+    UseScratchRegisterScope temps(this);
+    QuickStash(r1);
+    PopEarlierCompBoundaries(r1);
+    Cmp(r1, this->max_compartment_width);
+    QuickUnStash(r1);
+    B(gt, &END);
+  }
+
+  Push(r1, r2);
+
+  CMPCompartmentBoundaryWidth(r1, r2); // TODO: find a better place to do this! Can't do it _every_ time we enter a comp
+
+  // Branch to label END if LE 
+  B(le, &END);
+
+  // SetupSuperPCC(r1, r2);
+  EnterCompartment(r1, r2);
+
+  // Label END gets bound here
+  Bind(&END);
+
+  Pop(r1, r2);
+
+  Bind(&SKIP);
+
+}
+
+
+// Rule 4: When returning from within our security boundary (i.e. JITted JS),
+//         the return must be preceeded by a check as to whether the return
+//         address lies within compartment boundaries, and the compartment
+//         exited if not.
+void MacroAssembler::CheckReturningWithinCompartment(Register r1, Register r2, Register returnAddrReg, CallType calltype) {
+  Label END;
+  Label SKIP;
+
+  if (calltype == typicalCall) {
+    UseScratchRegisterScope temps(this);
+    QuickStash(r1);
+    PopEarlierCompBoundaries(r1);
+    Cmp(r1, this->max_compartment_width);
+    QuickUnStash(r1);
+    B(gt, &SKIP);
+  }
+
+  Push(r1, r2);
+
+  // Load current PCC
+  GetPCC(r1);
+
+  // Set value to return address
+  Scvalue(r1.C(), r1.C(), returnAddrReg); // Making returnaddr parameterised because I worry JS and C ABIs will handle this differently, and I can't confirm at present. This can be changed in the future.
+
+  // Get validity bit
+  Gctag(r1.C(), r2);
+
+  // If valid, branch to label END
+  Cmp(r2, 1);
+  B(eq, &END);
+
+  ExitCompartment(r1, r2);
+
+  // Label END gets bound here
+  Bind(&END);
+
+  Pop(r1, r2);
+
+  Bind(&SKIP);
+
+}
+
 #endif
 
 

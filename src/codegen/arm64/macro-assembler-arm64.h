@@ -224,6 +224,23 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
   void LeaveFrame(StackFrame::Type type);
 
   #ifdef CHERI_HYBRID
+  enum CallType {typicalCall, tailCall};
+  SystemRegister stashSystemReg = RDDC;
+
+  void QuickStash(Register reg);
+  void QuickUnStash(Register reg);
+  void PushCurrentCompBoundaries(Register scratch);
+  void PopEarlierCompBoundaries(Register scratch);
+  void LoadSuperPCCAddress(Register r1);
+  void LoadSuperPCC(Register r1);
+  void SetupSuperPCC(Register r1, Register r2);
+  void EnterCompartment(Register r1, Register r2);
+  void ExitCompartment(Register r1, Register r2);
+  void CMPCompartmentBoundaryWidth(Register r1, Register scratchToAddToPile);
+  void EnterSecurityDomain(Register r1, Register r2, CallType calltype);
+  void CallOutsideOfSecurityDomain(Register r1, Register r2, CallType calltype);
+  void CompartmentCheckFollowingCallWithinCompartment(Register r1, Register r2, CallType calltype);
+  void CheckReturningWithinCompartment(Register r1, Register r2, Register returnAddrReg, CallType calltype);
   void RestrictDDC(Register superddc_address_reg, Register ddc_val_reg, Label *ddc_storage_location);
   void DerestrictDDC(Register superddc_address_reg, Register ddc_val_reg, Label *ddc_storage_location);
   void RestrictPCC(Register scratch, Register jumpPointReg, Label *ddc_storage_location);
@@ -2432,6 +2449,8 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
   void JumpHelper(int64_t offset, RelocInfo::Mode rmode, Condition cond = al);
 
   #ifdef CHERI_HYBRID
+  size_t compartment_width = 0xFFFFFF;
+  size_t max_compartment_width = 0xFFFFFFFF;
   bool restrict_next_jump = false;
   void *__capability capto_cheri_builtin_table;
   #endif
