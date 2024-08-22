@@ -2138,11 +2138,11 @@ int MacroAssembler::CallCFunction(Register function, int num_of_reg_args,
   // Call directly. The function called cannot cause a GC, or allow preemption,
   // so the return address in the link register stays correct.
   #ifdef CHERI_HYBRID
-  CallOutsideOfSecurityDomain(x20, x21, typicalCall);
+  EnsureOutsideSecurityBoundary(typicalCall);
   #endif
   Call(function);
   #ifdef CHERI_HYBRID
-  CompartmentCheckFollowingCallWithinCompartment(x20, x21, typicalCall); // TODO: unsure whether this is _always_ called within a compartment, or whether this can be called by builtins as well as JS! If it's not always called within JS then this is wrong.
+  EnsureWithinSecurityBoundary(typicalCall); // TODO: unsure whether this is _always_ called within a compartment, or whether this can be called by builtins as well as JS! If it's not always called within JS then this is wrong.
   #endif
   int call_pc_offset = pc_offset();
   bind(&get_pc);
@@ -2424,9 +2424,9 @@ void MacroAssembler::CallBuiltinByIndex(Register builtin_index,
   ASM_CODE_COMMENT(this);
   LoadEntryFromBuiltinIndex(builtin_index, target);
   #ifdef CHERI_HYBRID
-  CallOutsideOfSecurityDomain(x20, x21, typicalCall);
+  EnsureOutsideSecurityBoundary(typicalCall);
   Call(target);
-  CompartmentCheckFollowingCallWithinCompartment(x20, x21, typicalCall); // TODO: [CHERI] this might not be appropriate. Are builtins ever called by builtins using this mechanism, or is this always used from within JS?
+  EnsureWithinSecurityBoundary(returnFromCall); // TODO: [CHERI] this might not be appropriate. Are builtins ever called by builtins using this mechanism, or is this always used from within JS?
   #else
   Call(target);
   #endif
@@ -2435,7 +2435,7 @@ void MacroAssembler::CallBuiltinByIndex(Register builtin_index,
 void MacroAssembler::CallBuiltin(Builtin builtin) {
   ASM_CODE_COMMENT_STRING(this, CommentForOffHeapTrampoline("call", builtin));
 #ifdef CHERI_HYBRID
-  CallOutsideOfSecurityDomain(x20, x21, typicalCall);
+  EnsureOutsideSecurityBoundary(typicalCall);
 #endif
   switch (options().builtin_call_jump_mode) {
     case BuiltinCallJumpMode::kAbsolute: {
@@ -2471,7 +2471,7 @@ void MacroAssembler::CallBuiltin(Builtin builtin) {
     }
   }
 #ifdef CHERI_HYBRID
-  CompartmentCheckFollowingCallWithinCompartment(x20, x21, typicalCall); // TODO: [CHERI] this might not be appropriate. Are builtins ever called by builtins using this mechanism, or is this always used from within JS?
+  EnsureWithinSecurityBoundary(returnFromCall); // TODO: [CHERI] this might not be appropriate. Are builtins ever called by builtins using this mechanism, or is this always used from within JS?
 #endif
 }
 
@@ -2504,7 +2504,7 @@ void MacroAssembler::TailCallBuiltin(Builtin builtin, Condition cond) {
   #endif
 
 #ifdef CHERI_HYBRID
-#define SWPCOMP CallOutsideOfSecurityDomain(x20, x21, tailCall);
+#define SWPCOMP EnsureOutsideSecurityBoundary(tailCall);
 #else
 #define SWPCOMP
 #endif // CHERI_HYBRID
@@ -2587,7 +2587,7 @@ void MacroAssembler::CallJSFunction(Register function_object) {
   Register code = kJavaScriptCallCodeStartRegister;
 
 #ifdef CHERI_HYBRID
-#define COMP_ENTRYSEQ EnterSecurityDomain(x20, x21, typicalCall);
+#define COMP_ENTRYSEQ EnsureWithinSecurityBoundary(typicalCall);
   // bool enteringCompartment = !(this->within_cheri_compartment);         \
   // enteringCompartment = true;                                           \
   // if (enteringCompartment) {                                            \
@@ -2599,7 +2599,7 @@ void MacroAssembler::CallJSFunction(Register function_object) {
 #endif // CHERI_HYBRID
 
 #ifdef CHERI_HYBRID
-#define COMP_EXITSEQ CheckReturningWithinCompartment(x20, x21, typicalCall);
+#define COMP_EXITSEQ EnsureOutsideSecurityBoundary(typicalCall);
   // if (enteringCompartment) {                                           \
   //   ExitCheriCompartment(x20, x21);                                    \
   //   this->within_cheri_compartment = false; \
@@ -2706,10 +2706,9 @@ void MacroAssembler::StoreReturnAddressAndCall(Register target) {
   }
 
   #ifdef CHERI_HYBRID
-
-    CallOutsideOfSecurityDomain(x20, x21, typicalCall);
+    EnsureOutsideSecurityBoundary(typicalCall);
     Blr(target);
-    CompartmentCheckFollowingCallWithinCompartment(x20, x21, typicalCall);
+    EnsureWithinSecurityBoundary(typicalCall);
 #else
     Blr(target);
   #endif
@@ -5144,10 +5143,16 @@ void MacroAssembler::EnterCompartment(Register r1, Register r2) {
   // Set superpcc bounds to new bounds
   Scbnds(r1.C(), r1.C(), r2);
 
+  // Stash r1 so we can clobber it and restore the prospective PCC it contains
+  QuickStash(r1);
+
   // Subtract lower bound of superpcc from PCCINSTALL label
   Gcbase(r1.C(), r2);
-  // TODO: check this does the right thing. Using the PC here simplifies the implementation, but means the comp will potentially be 8 bytes too small. I'm not sure whether pc_offset does the right thing.
-  Sub(r2, r2, pc_offset());
+  Adr(r1, &PCCINSTALL);
+  Sub(r2, r1, r2);
+  
+  // Restore PCC we're building into r1 so we can continue building it
+  QuickUnStash(r1);
 
   // Set offset to result of subtraction
   Scoff(r1.C(), r1.C(), r2);
@@ -5156,6 +5161,7 @@ void MacroAssembler::EnterCompartment(Register r1, Register r2) {
   Br(r1.C());
 
   Bind(&PCCINSTALL);
+
 }
 
 void MacroAssembler::ExitCompartment(Register r1, Register r2) {
@@ -5189,11 +5195,11 @@ void MacroAssembler::CMPCompartmentBoundaryWidth(Register r1, Register scratchTo
 void MacroAssembler::PushCurrentCompBoundaries(Register scratch) {
   GetPCC(scratch);
   Gclim(scratch.C(), scratch);
-  Push(scratch);
+  Push(scratch, xzr);
 }
 
 void MacroAssembler::PopEarlierCompBoundaries(Register scratch) {
-  Pop(scratch);
+  Pop(scratch, xzr);
 }
 
 void MacroAssembler::QuickStash(Register reg) {
@@ -5351,6 +5357,89 @@ void MacroAssembler::CheckReturningWithinCompartment(Register r1, Register r2, R
 
   Bind(&SKIP);
 
+}
+
+void MacroAssembler::EnsureWithinSecurityBoundary(CallType calltype) {
+  Register r1 = x20;
+  Register r2 = x21;
+
+  Label END;
+  Label SKIP;
+
+  if (calltype == typicalCall) {
+    // If we're making a call, we expect to return here. Stash comp boundaries so we know whether to restore after returning.
+    UseScratchRegisterScope temps(this);
+    if (temps.CanAcquire()) {
+      PushCurrentCompBoundaries(temps.AcquireX());
+    } else {
+      QuickStash(r1);
+      PushCurrentCompBoundaries(r1);
+      QuickUnStash(r1);
+    }
+  } else if (calltype == returnFromCall) {
+    // If we're returning from a call, we need to grab the old compartment boundaries and make sure we're within them.
+    UseScratchRegisterScope temps(this);
+    QuickStash(r1);
+    PopEarlierCompBoundaries(r1);
+    Cmp(r1, this->max_compartment_width);
+    QuickUnStash(r1);
+    B(gt, &SKIP);
+  }
+
+  Push(r1, r2);
+
+  CMPCompartmentBoundaryWidth(r1, r2);
+
+  // Branch to label END if LE
+  B(le, &END);
+
+  SetupSuperPCC(r1, r2); // TODO: find a better place to do this! Can't do it _every_ time we enter a comp
+  EnterCompartment(r1, r2);
+
+  // Label END gets bound here
+  Bind(&END);
+
+  Pop(r1, r2);
+
+  Bind(&SKIP);
+}
+
+void MacroAssembler::EnsureOutsideSecurityBoundary(CallType calltype) {
+  Register r1 = x20;
+  Register r2 = x21;
+
+  Label END;
+  Label SKIP;
+
+  if (calltype == typicalCall) {
+    // If we're making a call, we expect to return here. Stash comp boundaries so we know whether to restore after returning.
+    UseScratchRegisterScope temps(this);
+    QuickStash(x20);
+    PushCurrentCompBoundaries(x20);
+    QuickUnStash(x20);
+  } else if (calltype == returnFromCall) {
+    // If we're returning from a call, we need to grab the old compartment boundaries and make sure we're within them.
+    UseScratchRegisterScope temps(this);
+    QuickStash(r1);
+    PopEarlierCompBoundaries(r1);
+    Cmp(r1, this->max_compartment_width);
+    QuickUnStash(r1);
+    B(le, &SKIP);
+  }
+
+  Push(r1, r2);
+
+  CMPCompartmentBoundaryWidth(r1, r2); 
+
+  // Branch to label END if GREATER
+  B(gt, &END);
+
+  ExitCompartment(r1, r2);
+
+  // Label END gets bound here
+  Bind(&END);
+
+  Pop(r1, r2);
 }
 
 #endif
