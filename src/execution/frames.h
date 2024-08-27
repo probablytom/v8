@@ -276,6 +276,12 @@ class StackFrame {
     static_assert(MAGLEV + 1 == TURBOFAN);
     return t >= INTERPRETED && t <= TURBOFAN;
   }
+  static bool IsOptimizedJavascript(Type t) {
+    static_assert(INTERPRETED + 1 == BASELINE);
+    static_assert(BASELINE + 1 == MAGLEV);
+    static_assert(MAGLEV + 1 == TURBOFAN);
+    return t >= BASELINE && t <= TURBOFAN;
+  }
   bool is_java_script() const { return IsJavaScript(type()); }
 
   // Accessors.
