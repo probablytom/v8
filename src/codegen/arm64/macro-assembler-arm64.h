@@ -226,10 +226,13 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
   #ifdef CHERI_HYBRID
   enum CallType {typicalCall, returnFromCall, tailCall, typicalCallWithoutRestore};
   SystemRegister stashSystemReg = RDDC;
+  SystemRegister stashSystemReg2 = RCSP;
 
   void QuickStash(Register reg);
+  void QuickStash(Register reg1, Register reg2);
   void QuickUnStash(Register reg);
-  void PushCurrentCompBoundaries(Register scratch);
+  void QuickUnStash(Register reg1, Register reg2);
+  void PushCurrentCompBoundaries(Register scratch, Register sentinel_reg);
   void PopEarlierCompBoundaries(Register scratch);
   void LoadSuperPCCAddress(Register r1);
   void LoadSuperPCC(Register r1);
@@ -2455,8 +2458,9 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
   #ifdef CHERI_HYBRID
   bool superpcc_initialised = false;
   size_t compartment_width = 0xFFFFFF;
-  size_t max_compartment_width = 0xFFFFFFFFF;
+  size_t max_compartment_width = compartment_width * 4;
   size_t sentinel_not_in_compartment = 0x8BADF00D;
+  size_t sentinel_nothing_to_pop = 0xDEADBEEF;
   bool restrict_next_jump = false;
   void *__capability capto_cheri_builtin_table;
   #endif
