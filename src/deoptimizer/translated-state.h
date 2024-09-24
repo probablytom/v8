@@ -53,6 +53,10 @@ class TranslatedValue {
   // to get the value. In the case of numbers, returns a Smi if possible.
   Tagged<Object> GetRawValue() const;
 
+#ifdef CHERI_HYBRID
+  bool IsCHERISentinel() const;
+#endif
+
   // Convenience wrapper around GetRawValue (checked).
   int GetSmiValue() const;
 

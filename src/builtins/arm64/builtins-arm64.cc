@@ -5293,8 +5293,13 @@ void Generate_DeoptimizationEntry(MacroAssembler* masm,
                  IsolateAddressId::kCEntryFPAddress, isolate)));
   __ Str(fp, MemOperand(x3));
 
+  __ Brk(0xf00b);
+
   const int kSavedRegistersAreaSize =
       (saved_registers.Count() * kXRegSize) +
+      #ifdef CHERI_HYBRID
+      16 + 
+      #endif
       (saved_double_registers.Count() * kDRegSize);
 
   // Floating point registers are saved on the stack above core registers.

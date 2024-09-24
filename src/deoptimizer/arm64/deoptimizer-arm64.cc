@@ -9,12 +9,38 @@
 namespace v8 {
 namespace internal {
 
+#ifdef CHERI_HYBRID
+const int Deoptimizer::kCheriCompartmentExitSize = 8 * kInstrSize;
+#endif
+
+#ifdef CHERI_HYBRID
+// const int Deoptimizer::kEagerDeoptExitSize = kInstrSize + kCheriCompartmentExitSize;
 const int Deoptimizer::kEagerDeoptExitSize = kInstrSize;
+#else
+const int Deoptimizer::kEagerDeoptExitSize = kInstrSize;
+#endif
+#ifdef CHERI_HYBRID
+
+// #ifdef V8_ENABLE_CONTROL_FLOW_INTEGRITY
+// const int Deoptimizer::kLazyDeoptExitSize = 2 * kInstrSize + kCheriCompartmentExitSize;
+// #else
+// const int Deoptimizer::kLazyDeoptExitSize = 1 * kInstrSize + kCheriCompartmentExitSize;
+// #endif // V8_ENABLE_CONTROL_FLOW_INTEGRITY
 #ifdef V8_ENABLE_CONTROL_FLOW_INTEGRITY
 const int Deoptimizer::kLazyDeoptExitSize = 2 * kInstrSize;
 #else
 const int Deoptimizer::kLazyDeoptExitSize = 1 * kInstrSize;
-#endif
+#endif // V8_ENABLE_CONTROL_FLOW_INTEGRITY
+
+#else // CHERI_HYBRID
+
+#ifdef V8_ENABLE_CONTROL_FLOW_INTEGRITY
+const int Deoptimizer::kLazyDeoptExitSize = 2 * kInstrSize;
+#else
+const int Deoptimizer::kLazyDeoptExitSize = 1 * kInstrSize;
+#endif // V8_ENABLE_CONTROL_FLOW_INTEGRITY
+
+#endif // CHERI_HYBRID
 
 Float32 RegisterValues::GetFloatRegister(unsigned n) const {
   return Float32::FromBits(

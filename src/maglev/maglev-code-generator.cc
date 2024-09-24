@@ -1683,6 +1683,11 @@ void MaglevCodeGenerator::EmitDeferredCode() {
 }
 
 bool MaglevCodeGenerator::EmitDeopts() {
+#ifdef CHERI_HYBRID
+  __ EnsureOutsideSecurityBoundary(MacroAssembler::typicalCallWithoutRestore);
+  __ Brk(0xf004);
+#endif
+
   const size_t num_deopts = code_gen_state_.eager_deopts().size() +
                             code_gen_state_.lazy_deopts().size();
   if (num_deopts > Deoptimizer::kMaxNumberOfEntries) {

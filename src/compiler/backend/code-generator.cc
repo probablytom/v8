@@ -174,10 +174,30 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleDeoptimizerCall(
   DeoptimizeReason deoptimization_reason = exit->reason();
   Label* jump_deoptimization_entry_label =
       &jump_deoptimization_entry_labels_[static_cast<int>(deopt_kind)];
+// #ifdef CHERI_HYBRID
+//   UseScratchRegisterScope temps(masm());
+//   Register deopt_entry_reg = temps.AcquireX();
+//   Register deopt_entry_address = temps.AcquireX();
+//   Label compartmentEscapeSequence;
+//   masm()->Bind(&compartmentEscapeSequence);
+//   masm()->SetupSuperPCC(deopt_entry_reg, deopt_entry_address, false);
+//   masm()->LoadSuperPCC(deopt_entry_reg);
+//   masm()->Adr(deopt_entry_address, jump_deoptimization_entry_label);
+//   masm()->Cvt(deopt_entry_reg.C(), deopt_entry_reg.C(), deopt_entry_address);
+//   masm()->Nop();
+//   masm()->Nop();
+//   masm()->Br(deopt_entry_reg.C());
+// #endif
   if (info()->source_positions()) {
     masm()->RecordDeoptReason(deoptimization_reason, exit->node_id(),
                               exit->pos(), deoptimization_id);
   }
+
+// #ifdef CHERI_HYBRID
+//   masm()->EnsureOutsideSecurityBoundary(MacroAssembler::typicalCall);
+//   masm()->Brk(0xf000);
+// #endif
+
 
   if (deopt_kind == DeoptimizeKind::kLazy) {
     ++lazy_deopt_count_;
@@ -189,9 +209,18 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleDeoptimizerCall(
   Builtin target = Deoptimizer::GetDeoptimizationEntry(deopt_kind);
   masm()->CallForDeoptimization(target, deoptimization_id, exit->label(),
                                 deopt_kind, exit->continue_label(),
+                              // #ifdef CHERI_HYBRID
+                              //   &compartmentEscapeSequence);
+                              // #else
                                 jump_deoptimization_entry_label);
+                              // #endif
 
   exit->set_emitted();
+
+// #ifdef CHERI_HYBRID
+//   masm()->Brk(0xf001);
+//   masm()->RestoreSecurityBoundary(MacroAssembler::returnFromCall);
+// #endif
 
   return kSuccess;
 }
@@ -350,6 +379,10 @@ void CodeGenerator::AssembleCode() {
   // For some targets, we must make sure that constant and veneer pools are
   // emitted before emitting the deoptimization exits.
   PrepareForDeoptimizationExits(&deoptimization_exits_);
+
+  // #ifdef CHERI_HYBRID
+  // masm()->EnsureOutsideSecurityBoundary(MacroAssembler::typicalCallWithoutRestore);
+  // #endif
 
   deopt_exit_start_offset_ = masm()->pc_offset();
 

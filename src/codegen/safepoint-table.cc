@@ -17,6 +17,10 @@
 #include "src/wasm/wasm-code-manager.h"
 #endif  // V8_ENABLE_WEBASSEMBLY
 
+#ifdef CHERI_HYBRID
+#include "src/codegen/macro-assembler-inl.h"
+#endif
+
 namespace v8 {
 namespace internal {
 
@@ -56,6 +60,9 @@ int SafepointTable::find_return_pc(int pc_offset) {
 
 SafepointEntry SafepointTable::TryFindEntry(Address pc) const {
   int pc_offset = static_cast<int>(pc - instruction_start_);
+  #ifdef CHERI_HYBRID
+  pc_offset += MacroAssembler::max_size_of_cheri_comp_trampoline;
+  #endif
 
   // Check if the PC is pointing at a trampoline.
   if (has_deopt_data()) {
@@ -65,16 +72,25 @@ SafepointEntry SafepointTable::TryFindEntry(Address pc) const {
       if (trampoline_pc != -1 && trampoline_pc <= pc_offset) candidate = i;
       if (trampoline_pc > pc_offset) break;
     }
-    if (candidate != -1) return GetEntry(candidate);
+    if (candidate != -1) {
+      DCHECK_EQ(2, 0xf00d);
+      return GetEntry(candidate);
+    }
   }
 
   for (int i = 0; i < length_; ++i) {
     SafepointEntry entry = GetEntry(i);
     if (i == length_ - 1 || GetEntry(i + 1).pc() > pc_offset) {
-      if (entry.pc() > pc_offset) return {};
+      if (entry.pc() > pc_offset) {
+        int entry_pc = entry.pc(); // To check in gdb
+        int next_pc = GetEntry(i+1).pc();
+        DCHECK_LT(entry.pc(), pc_offset);
+        return {};
+      }
       return entry;
     }
   }
+  DCHECK_EQ(5, 0xf00d);
   return {};
 }
 

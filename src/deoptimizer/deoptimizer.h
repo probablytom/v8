@@ -140,6 +140,9 @@ class Deoptimizer : public Malloced {
   static constexpr unsigned kFixedExitSizeMarker = kMaxUInt32;
 
   // Size of deoptimization exit sequence.
+  #ifdef CHERI_HYBRID
+  V8_EXPORT_PRIVATE static const int kCheriCompartmentExitSize;
+  #endif
   V8_EXPORT_PRIVATE static const int kEagerDeoptExitSize;
   V8_EXPORT_PRIVATE static const int kLazyDeoptExitSize;
 

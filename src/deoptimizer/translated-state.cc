@@ -26,6 +26,10 @@
 #include "src/objects/object-macros.h"
 #include "src/objects/string.h"
 
+#ifdef CHERI_HYBRID
+#include "src/codegen/macro-assembler-inl.h"
+#endif
+
 namespace v8 {
 
 using base::Memory;
@@ -504,6 +508,14 @@ int TranslatedValue::object_index() const {
   DCHECK(kind() == kCapturedObject || kind() == kDuplicatedObject);
   return materialization_info_.id_;
 }
+
+#ifdef CHERI_HYBRID
+bool TranslatedValue::IsCHERISentinel() const {
+      return int64_value() == MacroAssembler::sentinel_not_in_compartment ||
+             int64_value() == MacroAssembler::sentinel_nothing_to_pop     ||
+             int64_value() == MacroAssembler::sentinel_compartment_bounds_pushed;
+}
+#endif
 
 Tagged<Object> TranslatedValue::GetRawValue() const {
   // If we have a value, return it.

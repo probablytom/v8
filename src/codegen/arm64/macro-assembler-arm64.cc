@@ -2745,6 +2745,7 @@ void MacroAssembler::BailoutIfDeoptimized() {
   Ldr(scratch.W(), FieldMemOperand(scratch, Code::kFlagsOffset));
   Label not_deoptimized;
   Tbz(scratch.W(), Code::kMarkedForDeoptimizationBit, &not_deoptimized);
+  // EnsureOutsideSecurityBoundary(typicalCallWithoutRestore);
   TailCallBuiltin(Builtin::kCompileLazyDeoptimizedCode);
   Bind(&not_deoptimized);
 }
@@ -2754,7 +2755,6 @@ void MacroAssembler::CallForDeoptimization(
     Label* jump_deoptimization_entry_label) {
   ASM_CODE_COMMENT(this);
   BlockPoolsScope scope(this);
-  // EnsureOutsideSecurityBoundary(typicalCallWithoutRestore);
   bl(jump_deoptimization_entry_label);
   DCHECK_EQ(SizeOfCodeGeneratedSince(exit),
             (kind == DeoptimizeKind::kLazy) ? Deoptimizer::kLazyDeoptExitSize
@@ -4819,12 +4819,19 @@ void MacroAssembler::LoadSuperPCCAddress(Register r) {
   // We add using cap registers to avoid using extra scratch registers in the
   // Add macro which might not be available.
   UseScratchRegisterScope temps(this);
-  Push(x16, x17);
-  temps.Include(x16, x17);
+  Register temp1 = x9;
+  Register temp2 = x10;
+  Push(temp1, temp2);
+  temps.Include(temp1, temp2);
   Add(r, kRootRegister, IsolateData::super_pcc_offset());
   And(r, r, 0xFFFFFFF0);
-  Pop(x16, x17);
-  temps.Exclude(x16, x17);
+  Pop(temp1, temp2); // TODO wrong way round...?!
+  temps.Exclude(temp1, temp2);
+}
+
+void MacroAssembler::LoadSuperPCC(Register reg) {
+  LoadSuperPCCAddress(reg);
+  Ldr(reg.C(), reg);
 }
 
 // Restricts the DDC, saving the previous one in IsolateData so we can leave the
@@ -5136,15 +5143,10 @@ void MacroAssembler::SetupSuperPCC(Register r1, Register r2, bool mustStash) {
     LoadSuperPCCAddress(r1);
     Swp(r2.C(), r1);
     if (mustStash) {
-      Pop(r1, r2);
+      Pop(r2, r1);
     }
     this->superpcc_initialised = true;
   }
-}
-
-void MacroAssembler::LoadSuperPCC(Register reg) {
-  LoadSuperPCCAddress(reg);
-  Ldr(reg.C(), reg);
 }
 
 void MacroAssembler::EnterCompartment(Register r1, Register r2) {
@@ -5239,44 +5241,6 @@ void MacroAssembler::CMPCompartmentBoundaryWidthAgainst(Register r1, Register sc
   temps.Include(scratchToAddToPile);
   Cmp(r1, to_compare);
   temps.Exclude(scratchToAddToPile);
-}
-
-void MacroAssembler::PushCurrentCompBoundaries(Register scratch, Register sentinel_reg) {
-  Label WITHIN_COMP;
-  Label NOT_IN_COMP;
-
-  Mov(sentinel_reg, this->sentinel_nothing_to_pop); // TODO don't reuse this sentinel!
-
-  // Get the current PCC's width
-  GetPCC(scratch);
-  Gclim(scratch.C(), scratch);
-
-  // If current width is greater than max comp width, we know we're not in a comp.
-  // If it's lower, skip the next instruction, which sets the size to a sentinel value indicating not in comp (so it fits neatly on heap).
-  Cmp(scratch, this->max_compartment_width);
-  B(le, &WITHIN_COMP);
-
-  // Push to stack the sentinel indicating we're not in a compartment, rather
-  // than a huge value that we can't pop
-  Bind(&NOT_IN_COMP);
-  Mov(scratch, this->sentinel_not_in_compartment);
-
-  // Push to stack, and we're done!
-  Bind(&WITHIN_COMP);
-  Push(scratch, sentinel_reg);
-}
-
-void MacroAssembler::PopEarlierCompBoundaries(Register scratch) {
-  Label END;
-  UseScratchRegisterScope temps(this);
-  Register sentinel_reg = temps.AcquireX();
-  Pop(sentinel_reg, scratch);
-  Cmp(sentinel_reg, this->sentinel_nothing_to_pop);
-  B(eq, &END);
-  Push(scratch, sentinel_reg);
-  Mov(scratch, this->sentinel_nothing_to_pop);
-
-  Bind(&END);
 }
 
 void MacroAssembler::QuickStash(Register reg) {
@@ -5446,7 +5410,48 @@ void MacroAssembler::QuickUnStash(Register reg1, Register reg2) {
 
 // }
 
+void MacroAssembler::PushCurrentCompBoundaries(Register scratch, Register sentinel_reg) {
+  Label WITHIN_COMP;
+  Label NOT_IN_COMP;
+
+  Mov(sentinel_reg, sentinel_compartment_bounds_pushed);
+
+  // Get the current PCC's width
+  GetPCC(scratch);
+  Gclim(scratch.C(), scratch);
+
+  // If current width is greater than max comp width, we know we're not in a comp.
+  // If it's lower, skip the next instruction, which sets the size to a sentinel value indicating not in comp (so it fits neatly on heap).
+  Cmp(scratch, this->max_compartment_width);
+  B(le, &WITHIN_COMP);
+
+  // Push to stack the sentinel indicating we're not in a compartment, rather
+  // than a huge value that we can't pop
+  Bind(&NOT_IN_COMP);
+  Mov(scratch, sentinel_not_in_compartment);
+
+  // Push to stack, and we're done!
+  Bind(&WITHIN_COMP);
+  Push(sentinel_reg, scratch);
+}
+
+void MacroAssembler::PopEarlierCompBoundaries(Register scratch) {
+  Label END;
+  UseScratchRegisterScope temps(this);
+  Register sentinel_reg = temps.AcquireX();
+  Pop(scratch, sentinel_reg);
+  Cmp(sentinel_reg, sentinel_compartment_bounds_pushed);
+  B(eq, &END);
+  Push(sentinel_reg, scratch);
+  Mov(scratch, sentinel_nothing_to_pop);
+
+  Bind(&END);
+}
+
 void MacroAssembler::EnsureWithinSecurityBoundary(CallType calltype) {
+  
+  int orig_size = pc_offset();
+
   Register r1 = x20;
   Register r2 = x21;
   SetupSuperPCC(r1, r2, true);
@@ -5462,9 +5467,22 @@ void MacroAssembler::EnsureWithinSecurityBoundary(CallType calltype) {
   EnterCompartment(r1, r2);
 
   Pop(r1, r2);
+
+  Nop();
+  Nop();
+
+  int length_of_trampoline = pc_offset() - orig_size;
+  if (length_of_trampoline > max_size_of_cheri_comp_trampoline) {
+    max_size_of_cheri_comp_trampoline = length_of_trampoline;
+  }
 }
 
+int MacroAssembler::max_size_of_cheri_comp_trampoline = -1; // initial value...
+
 void MacroAssembler::EnsureOutsideSecurityBoundary(CallType calltype) {
+
+  int orig_size = pc_offset();
+
   Register r1 = x20;
   Register r2 = x21;
   SetupSuperPCC(r1, r2, true);
@@ -5472,9 +5490,9 @@ void MacroAssembler::EnsureOutsideSecurityBoundary(CallType calltype) {
   if (calltype == typicalCall) {
     // If we're making a call, we expect to return here. Stash comp boundaries so we know whether to restore after returning.
     UseScratchRegisterScope temps(this);
-    QuickStash(x20, x21);
-    PushCurrentCompBoundaries(x20, x21);
-    QuickUnStash(x20, x21);
+    QuickStash(r1, r2);
+    PushCurrentCompBoundaries(r1, r2);
+    QuickUnStash(r1, r2);
   }
 
   Push(r1, r2);
@@ -5482,17 +5500,28 @@ void MacroAssembler::EnsureOutsideSecurityBoundary(CallType calltype) {
   ExitCompartment(r1, r2);
 
   Pop(r1, r2);
+
+  Nop();
+  Nop();
+  Nop();
+
+  int length_of_trampoline = pc_offset() - orig_size;
+  if (length_of_trampoline > max_size_of_cheri_comp_trampoline) {
+    max_size_of_cheri_comp_trampoline = length_of_trampoline;
+  }
 }
 
 void MacroAssembler::RestoreSecurityBoundary(CallType calltype) {
   DCHECK_EQ(calltype, returnFromCall); // Can only be used when returning because of stack structure, for now...
+  
+  int orig_size = pc_offset();
   
   Register r1 = x20;
   Register r2 = x21;
 
   Label INSTALL_SUPERPCC;
   Label REENTER_COMPARTMENT;
-  Label DEBUGDELETE;
+  Label UNSTASH_THENEND;
   Label END;
 
   // If we're returning from a call, we need to grab the old compartment
@@ -5501,9 +5530,9 @@ void MacroAssembler::RestoreSecurityBoundary(CallType calltype) {
   UseScratchRegisterScope temps(this);
   QuickStash(r1);
   PopEarlierCompBoundaries(r1);
-  Cmp(r1, this->sentinel_nothing_to_pop); // We shouldn't manage the comp because we're "restoring" but shouldn't be; this frame never entered a comp.
-  B(eq, &DEBUGDELETE);//B(eq, &END);
-  Cmp(r1, this->sentinel_not_in_compartment); // We saw a value indicating that we weren't previously in a compartment, so r1 doesn't contain real bounds. That means we should ensure we're _not_ in a compartment. 
+  Cmp(r1, sentinel_nothing_to_pop); // We shouldn't manage the comp because we're "restoring" but shouldn't be; this frame never entered a comp.
+  B(eq, &UNSTASH_THENEND);
+  Cmp(r1, sentinel_not_in_compartment); // We saw a value indicating that we weren't previously in a compartment, so r1 doesn't contain real bounds. That means we should ensure we're _not_ in a compartment. 
   B(eq, &INSTALL_SUPERPCC);
   // We saw neither sentinel, so r1 contains real bounds, Reinstall a compartment.
   // TODO: the bounds on the compartment are relative to this point, but perhaps we should actually restore bounds etc from a previous compartment's PCC? Can we stash that somewhere?
@@ -5531,12 +5560,34 @@ void MacroAssembler::RestoreSecurityBoundary(CallType calltype) {
   Pop(r1, r2);
   B(&END);
 
-  Bind(&DEBUGDELETE);
+  Bind(&UNSTASH_THENEND);
   QuickUnStash(r1);
 
   Bind(&END);
 
+  Nop();
+
+  int length_of_trampoline = pc_offset() - orig_size;
+  if (length_of_trampoline > max_size_of_cheri_comp_trampoline) {
+    max_size_of_cheri_comp_trampoline = length_of_trampoline;
+  }
 }
+
+// // BLs to an address in a label by building a capability from a supercapability and jumping to that, thereby leaving the security boundary.
+// void MacroAssembler::BL_QuicklyLeavingBoundary(Label* toBLTo) {
+//   UseScratchRegisterScope temps(this);
+//   Register scratch = temps.AcquireX();
+//   Register toJump = temps.AcquireX();
+
+//   Adr(toJump, toBLTo);
+
+//   LoadSuperPCC(scratch);
+  
+//   Cvt(toJump.C(), scratch.C(), toJump));
+
+//   Blr(toJump.C());
+  
+// }
 
 #endif
 

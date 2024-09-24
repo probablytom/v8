@@ -247,6 +247,7 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
   void CheckReturningWithinCompartment(Register r1, Register r2, Register returnAddrReg, CallType calltype);
   void EnsureWithinSecurityBoundary(CallType calltype);
   void EnsureOutsideSecurityBoundary(CallType calltype);
+  // void BL_QuicklyLeavingBoundary(Label* toBLTo);
   void RestoreSecurityBoundary(CallType calltype);
   void RestrictDDC(Register superddc_address_reg, Register ddc_val_reg, Label *ddc_storage_location);
   void DerestrictDDC(Register superddc_address_reg, Register ddc_val_reg, Label *ddc_storage_location);
@@ -2351,6 +2352,13 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
                                FeedbackSlot slot, Label* on_result,
                                Label::Distance distance);
 
+#ifdef CHERI_HYBRID
+  size_t static const sentinel_not_in_compartment = 0x8BADF00D;
+  size_t static const sentinel_nothing_to_pop = 0xDEADBEEF;
+  size_t static const sentinel_compartment_bounds_pushed = 0x8BADF00D; // TODO: we SIGPROT if this isn't the same as not_in_compartment. I'm still unsure why, but moving on right now. 240905
+  int static max_size_of_cheri_comp_trampoline;
+#endif
+
  protected:
   // The actual Push and Pop implementations. These don't generate any code
   // other than that required for the push or pop. This allows
@@ -2458,9 +2466,7 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
   #ifdef CHERI_HYBRID
   bool superpcc_initialised = false;
   size_t compartment_width = 0xFFFFFF;
-  size_t max_compartment_width = compartment_width * 4;
-  size_t sentinel_not_in_compartment = 0x8BADF00D;
-  size_t sentinel_nothing_to_pop = 0xDEADBEEF;
+  size_t max_compartment_width = 0xFFFFFFFF;
   bool restrict_next_jump = false;
   void *__capability capto_cheri_builtin_table;
   #endif

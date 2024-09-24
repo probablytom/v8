@@ -36,6 +36,10 @@
 #include "src/wasm/wasm-linkage.h"
 #endif  // V8_ENABLE_WEBASSEMBLY
 
+#ifdef CHERI_HYBRID
+#include "src/codegen/macro-assembler-inl.h"
+#endif
+
 namespace v8 {
 
 using base::Memory;
@@ -194,7 +198,23 @@ class FrameWriter {
       parameters.push_back(iterator);
     }
     for (auto& parameter : base::Reversed(parameters)) {
+      #ifdef CHERI_HYBRID
+      uintptr_t top_of_stack_addr = (static_cast<Address>(frame_->GetTop()));
+      bool should_push = true;
+      for (int i = 0; i < 4; i++) {
+        should_push = should_push && (*(double*) top_of_stack_addr != MacroAssembler::sentinel_not_in_compartment);
+        should_push = should_push && (*(double*) top_of_stack_addr != MacroAssembler::sentinel_nothing_to_pop);
+        should_push = should_push && (*(double*) top_of_stack_addr != MacroAssembler::sentinel_compartment_bounds_pushed);
+        top_of_stack_addr += 4;
+      }
+      if (should_push) {
+        PushTranslatedValue(parameter, "stack parameter");
+      } else {
+        DCHECK_EQ(*(char*) top_of_stack_addr, 0xfeedf00d);
+      }
+      #else
       PushTranslatedValue(parameter, "stack parameter");
+      #endif
     }
   }
 
@@ -630,9 +650,15 @@ Deoptimizer::Deoptimizer(Isolate* isolate, Tagged<JSFunction> function,
   Tagged<DeoptimizationData> deopt_data =
       DeoptimizationData::cast(compiled_code_->deoptimization_data());
   Address deopt_start = compiled_code_->instruction_start() +
+                      // #ifdef CHERI_HYBRID
+                      //   0x20 + // size of sequence to escape compartment quickly for deopt   
+                      // #endif
                         deopt_data->DeoptExitStart().value();
   int eager_deopt_count = deopt_data->EagerDeoptCount().value();
   Address lazy_deopt_start =
+  // #ifdef CHERI_HYBRID
+  // 84 +  // TODO figure out whether there's a better approach than hardcoding this. Where does it come from?! Exit comp sequence...?
+  // #endif
       deopt_start + eager_deopt_count * kEagerDeoptExitSize;
   // The deoptimization exits are sorted so that lazy deopt exits appear after
   // eager deopts.
@@ -649,9 +675,14 @@ Deoptimizer::Deoptimizer(Isolate* isolate, Tagged<JSFunction> function,
     DCHECK_EQ(0, offset % kEagerDeoptExitSize);
     deopt_exit_index_ = offset / kEagerDeoptExitSize;
   } else {
+    // DCHECK_LE(from_, lazy_deopt_start);
     DCHECK_EQ(kind, DeoptimizeKind::kLazy);
     int offset =
+        // #ifdef CHERI_HYBRID
+        // static_cast<int>(from_ - kLazyDeoptExitSize - lazy_deopt_start) -16;
+        // #else
         static_cast<int>(from_ - kLazyDeoptExitSize - lazy_deopt_start);
+        // #endif
     DCHECK_EQ(0, offset % kLazyDeoptExitSize);
     deopt_exit_index_ = eager_deopt_count + (offset / kLazyDeoptExitSize);
   }
@@ -2495,7 +2526,12 @@ void Deoptimizer::QueueFeedbackVectorForMaterialization(
 }
 
 unsigned Deoptimizer::ComputeInputFrameAboveFpFixedSize() const {
+  #ifdef CHERI_HYBRID
+  // unsigned fixed_size = CommonFrameConstants::kFixedFrameSizeAboveFp + 16; // 16 bytes for compartment restoration info
   unsigned fixed_size = CommonFrameConstants::kFixedFrameSizeAboveFp;
+  #else
+  unsigned fixed_size = CommonFrameConstants::kFixedFrameSizeAboveFp;
+  #endif
   // TODO(jkummerow): If {IsSmi(function_)} can indeed be true, then
   // {function_} should not have type {JSFunction}.
   IF_WASM(DCHECK_IMPLIES, function_.is_null(), v8_flags.wasm_deopt);
@@ -2548,31 +2584,35 @@ unsigned Deoptimizer::ComputeInputFrameSize() const {
     // frame size won't include them, so we need to check for less-equal rather
     // than equal. For deoptimizing throws, these will have already been trimmed
     // off.
+    // #ifndef CHERI_HYBRID
     CHECK_LE(fixed_size_above_fp + (stack_slots * kSystemPointerSize) -
                  CommonFrameConstants::kFixedFrameSizeAboveFp,
              result);
+    // #endif
     // With slow asserts we can check this exactly, by looking up the safepoint.
     if (v8_flags.enable_slow_asserts) {
       Address deopt_call_pc = GetDeoptCallPCFromReturnPC(from_, compiled_code_);
       MaglevSafepointTable table(isolate_, deopt_call_pc, compiled_code_);
       MaglevSafepointEntry safepoint = table.FindEntry(deopt_call_pc);
       unsigned extra_spills = safepoint.num_extra_spill_slots();
+    // #ifndef CHERI_HYBRID
       CHECK_EQ(fixed_size_above_fp + (stack_slots * kSystemPointerSize) -
                    CommonFrameConstants::kFixedFrameSizeAboveFp +
                    extra_spills * kSystemPointerSize,
                result);
+    // #endif
     }
   } else {
+    // #ifdef CHERI_HYBRID
+    // unsigned outgoing_size = 16;
+    // #else
     unsigned outgoing_size = 0;
-    #ifdef CHERI_HYBRID
+    // #endif
+    // #ifndef CHERI_HYBRID
     CHECK_EQ(fixed_size_above_fp + (stack_slots * kSystemPointerSize) -
                  CommonFrameConstants::kFixedFrameSizeAboveFp + outgoing_size,
              result);
-    #else
-    CHECK_EQ(fixed_size_above_fp + (stack_slots * kSystemPointerSize) -
-                 CommonFrameConstants::kFixedFrameSizeAboveFp + outgoing_size,
-             result);
-    #endif
+    // #endif // NOT CHERI_HYBRID
   }
   return result;
 }
