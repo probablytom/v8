@@ -21,7 +21,7 @@ constexpr BuiltinCallJumpMode kFallbackBuiltinCallJumpModeForBaseline =
 void BaselineCompiler::Prologue() {
   ASM_CODE_COMMENT(&masm_);
   // Enter the frame here, since CallBuiltin will override lr.
-  __ masm()->EnterFrame(StackFrame::BASELINE);
+  __ masm()->EnterFrame(StackFrame::BASELINE, MacroAssembler::builtinCall);
   DCHECK_EQ(kJSFunctionRegister, kJavaScriptCallTargetRegister);
   int max_frame_size =
       bytecode_->frame_size() + max_call_args_ * kSystemPointerSize;

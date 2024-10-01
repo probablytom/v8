@@ -2618,6 +2618,10 @@ void MacroAssembler::CallJSFunction(Register function_object) {
       code, FieldMemOperand(function_object, JSFunction::kCodeOffset),
       kJSEntrypointTag);
   COMP_ENTRYSEQ
+  Nop();
+  Nop();
+  Nop();
+  Nop();
   Call(code);
   COMP_EXITSEQ
 #else
@@ -3118,11 +3122,11 @@ void MacroAssembler::Prologue() {
   Push(cp, kJSFunctionRegister, kJavaScriptCallArgCountRegister, padreg);
 }
 
-void MacroAssembler::EnterFrame(StackFrame::Type type) {
+void MacroAssembler::EnterFrame(StackFrame::Type type, CallType callType) {
   UseScratchRegisterScope temps(this);
 
   #ifdef CHERI_HYBRID
-  if (StackFrame::IsOptimizedJavascript(type)) {
+  if (StackFrame::IsOptimizedJavascript(type) && callType != builtinCall) {
       EnsureWithinSecurityBoundary(typicalCall); // I _assume_ this is only ever called with regular calls, otherwise surely we don't create the frame?
   } else {
       EnsureOutsideSecurityBoundary(typicalCall);

@@ -216,7 +216,12 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
   static bool IsNearCallOffset(int64_t offset);
 
   // Activation support.
+#ifdef CHERI_HYBRID
+  enum CallType {typicalCall, returnFromCall, tailCall, typicalCallWithoutRestore, builtinCall};
+  void EnterFrame(StackFrame::Type type, CallType callType = typicalCall);
+#else
   void EnterFrame(StackFrame::Type type);
+#endif // CHERI_HYBRID
   void EnterFrame(StackFrame::Type type, bool load_constant_pool_pointer_reg) {
     // Out-of-line constant pool not implemented on arm64.
     UNREACHABLE();
@@ -224,7 +229,6 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
   void LeaveFrame(StackFrame::Type type);
 
   #ifdef CHERI_HYBRID
-  enum CallType {typicalCall, returnFromCall, tailCall, typicalCallWithoutRestore};
   SystemRegister stashSystemReg = RDDC;
   SystemRegister stashSystemReg2 = RCSP;
 
