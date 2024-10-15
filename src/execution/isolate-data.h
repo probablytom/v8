@@ -93,6 +93,9 @@ class Isolate;
   V(kBuiltinCapabilityTableOffset, Builtins::kBuiltinCount* sizeof(void* __capability),         \
     builtin_capability_table)                                                                   \
   V(kSuperCapAlignmentPaddingOffset, 16, super_cap_alignment_padding)                           \
+  V(kCompartmentStateStack, kNumberOfCompartments * sizeof(uint64_t), compartment_state_stack)  \
+  V(kCompartmentStateStackCursor, 16, compartment_state_stack_cursor)                           \
+  V(kCompartmentStateStackPadding, 16, compartment_state_stack_padding)                         \
   V(kSuperPCCOffset, sizeof(void *__capability), super_pcc)                                     \
   V(kSuperDDCOffset, sizeof(void *__capability), super_ddc)
 #else
@@ -391,6 +394,17 @@ class IsolateData final {
 
   static_assert(FIELD_SIZE(kSuperCapAlignmentPaddingOffset) > 0);
   uint8_t super_cap_alignment_padding_[FIELD_SIZE(kSuperCapAlignmentPaddingOffset)];
+
+  // A stack of bits that we can pop onto and off of to tell us whether we need to enter or exit a compartment on return.
+  // TODO: make this aware of the FP of the stack that's having the state restored. Maybe an array of FP values, with LSB set to indicate whether it's in a compartment?
+  uint64_t compartment_state_stack_[kNumberOfCompartments];
+
+  // A cursor pointing to the last frame state pushed to the compartment stack.
+  // I allocate 16 of these for alignment purposes, but we only use the first one.
+  uint8_t compartment_state_stack_cursor_[16];
+
+  static_assert(FIELD_SIZE(kCompartmentStateStackPadding) > 0);
+  uint8_t compartment_state_stack_padding_[FIELD_SIZE(kCompartmentStateStackPadding)];
 
   void *__capability super_pcc_;
   void *__capability super_ddc_;

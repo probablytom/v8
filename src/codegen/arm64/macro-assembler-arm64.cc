@@ -5414,40 +5414,150 @@ void MacroAssembler::QuickUnStash(Register reg1, Register reg2) {
 
 // }
 
-void MacroAssembler::PushCurrentCompBoundaries(Register scratch, Register sentinel_reg) {
-  Label WITHIN_COMP;
-  Label NOT_IN_COMP;
+void MacroAssembler::PushCurrentCompBoundaries(Register r1, Register r2) {
+  // Label WITHIN_COMP;
+  // Label NOT_IN_COMP;
 
-  Mov(sentinel_reg, sentinel_compartment_bounds_pushed);
+  // Mov(sentinel_reg, sentinel_compartment_bounds_pushed);
 
-  // Get the current PCC's width
-  GetPCC(scratch);
-  Gclim(scratch.C(), scratch);
+  // // Get the current PCC's width
+  // GetPCC(scratch);
+  // Gclim(scratch.C(), scratch);
 
-  // If current width is greater than max comp width, we know we're not in a comp.
-  // If it's lower, skip the next instruction, which sets the size to a sentinel value indicating not in comp (so it fits neatly on heap).
-  Cmp(scratch, this->max_compartment_width);
-  B(le, &WITHIN_COMP);
+  // // If current width is greater than max comp width, we know we're not in a comp.
+  // // If it's lower, skip the next instruction, which sets the size to a sentinel value indicating not in comp (so it fits neatly on heap).
+  // Cmp(scratch, this->max_compartment_width);
+  // B(le, &WITHIN_COMP);
 
-  // Push to stack the sentinel indicating we're not in a compartment, rather
-  // than a huge value that we can't pop
-  Bind(&NOT_IN_COMP);
-  Mov(scratch, sentinel_not_in_compartment);
+  // // Push to stack the sentinel indicating we're not in a compartment, rather
+  // // than a huge value that we can't pop
+  // Bind(&NOT_IN_COMP);
+  // Mov(scratch, sentinel_not_in_compartment);
 
-  // Push to stack, and we're done!
-  Bind(&WITHIN_COMP);
-  Push(sentinel_reg, scratch);
+  // // Push to stack, and we're done!
+  // Bind(&WITHIN_COMP);
+  // Push(sentinel_reg, scratch);
+
+  
+  Nop();
+  Nop();
+  
+
+  Label NOT_CURRENTLY_IN_COMP;
+  
+  // Get cursor
+  Add(r1, kRootRegister, IsolateData::compartment_state_stack_cursor_offset());
+  Ldr(r2, MemOperand(r1)); // Load the cursor into r2 from addr calculated above
+
+  // Increment cursor by 1
+  Add(r2, r2, 1);
+
+  // Store updated cursor
+  Str(r2, MemOperand(r1));
+
+  // Get address of comp stack, indexed by cursor
+  Add(r1, kRootRegister, IsolateData::compartment_state_stack_offset());
+  Add(r1, r1, r2);
+
+  // Mark FP if in compartment
+  GetPCC(r2);
+  Gclim(r2.C(), r2);
+  Cmp(r2, this->max_compartment_width);
+  Mov(r2, fp); // Prepare r2 with contents of fp, to be pushed to comp stack; may be marked following the cmp in the next instruction.
+  B(gt, &NOT_CURRENTLY_IN_COMP);
+
+  Add(r2, r2, 1); // We're currently in a compartment, so 
+
+  Bind(&NOT_CURRENTLY_IN_COMP); // Label to skip over marking as currently in a compartment
+
+  // Store FP of current frame at cursor position in comp stack
+  Str(r2, MemOperand(r1));
+
+
 }
 
-void MacroAssembler::PopEarlierCompBoundaries(Register scratch) {
-  Label END;
+void MacroAssembler::PopEarlierCompBoundaries(Register retReg) {
   UseScratchRegisterScope temps(this);
-  Register sentinel_reg = temps.AcquireX();
-  Pop(scratch, sentinel_reg);
-  Cmp(sentinel_reg, sentinel_compartment_bounds_pushed);
-  B(eq, &END);
-  Push(sentinel_reg, scratch);
-  Mov(scratch, sentinel_nothing_to_pop);
+  Register scratch = temps.AcquireX();
+
+  Nop();
+
+  // TODO: Replace cursor from isolatedata with comp ID reg to avoid the additional instructions used to dereference it from IsolateData
+
+  Label FOUND_CURRENT_FP_IN_COMP_STACK;
+  Label NO_COMPARTMENT_FOUND;
+  Label COMPARTMENT_IN_COMP_STACK;
+  Label COMP_STACK_INDICATES_NOT_COMPARTMENT_RELEVANT;
+  Label DECR_COMP_STACK_CURSOR;
+  Label END;
+
+  Add(retReg, kRootRegister, IsolateData::compartment_state_stack_offset());
+  Add(scratch, kRootRegister, IsolateData::compartment_state_stack_cursor_offset());
+  Ldr(scratch, MemOperand(scratch)); // Load the cursor into scratch from addr calculated above
+  // !!! if cursor <=0, we have nothing on the stack. The 0th value is always empty. Abort!
+  Cmp(scratch, 0);
+  B(le, &END);
+  Add(retReg, retReg, scratch); // retReg is now set to the address of the cursor's index into the stack
+  Ldr(retReg, MemOperand(retReg)); // Retreg now contains the full address found at the current cursor position in the comp stack
+  
+  And(scratch, retReg, 0xFFFFFFFE); // Remove the flag bit indicating whether this is compartment-relevant
+  Cmp(scratch, fp);
+  B(ne, &NO_COMPARTMENT_FOUND); // If the address _SANS FLAG BIT_ isn't equal to the current fp, it means that the current frame isn't compartment-relevant. 
+
+
+  // This frame was compartment-relevant, but we don't know whether we need to
+  // ensure we're inside or outside of a compartment until we check its flab bit
+  // (LSB).
+  Bind(&FOUND_CURRENT_FP_IN_COMP_STACK);
+  And(scratch, retReg, 0x00000001);
+  Cmp(scratch, 0x1);
+  B(eq, &COMPARTMENT_IN_COMP_STACK);
+
+
+  Bind(&COMP_STACK_INDICATES_NOT_COMPARTMENT_RELEVANT);
+  Mov(retReg, sentinel_not_in_compartment);
+  B(&DECR_COMP_STACK_CURSOR);
+  
+  
+  
+
+  Bind(&COMPARTMENT_IN_COMP_STACK);
+  Mov(retReg, compartment_width);
+  // Naturally progresses to DECR_COMP_STACK_CURSOR, which should happen next.
+
+
+  Bind(&DECR_COMP_STACK_CURSOR);
+  // We'll need a couple of spare registers so we don't clobber useful
+  // information calculated earlier.
+  // NB: Just realised I can push and pop my regular registers. Previously was
+  // x1 and x2. Maybe get rid of the spare vars?
+  Register spare1 = retReg;
+  Register spare2 = scratch;
+  Push(spare1, spare2);
+
+  Add(spare1, kRootRegister, IsolateData::compartment_state_stack_offset());
+  Add(spare2, kRootRegister, IsolateData::compartment_state_stack_cursor_offset());
+  Ldr(spare1, MemOperand(spare2)); // Load the cursor offset into spare1 from addr calculated above
+  Sub(spare1, spare1, 1); // Decr cursor by 1
+  Str(spare1, MemOperand(spare2)); // Store decremented cursor value
+
+  Pop(spare2, spare1); // TODO I never know if this ordering is correct...!
+  B(&END);
+
+
+
+  // Value found on com stack didn't indicate that this frame is
+  // compartment-relevant. Ignore it and set retReg to a sentinel indicating
+  // that there's nothing interesting here.
+  Bind(&NO_COMPARTMENT_FOUND);
+  Mov(retReg, sentinel_nothing_to_pop);
+  B(&END);
+
+
+  // Cmp(sentinel_reg, sentinel_compartment_bounds_pushed);
+  // B(eq, &END);
+  // Push(sentinel_reg, scratch);
+  // Mov(scratch, sentinel_nothing_to_pop);
 
   Bind(&END);
 }
