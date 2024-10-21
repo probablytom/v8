@@ -237,7 +237,7 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
   void QuickUnStash(Register reg);
   void QuickUnStash(Register reg1, Register reg2);
   void PushCurrentCompBoundaries(Register scratch, Register sentinel_reg);
-  void PopEarlierCompBoundaries(Register scratch);
+  void PopEarlierCompBoundaries(Register retReg, Register scratch);
   void LoadSuperPCCAddress(Register r1);
   void LoadSuperPCC(Register r1);
   void SetupSuperPCC(Register r1, Register r2, bool mustStash);

@@ -5297,9 +5297,9 @@ void Generate_DeoptimizationEntry(MacroAssembler* masm,
 
   const int kSavedRegistersAreaSize =
       (saved_registers.Count() * kXRegSize) +
-      #ifdef CHERI_HYBRID
-      16 + 
-      #endif
+      // #ifdef CHERI_HYBRID
+      // 16 + 
+      // #endif
       (saved_double_registers.Count() * kDRegSize);
 
   // Floating point registers are saved on the stack above core registers.

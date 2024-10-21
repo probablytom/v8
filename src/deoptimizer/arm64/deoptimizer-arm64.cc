@@ -19,6 +19,8 @@ const int Deoptimizer::kEagerDeoptExitSize = kInstrSize;
 #else
 const int Deoptimizer::kEagerDeoptExitSize = kInstrSize;
 #endif
+
+
 #ifdef CHERI_HYBRID
 
 // #ifdef V8_ENABLE_CONTROL_FLOW_INTEGRITY

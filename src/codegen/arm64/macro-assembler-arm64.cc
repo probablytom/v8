@@ -5414,46 +5414,85 @@ void MacroAssembler::QuickUnStash(Register reg1, Register reg2) {
 
 // }
 
+void checkFrameSize(Register r1, Register r2, int brkVal) {
+  // Label END;
+  // Label PREVIOUS_VAL_EXISTS;
+
+  // Push(r1, r2);
+
+  // // Load frame size from the BytecodeArray object.
+  // Ldr(r1, FieldMemOperand(kInterpreterBytecodeArrayRegister,
+  //                          BytecodeArray::kFrameSizeOffset));
+
+  // Mrs(r2, CID);
+  // Cmp(r2, 0);
+  // // If CID is 0, this is the first time we've done this, so push current frame size to CID and exit.
+  // // If CID is non-zero, check whether it's the same as current frame size, and BRK if not.
+  // B(ne, &PREVIOUS_VAL_EXISTS);
+
+  // // Previous val does not exist.
+  // Msr(CID, r1);
+  // B(&END);
+
+  // // Previous val does exist.
+  // Bind(&PREVIOUS_VAL_EXISTS);
+  // Cmp(r1, r2);
+  // B(eq, &END); // Values are the same --- frame size didn't change
+  // Brk(brkVal); // Values are not the same --- frame size changed!!
+
+  // // Finish by restoring values of r1 and r2 for stack idempotency
+  // Bind(&END);
+  // Pop(r2, r1);
+}
+
 void MacroAssembler::PushCurrentCompBoundaries(Register r1, Register r2) {
-  // Label WITHIN_COMP;
-  // Label NOT_IN_COMP;
-
-  // Mov(sentinel_reg, sentinel_compartment_bounds_pushed);
-
-  // // Get the current PCC's width
-  // GetPCC(scratch);
-  // Gclim(scratch.C(), scratch);
-
-  // // If current width is greater than max comp width, we know we're not in a comp.
-  // // If it's lower, skip the next instruction, which sets the size to a sentinel value indicating not in comp (so it fits neatly on heap).
-  // Cmp(scratch, this->max_compartment_width);
-  // B(le, &WITHIN_COMP);
-
-  // // Push to stack the sentinel indicating we're not in a compartment, rather
-  // // than a huge value that we can't pop
-  // Bind(&NOT_IN_COMP);
-  // Mov(scratch, sentinel_not_in_compartment);
-
-  // // Push to stack, and we're done!
-  // Bind(&WITHIN_COMP);
-  // Push(sentinel_reg, scratch);
-
+  checkFrameSize(r1, r2, 0xf021);
   
   Nop();
   Nop();
   
-
   Label NOT_CURRENTLY_IN_COMP;
+  Label NO_DOUBLE_PUSHING_CONTINUE_PUSH;
+  Label END;
   
   // Get cursor
   Add(r1, kRootRegister, IsolateData::compartment_state_stack_cursor_offset());
   Ldr(r2, MemOperand(r1)); // Load the cursor into r2 from addr calculated above
 
   // Increment cursor by 1
-  Add(r2, r2, 1);
+  Add(r2, r2, 8);
 
   // Store updated cursor
   Str(r2, MemOperand(r1));
+
+  // Ensure we're not double-pushing a frame. If we've pushed frames already
+  // (cursor/index > 0) then confirm the frame we're in isn't already at the top
+  // of the stack.
+
+  // Get original cursor/index value
+  Sub(r2, r2, 8);
+
+  // Ensure cursor is greater than 0 (8 currently, because we just increased it --- need to refactor...)
+  Cmp(r2, 0);
+  B(eq, &NO_DOUBLE_PUSHING_CONTINUE_PUSH);
+
+  Add(r1, kRootRegister, IsolateData::compartment_state_stack_offset());
+  Add(r1, r1, r2);
+  Ldr(r1, MemOperand(r1)); // Load value at address in r1 into r1 --- r1 now contains top value on stack
+  And(r1, r1, 0xFFFFFFFFFFFE); // Ensure r1 isn't marked, so we can compare its value against fp
+  Cmp(r1, fp);
+  // Brk(0xf014);
+  B(ne, &NO_DOUBLE_PUSHING_CONTINUE_PUSH); // Branch to continue pushing if the fp isn't currently on top of stack
+
+  // fp was on top of stack. We should abort to avoid double pushing.
+  // Revert cursor value update first to make this a no-op.
+  Add(r1, kRootRegister, IsolateData::compartment_state_stack_cursor_offset());
+  Str(r2, MemOperand(r1)); // Store updated cursor --- already decremented above.
+  B(&END); // Abort pushing
+
+
+  Bind(&NO_DOUBLE_PUSHING_CONTINUE_PUSH);
+  Add(r2, r2, 8); // r2 decremented above...!
 
   // Get address of comp stack, indexed by cursor
   Add(r1, kRootRegister, IsolateData::compartment_state_stack_offset());
@@ -5466,19 +5505,20 @@ void MacroAssembler::PushCurrentCompBoundaries(Register r1, Register r2) {
   Mov(r2, fp); // Prepare r2 with contents of fp, to be pushed to comp stack; may be marked following the cmp in the next instruction.
   B(gt, &NOT_CURRENTLY_IN_COMP);
 
-  Add(r2, r2, 1); // We're currently in a compartment, so 
+  Add(r2, r2, 1); // We're currently in a compartment, so mark the FP we push to the comp state stack
 
   Bind(&NOT_CURRENTLY_IN_COMP); // Label to skip over marking as currently in a compartment
 
   // Store FP of current frame at cursor position in comp stack
   Str(r2, MemOperand(r1));
 
+  Bind(&END);
+  checkFrameSize(r1, r2, 0xf022);
 
 }
 
-void MacroAssembler::PopEarlierCompBoundaries(Register retReg) {
-  UseScratchRegisterScope temps(this);
-  Register scratch = temps.AcquireX();
+void MacroAssembler::PopEarlierCompBoundaries(Register retReg, Register scratch) {
+  checkFrameSize(retReg, scratch, 0xf023);
 
   Nop();
 
@@ -5500,20 +5540,21 @@ void MacroAssembler::PopEarlierCompBoundaries(Register retReg) {
   Add(retReg, retReg, scratch); // retReg is now set to the address of the cursor's index into the stack
   Ldr(retReg, MemOperand(retReg)); // Retreg now contains the full address found at the current cursor position in the comp stack
   
-  And(scratch, retReg, 0xFFFFFFFE); // Remove the flag bit indicating whether this is compartment-relevant
+  And(scratch, retReg, 0xFFFFFFFFFFFE); // Remove the flag bit indicating whether this is compartment-relevant
+  // Brk(0xf012);
   Cmp(scratch, fp);
   B(ne, &NO_COMPARTMENT_FOUND); // If the address _SANS FLAG BIT_ isn't equal to the current fp, it means that the current frame isn't compartment-relevant. 
 
 
   // This frame was compartment-relevant, but we don't know whether we need to
-  // ensure we're inside or outside of a compartment until we check its flab bit
+  // ensure we're inside or outside of a compartment until we check its flag bit
   // (LSB).
   Bind(&FOUND_CURRENT_FP_IN_COMP_STACK);
   And(scratch, retReg, 0x00000001);
   Cmp(scratch, 0x1);
   B(eq, &COMPARTMENT_IN_COMP_STACK);
 
-
+  // Brk(0xf00f);
   Bind(&COMP_STACK_INDICATES_NOT_COMPARTMENT_RELEVANT);
   Mov(retReg, sentinel_not_in_compartment);
   B(&DECR_COMP_STACK_CURSOR);
@@ -5523,6 +5564,7 @@ void MacroAssembler::PopEarlierCompBoundaries(Register retReg) {
 
   Bind(&COMPARTMENT_IN_COMP_STACK);
   Mov(retReg, compartment_width);
+  // Brk(0xf00e);
   // Naturally progresses to DECR_COMP_STACK_CURSOR, which should happen next.
 
 
@@ -5535,23 +5577,24 @@ void MacroAssembler::PopEarlierCompBoundaries(Register retReg) {
   Register spare2 = scratch;
   Push(spare1, spare2);
 
-  Add(spare1, kRootRegister, IsolateData::compartment_state_stack_offset());
-  Add(spare2, kRootRegister, IsolateData::compartment_state_stack_cursor_offset());
-  Ldr(spare1, MemOperand(spare2)); // Load the cursor offset into spare1 from addr calculated above
-  Sub(spare1, spare1, 1); // Decr cursor by 1
-  Str(spare1, MemOperand(spare2)); // Store decremented cursor value
+  // Brk(0xf010);
+  Add(spare1, kRootRegister, IsolateData::compartment_state_stack_cursor_offset());
+  Ldr(spare2, MemOperand(spare1));
+  Sub(spare2, spare2, 8); // Decr cursor by 1
+  Str(spare2, MemOperand(spare1)); // Store decremented cursor value
 
   Pop(spare2, spare1); // TODO I never know if this ordering is correct...!
   B(&END);
 
 
 
-  // Value found on com stack didn't indicate that this frame is
+  // Value found on comp stack didn't indicate that this frame is
   // compartment-relevant. Ignore it and set retReg to a sentinel indicating
   // that there's nothing interesting here.
   Bind(&NO_COMPARTMENT_FOUND);
+  // Brk(0xf010);
   Mov(retReg, sentinel_nothing_to_pop);
-  B(&END);
+  // B(&END);
 
 
   // Cmp(sentinel_reg, sentinel_compartment_bounds_pushed);
@@ -5560,14 +5603,17 @@ void MacroAssembler::PopEarlierCompBoundaries(Register retReg) {
   // Mov(scratch, sentinel_nothing_to_pop);
 
   Bind(&END);
+  checkFrameSize(retReg, scratch, 0xf024);
 }
 
 void MacroAssembler::EnsureWithinSecurityBoundary(CallType calltype) {
   
+
   int orig_size = pc_offset();
 
   Register r1 = x20;
   Register r2 = x21;
+  checkFrameSize(r1, r2, 0xf029);
   SetupSuperPCC(r1, r2, true);
 
   if (calltype == typicalCall) {
@@ -5589,6 +5635,7 @@ void MacroAssembler::EnsureWithinSecurityBoundary(CallType calltype) {
   if (length_of_trampoline > max_size_of_cheri_comp_trampoline) {
     max_size_of_cheri_comp_trampoline = length_of_trampoline;
   }
+  checkFrameSize(r1, r2, 0xf02a);
 }
 
 int MacroAssembler::max_size_of_cheri_comp_trampoline = -1; // initial value...
@@ -5599,6 +5646,7 @@ void MacroAssembler::EnsureOutsideSecurityBoundary(CallType calltype) {
 
   Register r1 = x20;
   Register r2 = x21;
+  checkFrameSize(r1, r2, 0xf027);
   SetupSuperPCC(r1, r2, true);
 
   if (calltype == typicalCall) {
@@ -5623,6 +5671,7 @@ void MacroAssembler::EnsureOutsideSecurityBoundary(CallType calltype) {
   if (length_of_trampoline > max_size_of_cheri_comp_trampoline) {
     max_size_of_cheri_comp_trampoline = length_of_trampoline;
   }
+  checkFrameSize(r1, r2, 0xf028);
 }
 
 void MacroAssembler::RestoreSecurityBoundary(CallType calltype) {
@@ -5632,6 +5681,7 @@ void MacroAssembler::RestoreSecurityBoundary(CallType calltype) {
   
   Register r1 = x20;
   Register r2 = x21;
+  checkFrameSize(r1, r2, 0xf025);
 
   Label INSTALL_SUPERPCC;
   Label REENTER_COMPARTMENT;
@@ -5642,8 +5692,8 @@ void MacroAssembler::RestoreSecurityBoundary(CallType calltype) {
   // boundaries and check whether it's a sentinel. If it is,  we weren't in a
   // comp.
   UseScratchRegisterScope temps(this);
-  QuickStash(r1);
-  PopEarlierCompBoundaries(r1);
+  QuickStash(r1, r2);
+  PopEarlierCompBoundaries(r1, r2);
   Cmp(r1, sentinel_nothing_to_pop); // We shouldn't manage the comp because we're "restoring" but shouldn't be; this frame never entered a comp.
   B(eq, &UNSTASH_THENEND);
   Cmp(r1, sentinel_not_in_compartment); // We saw a value indicating that we weren't previously in a compartment, so r1 doesn't contain real bounds. That means we should ensure we're _not_ in a compartment. 
@@ -5657,7 +5707,7 @@ void MacroAssembler::RestoreSecurityBoundary(CallType calltype) {
   // bounds the same or roughly so) then we can skip entering the compartment.
   Bind(&REENTER_COMPARTMENT);
   
-  QuickUnStash(r1);
+  QuickUnStash(r1, r2);
   Push(r1, r2);
   EnterCompartment(r1, r2);
   Pop(r1, r2);
@@ -5668,14 +5718,14 @@ void MacroAssembler::RestoreSecurityBoundary(CallType calltype) {
   // not currently in a compartment.
   Bind(&INSTALL_SUPERPCC);
 
-  QuickUnStash(r1);
+  QuickUnStash(r1, r2);
   Push(r1, r2);
   ExitCompartment(r1, r2);
   Pop(r1, r2);
   B(&END);
 
   Bind(&UNSTASH_THENEND);
-  QuickUnStash(r1);
+  QuickUnStash(r1, r2);
 
   Bind(&END);
 
@@ -5685,6 +5735,7 @@ void MacroAssembler::RestoreSecurityBoundary(CallType calltype) {
   if (length_of_trampoline > max_size_of_cheri_comp_trampoline) {
     max_size_of_cheri_comp_trampoline = length_of_trampoline;
   }
+  checkFrameSize(r1, r2, 0xf026);
 }
 
 // // BLs to an address in a label by building a capability from a supercapability and jumping to that, thereby leaving the security boundary.

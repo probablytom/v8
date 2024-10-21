@@ -198,23 +198,23 @@ class FrameWriter {
       parameters.push_back(iterator);
     }
     for (auto& parameter : base::Reversed(parameters)) {
-      #ifdef CHERI_HYBRID
-      uintptr_t top_of_stack_addr = (static_cast<Address>(frame_->GetTop()));
-      bool should_push = true;
-      for (int i = 0; i < 4; i++) {
-        should_push = should_push && (*(double*) top_of_stack_addr != MacroAssembler::sentinel_not_in_compartment);
-        should_push = should_push && (*(double*) top_of_stack_addr != MacroAssembler::sentinel_nothing_to_pop);
-        should_push = should_push && (*(double*) top_of_stack_addr != MacroAssembler::sentinel_compartment_bounds_pushed);
-        top_of_stack_addr += 4;
-      }
-      if (should_push) {
-        PushTranslatedValue(parameter, "stack parameter");
-      } else {
-        DCHECK_EQ(*(char*) top_of_stack_addr, 0xfeedf00d);
-      }
-      #else
+      // #ifdef CHERI_HYBRID
+      // uintptr_t top_of_stack_addr = (static_cast<Address>(frame_->GetTop()));
+      // bool should_push = true;
+      // for (int i = 0; i < 4; i++) {
+      //   should_push = should_push && (*(double*) top_of_stack_addr != MacroAssembler::sentinel_not_in_compartment);
+      //   should_push = should_push && (*(double*) top_of_stack_addr != MacroAssembler::sentinel_nothing_to_pop);
+      //   should_push = should_push && (*(double*) top_of_stack_addr != MacroAssembler::sentinel_compartment_bounds_pushed);
+      //   top_of_stack_addr += 4;
+      // }
+      // if (should_push) {
+      //   PushTranslatedValue(parameter, "stack parameter");
+      // } else {
+      //   DCHECK_EQ(*(char*) top_of_stack_addr, 0xfeedf00d);
+      // }
+      // #else
       PushTranslatedValue(parameter, "stack parameter");
-      #endif
+      // #endif
     }
   }
 

@@ -60,9 +60,9 @@ int SafepointTable::find_return_pc(int pc_offset) {
 
 SafepointEntry SafepointTable::TryFindEntry(Address pc) const {
   int pc_offset = static_cast<int>(pc - instruction_start_);
-  #ifdef CHERI_HYBRID
-  pc_offset += MacroAssembler::max_size_of_cheri_comp_trampoline;
-  #endif
+  // #ifdef CHERI_HYBRID
+  // pc_offset += MacroAssembler::max_size_of_cheri_comp_trampoline;
+  // #endif
 
   // Check if the PC is pointing at a trampoline.
   if (has_deopt_data()) {

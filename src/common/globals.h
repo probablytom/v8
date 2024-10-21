@@ -377,7 +377,7 @@ constexpr int kFPOnStackSize = kSystemPointerSize;
 // Permitted levels of compartment nesting. Could be too low. We have to reserve
 // this # of address-length units in IsolateData, so not increasing it massively
 // now.
-constexpr int kNumberOfCompartments = 16; 
+constexpr int kNumberOfCompartments = 128; 
 #endif
 
 #if V8_TARGET_ARCH_X64 || V8_TARGET_ARCH_IA32
