@@ -2427,6 +2427,8 @@ void MacroAssembler::CallBuiltinByIndex(Register builtin_index,
   LoadEntryFromBuiltinIndex(builtin_index, target);
   #ifdef CHERI_HYBRID
   // EnsureOutsideSecurityBoundary(typicalCall);
+  Add(x1, x1, x3);
+  Sub(x1, x1, x3);
   Call(target);
   // RestoreSecurityBoundary(returnFromCall); // TODO: [CHERI] this might not be appropriate. Are builtins ever called by builtins using this mechanism, or is this always used from within JS?
   #else
@@ -2437,7 +2439,12 @@ void MacroAssembler::CallBuiltinByIndex(Register builtin_index,
 void MacroAssembler::CallBuiltin(Builtin builtin) {
   ASM_CODE_COMMENT_STRING(this, CommentForOffHeapTrampoline("call", builtin));
 #ifdef CHERI_HYBRID
+  // Label SKIP_COMP_MGMT1;
+  // IfNotInCompartmentJumpTo(&SKIP_COMP_MGMT1);
   // EnsureOutsideSecurityBoundary(typicalCall);
+  Add(x1, x1, x4);
+  Sub(x1, x1, x4);
+  // Bind(&SKIP_COMP_MGMT1);
 #endif
   switch (options().builtin_call_jump_mode) {
     case BuiltinCallJumpMode::kAbsolute: {
@@ -2473,7 +2480,10 @@ void MacroAssembler::CallBuiltin(Builtin builtin) {
     }
   }
 #ifdef CHERI_HYBRID
+  // Label SKIP_COMP_MGMT2;
+  // IfNotInCompartmentJumpTo(&SKIP_COMP_MGMT2);
   // RestoreSecurityBoundary(returnFromCall); // TODO: [CHERI] this might not be appropriate. Are builtins ever called by builtins using this mechanism, or is this always used from within JS?
+  // Bind(&SKIP_COMP_MGMT2);
 #endif
 }
 
@@ -2589,7 +2599,7 @@ void MacroAssembler::CallJSFunction(Register function_object) {
   Register code = kJavaScriptCallCodeStartRegister;
 
 #ifdef CHERI_HYBRID
-#define COMP_ENTRYSEQ EnsureWithinSecurityBoundary(typicalCall);
+#define COMP_ENTRYSEQ //EnsureWithinSecurityBoundary(typicalCall);
   // bool enteringCompartment = !(this->within_cheri_compartment);         \
   // enteringCompartment = true;                                           \
   // if (enteringCompartment) {                                            \
@@ -2601,7 +2611,7 @@ void MacroAssembler::CallJSFunction(Register function_object) {
 #endif // CHERI_HYBRID
 
 #ifdef CHERI_HYBRID
-#define COMP_EXITSEQ RestoreSecurityBoundary(returnFromCall);
+#define COMP_EXITSEQ //RestoreSecurityBoundary(returnFromCall);
   // if (enteringCompartment) {                                           \
   //   ExitCheriCompartment(x20, x21);                                    \
   //   this->within_cheri_compartment = false; \
@@ -2646,7 +2656,7 @@ void MacroAssembler::JumpJSFunction(Register function_object,
 #endif // CHERI_HYBRID
 
 #ifdef CHERI_HYBRID
-#define COMP_EXITSEQ                                                   \
+#define COMP_EXITSEQ                                                 \
   // if (enteringCompartment) {                                           \
   //   ExitCheriCompartment(x4, x5);                                      \
   // }
@@ -2714,7 +2724,7 @@ void MacroAssembler::StoreReturnAddressAndCall(Register target) {
   #ifdef CHERI_HYBRID
     // EnsureOutsideSecurityBoundary(typicalCall);
     Blr(target);
-    // EnsureWithinSecurityBoundary(typicalCall);
+    // RestoreSecurityBoundary(returnFromCall);
 #else
     Blr(target);
   #endif
@@ -3126,11 +3136,13 @@ void MacroAssembler::EnterFrame(StackFrame::Type type, CallType callType) {
   UseScratchRegisterScope temps(this);
 
   #ifdef CHERI_HYBRID
-  if (StackFrame::IsOptimizedJavascript(type) && callType != builtinCall) {
-      EnsureWithinSecurityBoundary(typicalCall); // I _assume_ this is only ever called with regular calls, otherwise surely we don't create the frame?
+  if (StackFrame::IsOptimizedJavascript(type)) {//} && callType != builtinCall) {
+      // EnsureWithinSecurityBoundary(typicalCall);
   } else {
-      EnsureOutsideSecurityBoundary(typicalCall);
+      // EnsureOutsideSecurityBoundary(typicalCall);
   }
+  Add(x1, x1, x6);
+  Sub(x1, x1, x6);
   #endif
 
   if (StackFrame::IsJavaScript(type)) {
@@ -3172,7 +3184,7 @@ void MacroAssembler::LeaveFrame(StackFrame::Type type) {
   Mov(sp, fp);
   Pop<MacroAssembler::kAuthLR>(fp, lr);
   #ifdef CHERI_HYBRID
-  RestoreSecurityBoundary(returnFromCall);
+  // RestoreSecurityBoundary(returnFromCall);
   #endif // CHERI_HYBRID
 }
 
@@ -3184,7 +3196,9 @@ void MacroAssembler::EnterExitFrame(const Register& scratch, int extra_space,
          frame_type == StackFrame::API_CALLBACK_EXIT);
 
 #ifdef CHERI_HYBRID
-  EnsureOutsideSecurityBoundary(typicalCall); // TODO: maybe set up new calltypes for types of frames.
+  // EnsureOutsideSecurityBoundary(typicalCall); // TODO: maybe set up new calltypes for types of frames.
+  Add(x1, x1, x5);
+  Sub(x1, x1, x5);
 #endif
 
   // Set up the new stack frame.
@@ -3267,7 +3281,7 @@ void MacroAssembler::LeaveExitFrame(const Register& scratch,
   Pop<MacroAssembler::kAuthLR>(fp, lr);
 
   #ifdef CHERI_HYBRID
-  RestoreSecurityBoundary(returnFromCall);
+  // RestoreSecurityBoundary(returnFromCall);
   #endif
 }
 
@@ -4954,7 +4968,7 @@ void MacroAssembler::RestrictPCC(Register scratch, Register jumpPointReg, Label 
     Gclim(jumpPointReg.C(), scratch);
     // Sub(scratch, scratch, Operand(0x200000000000));
     // Add(scratch, scratch, Operand(0x000000800001));
-    Mov(scratch, 0xFFFFFF);
+    Mov(scratch, this->compartment_width);
     Scbnds(jumpPointReg.C(), jumpPointReg.C(), scratch);
 
     // Set offset (to correct address calculation) for new PCC
@@ -5037,6 +5051,11 @@ void MacroAssembler::EnterCheriCompartment() {
   this->within_cheri_compartment = true;
 
   SetupNewCompartmentStoragePoints();
+#ifdef CHERI_HYBRID
+  QuickStash(x20, x21);
+  SetupSuperPCC(x20, x21, false);
+  QuickUnStash(x20, x21);
+#endif
 
   {
     UseScratchRegisterScope temps(this);
@@ -5139,17 +5158,21 @@ void MacroAssembler::SwapPCCCompartmentBoundary(Register s1, Register s2) {
 }
 
 void MacroAssembler::SetupSuperPCC(Register r1, Register r2, bool mustStash) {
-  if (!this->superpcc_initialised) {
-    if (mustStash) {
-      Push(r1, r2);
-    }
-    GetPCC(r2);
-    LoadSuperPCCAddress(r1);
-    Swp(r2.C(), r1);
-    if (mustStash) {
-      Pop(r2, r1);
-    }
-    this->superpcc_initialised = true;
+  Label CURRENTLY_IN_COMPARTMENT_DO_NOT_SETUP_SUPERPCC;
+  if (mustStash) {
+    Push(r1, r2);
+  }
+  GetPCC(r2);
+  Gclim(r2.C(), r1);
+  Mov(r2, this->max_compartment_width);
+  Cmp(r1, r2);
+  B(le, &CURRENTLY_IN_COMPARTMENT_DO_NOT_SETUP_SUPERPCC);
+  GetPCC(r2);
+  LoadSuperPCCAddress(r1);
+  Str(r2.C(), r1);
+  Bind(&CURRENTLY_IN_COMPARTMENT_DO_NOT_SETUP_SUPERPCC);
+  if (mustStash) {
+    Pop(r2, r1);
   }
 }
 
@@ -5175,11 +5198,10 @@ void MacroAssembler::EnterCompartment(Register r1, Register r2) {
   
   // We don't have enough room below comp to get our full buffer below current address, so make the base address 0x0.
   Bind(&COMP_MUST_START_FROM_0);
-  Mov(r2, 0x0);
 
   // Set the base of our new PCC
   Bind(&SET_PCC_BASE);
-  Scvalue(r1.C(), r1.C(), r2);
+  Scvalue(r1.C(), r1.C(), xzr);
 
   // Calculate new bounds
   Mov(r2, this->compartment_width*2);
@@ -5446,7 +5468,6 @@ void checkFrameSize(Register r1, Register r2, int brkVal) {
 }
 
 void MacroAssembler::PushCurrentCompBoundaries(Register r1, Register r2) {
-  checkFrameSize(r1, r2, 0xf021);
   
   Nop();
   Nop();
@@ -5506,6 +5527,7 @@ void MacroAssembler::PushCurrentCompBoundaries(Register r1, Register r2) {
   B(gt, &NOT_CURRENTLY_IN_COMP);
 
   Add(r2, r2, 1); // We're currently in a compartment, so mark the FP we push to the comp state stack
+  Brk(0xf023);
 
   Bind(&NOT_CURRENTLY_IN_COMP); // Label to skip over marking as currently in a compartment
 
@@ -5513,12 +5535,10 @@ void MacroAssembler::PushCurrentCompBoundaries(Register r1, Register r2) {
   Str(r2, MemOperand(r1));
 
   Bind(&END);
-  checkFrameSize(r1, r2, 0xf022);
 
 }
 
 void MacroAssembler::PopEarlierCompBoundaries(Register retReg, Register scratch) {
-  checkFrameSize(retReg, scratch, 0xf023);
 
   Nop();
 
@@ -5564,7 +5584,6 @@ void MacroAssembler::PopEarlierCompBoundaries(Register retReg, Register scratch)
 
   Bind(&COMPARTMENT_IN_COMP_STACK);
   Mov(retReg, compartment_width);
-  // Brk(0xf00e);
   // Naturally progresses to DECR_COMP_STACK_CURSOR, which should happen next.
 
 
@@ -5583,7 +5602,7 @@ void MacroAssembler::PopEarlierCompBoundaries(Register retReg, Register scratch)
   Sub(spare2, spare2, 8); // Decr cursor by 1
   Str(spare2, MemOperand(spare1)); // Store decremented cursor value
 
-  Pop(spare2, spare1); // TODO I never know if this ordering is correct...!
+  Pop(spare2, spare1);
   B(&END);
 
 
@@ -5592,7 +5611,6 @@ void MacroAssembler::PopEarlierCompBoundaries(Register retReg, Register scratch)
   // compartment-relevant. Ignore it and set retReg to a sentinel indicating
   // that there's nothing interesting here.
   Bind(&NO_COMPARTMENT_FOUND);
-  // Brk(0xf010);
   Mov(retReg, sentinel_nothing_to_pop);
   // B(&END);
 
@@ -5603,7 +5621,6 @@ void MacroAssembler::PopEarlierCompBoundaries(Register retReg, Register scratch)
   // Mov(scratch, sentinel_nothing_to_pop);
 
   Bind(&END);
-  checkFrameSize(retReg, scratch, 0xf024);
 }
 
 void MacroAssembler::EnsureWithinSecurityBoundary(CallType calltype) {
@@ -5613,7 +5630,6 @@ void MacroAssembler::EnsureWithinSecurityBoundary(CallType calltype) {
 
   Register r1 = x20;
   Register r2 = x21;
-  checkFrameSize(r1, r2, 0xf029);
   SetupSuperPCC(r1, r2, true);
 
   if (calltype == typicalCall) {
@@ -5626,6 +5642,8 @@ void MacroAssembler::EnsureWithinSecurityBoundary(CallType calltype) {
 
   EnterCompartment(r1, r2);
 
+  Brk(0xf026);
+
   Pop(r1, r2);
 
   Nop();
@@ -5635,7 +5653,6 @@ void MacroAssembler::EnsureWithinSecurityBoundary(CallType calltype) {
   if (length_of_trampoline > max_size_of_cheri_comp_trampoline) {
     max_size_of_cheri_comp_trampoline = length_of_trampoline;
   }
-  checkFrameSize(r1, r2, 0xf02a);
 }
 
 int MacroAssembler::max_size_of_cheri_comp_trampoline = -1; // initial value...
@@ -5646,7 +5663,6 @@ void MacroAssembler::EnsureOutsideSecurityBoundary(CallType calltype) {
 
   Register r1 = x20;
   Register r2 = x21;
-  checkFrameSize(r1, r2, 0xf027);
   SetupSuperPCC(r1, r2, true);
 
   if (calltype == typicalCall) {
@@ -5671,7 +5687,6 @@ void MacroAssembler::EnsureOutsideSecurityBoundary(CallType calltype) {
   if (length_of_trampoline > max_size_of_cheri_comp_trampoline) {
     max_size_of_cheri_comp_trampoline = length_of_trampoline;
   }
-  checkFrameSize(r1, r2, 0xf028);
 }
 
 void MacroAssembler::RestoreSecurityBoundary(CallType calltype) {
@@ -5681,7 +5696,6 @@ void MacroAssembler::RestoreSecurityBoundary(CallType calltype) {
   
   Register r1 = x20;
   Register r2 = x21;
-  checkFrameSize(r1, r2, 0xf025);
 
   Label INSTALL_SUPERPCC;
   Label REENTER_COMPARTMENT;
@@ -5710,7 +5724,7 @@ void MacroAssembler::RestoreSecurityBoundary(CallType calltype) {
   QuickUnStash(r1, r2);
   Push(r1, r2);
   EnterCompartment(r1, r2);
-  Pop(r1, r2);
+  Pop(r2, r1);
   B(&END);
 
   // We install the superpcc at this point, because we weren't in a compartment.
@@ -5721,7 +5735,7 @@ void MacroAssembler::RestoreSecurityBoundary(CallType calltype) {
   QuickUnStash(r1, r2);
   Push(r1, r2);
   ExitCompartment(r1, r2);
-  Pop(r1, r2);
+  Pop(r2, r1);
   B(&END);
 
   Bind(&UNSTASH_THENEND);
@@ -5735,7 +5749,21 @@ void MacroAssembler::RestoreSecurityBoundary(CallType calltype) {
   if (length_of_trampoline > max_size_of_cheri_comp_trampoline) {
     max_size_of_cheri_comp_trampoline = length_of_trampoline;
   }
-  checkFrameSize(r1, r2, 0xf026);
+}
+
+void MacroAssembler::IfNotInCompartmentJumpTo(Label *JUMPPOINT_IF_NOT_IN_COMP) {
+
+  UseScratchRegisterScope temps(this);
+  Register PCCWidth = temps.AcquireX();
+  Register maxWidth = temps.AcquireX();
+
+  Mov(maxWidth, this->max_compartment_width);
+
+  GetPCC(PCCWidth);
+  Gclim(PCCWidth.C(), PCCWidth);
+  Cmp(PCCWidth, maxWidth);
+  B(gt, JUMPPOINT_IF_NOT_IN_COMP);
+
 }
 
 // // BLs to an address in a label by building a capability from a supercapability and jumping to that, thereby leaving the security boundary.

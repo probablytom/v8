@@ -217,7 +217,7 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
 
   // Activation support.
 #ifdef CHERI_HYBRID
-  enum CallType {typicalCall, returnFromCall, tailCall, typicalCallWithoutRestore, builtinCall};
+  enum CallType {typicalCall, returnFromCall, tailCall, compMaintenanceWithoutCall, typicalCallWithoutRestore, builtinCall};
   void EnterFrame(StackFrame::Type type, CallType callType = typicalCall);
 #else
   void EnterFrame(StackFrame::Type type);
@@ -281,6 +281,7 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
   void TearDownCompartmentStoragePoints();
   void SwapPCCCompartmentBoundary(Register s1, Register s2);
   void LoadPCCAddress(Register r);
+  void IfNotInCompartmentJumpTo(Label *JUMPPOINT_IF_NOT_IN_COMP);
   #endif
 
   inline void InitializeRootRegister();
@@ -2469,7 +2470,7 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
 
   #ifdef CHERI_HYBRID
   bool superpcc_initialised = false;
-  size_t compartment_width = 0xFFFFFF;
+  size_t compartment_width = 0xFFFFFFFF;
   size_t max_compartment_width = 0xFFFFFFFF;
   bool restrict_next_jump = false;
   void *__capability capto_cheri_builtin_table;

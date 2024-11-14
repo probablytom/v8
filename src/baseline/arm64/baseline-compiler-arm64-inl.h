@@ -106,27 +106,6 @@ void BaselineCompiler::VerifyFrameSize() {
                  RoundUp(InterpreterFrameConstants::kFixedFrameSizeFromFp +
                              bytecode_->frame_size(),
                          2 * kSystemPointerSize));
-
-  // // TODELETE check for which invocation of VerifyFrameSize gives us the issue we're seeing...it's not the first one!
-  // Label EQ;
-  // Label NEQ;
-  // Label ENDCONDITIONAL;
-  // __ masm()->Cmp(x15, fp);
-  // __ masm()->B(eq, &EQ);
-  // // NEQ case --- trap so we can inspect.
-  // __ masm()->Bind(&NEQ);
-  // __ masm()->Brk(0xf016);
-  // // EQ case --- add 1 to CID so we know how many invocations of VerifyFrameSize we see before the discrepancy occurs.
-  // __ masm()->Bind(&EQ);
-  // __ masm()->Push(x14, x13);
-  // __ masm()->Mrs(x13.C(), CID);
-  // __ masm()->Add(x13, x13, 1);
-  // __ masm()->Msr(CID, x13.C());
-  // __ masm()->Pop(x13, x14);
-  // // end of conditional for debugging
-  // __ masm()->Bind(&ENDCONDITIONAL);
-  // // END TODELETE
-
   __ masm()->Cmp(x15, fp);
   __ masm()->Assert(eq, AbortReason::kUnexpectedStackPointer);
 }
