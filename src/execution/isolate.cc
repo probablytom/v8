@@ -157,6 +157,11 @@
 #include "src/execution/simulator-base.h"
 #endif
 
+#ifdef CHERI_HYBRID
+#include <cheriintrin.h>
+#define cheri_ddc_set(ddc) asm("MSR DDC, %[cap]\n\t" : : [cap] "C"(ddc))
+#endif
+
 extern "C" const uint8_t v8_Default_embedded_blob_code_[];
 extern "C" uint32_t v8_Default_embedded_blob_code_size_;
 extern "C" const uint8_t v8_Default_embedded_blob_data_[];
@@ -5356,9 +5361,32 @@ void Isolate::Enter() {
 
   // In case it's the first time some thread enters the isolate.
   set_thread_id(data->thread_id());
-}
+
+  #ifdef CHERI_HYBRID
+  if (serializer_enabled_) {
+    printf("In mksnapshot, so leaving DDC alone!");
+  } else {
+    void *__capability ddc = cheri_ddc_get();
+    if (isolate_data_.super_ddc_ == NULL) {
+      isolate_data_.super_ddc_ = ddc;
+    }
+    ddc = cheri_bounds_set(ddc, 0xfffffff0000);
+    cheri_ddc_set(ddc);
+  }
+  #endif
+};
 
 void Isolate::Exit() {
+
+  #ifdef CHERI_HYBRID
+  if (serializer_enabled_) {
+    printf("In mksnapshot, so leaving DDC alone!");
+  } else {
+    DCHECK_NOT_NULL(isolate_data_.super_ddc_);
+    cheri_ddc_set(isolate_data_.super_ddc_);
+  }
+  #endif
+
   auto current_entry_stack = entry_stack_.load();
   DCHECK_NOT_NULL(current_entry_stack);
   DCHECK(current_entry_stack->previous_thread_data == nullptr ||
