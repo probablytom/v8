@@ -73,7 +73,6 @@ SafepointEntry SafepointTable::TryFindEntry(Address pc) const {
       if (trampoline_pc > pc_offset) break;
     }
     if (candidate != -1) {
-      DCHECK_EQ(2, 0xf00d);
       return GetEntry(candidate);
     }
   }
@@ -90,7 +89,6 @@ SafepointEntry SafepointTable::TryFindEntry(Address pc) const {
       return entry;
     }
   }
-  DCHECK_EQ(5, 0xf00d);
   return {};
 }
 

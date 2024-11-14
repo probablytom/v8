@@ -1024,13 +1024,17 @@ static void Generate_JSEntryTrampolineHelper(MacroAssembler* masm,
     // x29 : frame pointer (fp).
 
     Builtin builtin = is_construct ? Builtin::kConstruct : Builtins::Call();
-#ifdef CHERI_HYBRID
-  // __ ExitCheriCompartment(x4, x5);
-  __ CallBuiltin(builtin);
-  // __ EnterCheriCompartment(x4, x5);
-#else
+// #ifdef CHERI_HYBRID
+//   if (!is_construct) {
+//     __ EnsureWithinSecurityBoundary(MacroAssembler::typicalCall);
+//   }
+//   __ CallBuiltin(builtin);
+//   if (!is_construct) {
+//     __ RestoreSecurityBoundary(MacroAssembler::returnFromCall);
+//   }
+// #else
     __ CallBuiltin(builtin);
-#endif
+// #endif
 
     // Exit the JS internal frame and remove the parameters (except function),
     // and return.
@@ -1358,12 +1362,9 @@ void Builtins::Generate_InterpreterEntryTrampoline(
   Register closure = x1;
 
 #ifdef CHERI_HYBRID
-  // We shouldn't be in a compartment here.
-  bool returnToCompartment = masm->within_cheri_compartment;
-  returnToCompartment = true;
-  if (returnToCompartment) {
-    // __ ExitCheriCompartment();
-  }
+  // __ EnsureOutsideSecurityBoundary(MacroAssembler::compMaintenanceWithoutCall);
+  __ Add(x1, x1, x2);
+  __ Sub(x1, x1, x2);
 #endif
 
   // Get the bytecode array from the function object and load it into
@@ -1493,11 +1494,11 @@ void Builtins::Generate_InterpreterEntryTrampoline(
   __ Ldr(kJavaScriptCallCodeStartRegister,
          MemOperand(kInterpreterDispatchTableRegister, x1));
 #ifdef CHERI_HYBRID
-  // __ EnterCheriCompartment(x4, x5);
-#endif
+  // __ EnsureWithinSecurityBoundary(MacroAssembler::typicalCall);
   __ Call(kJavaScriptCallCodeStartRegister);
-#ifdef CHERI_HYBRID
-  // __ ExitCheriCompartment(x4, x5);
+  // __ RestoreSecurityBoundary(MacroAssembler::returnFromCall);
+#else
+  __ Call(kJavaScriptCallCodeStartRegister);
 #endif
 
   __ RecordComment("--- InterpreterEntryReturnPC point ---");
@@ -1537,9 +1538,9 @@ void Builtins::Generate_InterpreterEntryTrampoline(
   // The return value is in x0.
   LeaveInterpreterFrame(masm, x2, x4);
   #ifdef CHERI_HYBRID
-  if (returnToCompartment) {
-    // __ EnterCheriCompartment();
-  }
+  // if (returnToCompartment) {
+  //   // __ EnterCheriCompartment();
+  // }
   #endif
   __ Ret();
 
@@ -2933,6 +2934,11 @@ void Builtins::Generate_CallFunction(MacroAssembler* masm,
 
   __ Ldrh(x2,
           FieldMemOperand(x2, SharedFunctionInfo::kFormalParameterCountOffset));
+
+  #ifdef CHERI_HYBRID
+  // __ EnsureWithinSecurityBoundary(MacroAssembler::typicalCall);
+  #endif
+
   __ InvokeFunctionCode(x1, no_reg, x2, x0, InvokeType::kJump);
 }
 

@@ -406,8 +406,8 @@ class IsolateData final {
   static_assert(FIELD_SIZE(kCompartmentStateStackPadding) > 0);
   uint8_t compartment_state_stack_padding_[FIELD_SIZE(kCompartmentStateStackPadding)];
 
-  void *__capability super_pcc_;
-  void *__capability super_ddc_;
+  void *__capability super_pcc_ = NULL;
+  void *__capability super_ddc_ = NULL;
 #endif
 
   // Ensure the size is 16-byte aligned in order to make alignment of the field
