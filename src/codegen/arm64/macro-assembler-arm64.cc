@@ -4843,7 +4843,7 @@ void MacroAssembler::LoadSuperPCCAddress(Register r) {
   temps.Include(temp1, temp2);
   Add(r, kRootRegister, IsolateData::super_pcc_offset());
   And(r, r, 0xFFFFFFF0);
-  Pop(temp1, temp2); // TODO wrong way round...?!
+  Pop(temp2, temp1);
   temps.Exclude(temp1, temp2);
 }
 
@@ -5178,6 +5178,19 @@ void MacroAssembler::SetupSuperPCC(Register r1, Register r2, bool mustStash) {
 
 void MacroAssembler::EnterCompartment(Register r1, Register r2) {
 
+  // CURRENTLY we're injecting our trampolines around callsites with control flow integrity.
+  // They use x16 and x17, which are otherwise scratch registers --- we need to make sure we don't clobber them!
+  // To ensure we don't run out of scratch registers, we don't exclude them from the scratch reg pool.
+  // Instead, we'll push their values here and pop them when we finish, so that their values are preserved in case
+  // they're important (they sometimes are).
+  // TODO: make this less inefficient / see whether we ever do run out of scratch registers if we just exclude x16/17.
+  Push(x16, x17);
+
+  // If x26 is empty we're not in an isolate --- abort!
+  Label END;
+  Cmp(xzr, x26);
+  B(eq, &END);
+
   Label PCCINSTALL;
 
   SetupSuperPCC(r1, r2, false);
@@ -5198,10 +5211,11 @@ void MacroAssembler::EnterCompartment(Register r1, Register r2) {
   
   // We don't have enough room below comp to get our full buffer below current address, so make the base address 0x0.
   Bind(&COMP_MUST_START_FROM_0);
+  Mov(r2, xzr);
 
   // Set the base of our new PCC
   Bind(&SET_PCC_BASE);
-  Scvalue(r1.C(), r1.C(), xzr);
+  Scvalue(r1.C(), r1.C(), r2);
 
   // Calculate new bounds
   Mov(r2, this->compartment_width*2);
@@ -5210,7 +5224,7 @@ void MacroAssembler::EnterCompartment(Register r1, Register r2) {
   Scbnds(r1.C(), r1.C(), r2);
 
   // Stash r1 so we can clobber it and restore the prospective PCC it contains
-  QuickStash(r1);
+  Msr(CID, r1.C());
 
   // Subtract lower bound of superpcc from PCCINSTALL label
   Gcbase(r1.C(), r2);
@@ -5218,20 +5232,37 @@ void MacroAssembler::EnterCompartment(Register r1, Register r2) {
   Sub(r2, r1, r2);
   
   // Restore PCC we're building into r1 so we can continue building it
-  QuickUnStash(r1);
+  Mrs(r1.C(), CID);
 
   // Set offset to result of subtraction
   Scoff(r1.C(), r1.C(), r2);
 
   // Jump to capability calculated
-  Br(r1.C());
+  br(r1.C());
 
   Bind(&PCCINSTALL);
+  Bind(&END);
+
+  // To avoid clobbering registers used for both scratch and control flow integrity...
+  Pop(x17, x16);
 }
 
 void MacroAssembler::ExitCompartment(Register r1, Register r2) {
 
+  // CURRENTLY we're injecting our trampolines around callsites with control flow integrity.
+  // They use x16 and x17, which are otherwise scratch registers --- we need to make sure we don't clobber them!
+  // To ensure we don't run out of scratch registers, we don't exclude them from the scratch reg pool.
+  // Instead, we'll push their values here and pop them when we finish, so that their values are preserved in case
+  // they're important (they sometimes are).
+  // TODO: make this less inefficient / see whether we ever do run out of scratch registers if we just exclude x16/17.
+  Push(x16, x17);
+
   Label PCCINSTALL;
+  Label END;
+
+  // If x26 is 0 we're not in an isolate --- abort!
+  Cmp(xzr, x26);
+  B(eq, &END);
 
   LoadSuperPCC(r1);
 
@@ -5240,10 +5271,29 @@ void MacroAssembler::ExitCompartment(Register r1, Register r2) {
   Scvalue(r1.C(), r1.C(), r2);
 
   // Branch to capability calculated
-  Br(r1.C());
+  br(r1.C());
 
   Bind(&PCCINSTALL);
+  Bind(&END);
+
+  // To avoid clobbering registers used for both scratch and control flow integrity...
+  Pop(x17, x16);
 }
+
+void MacroAssembler::ExitCompartmentOnReturn(Register r1, Register r2) {
+  // We're about to `ret`. Check whether the address we're returning to is within our current compartment; exit the
+  // compartment if not.
+  // (We assume we return to x30.)
+
+  Label SKIP_EXITING_COMPARTMENT_CURRENT_BOUNDS_SUFFICIENTLY_WIDE;
+  Cvtp(r1.C(), x30);
+  Gctag(r1.C(), r1);
+  Cmp(r1, xzr);
+  B(gt, &SKIP_EXITING_COMPARTMENT_CURRENT_BOUNDS_SUFFICIENTLY_WIDE);
+  ExitCompartment(r1, r2);
+  Bind(&SKIP_EXITING_COMPARTMENT_CURRENT_BOUNDS_SUFFICIENTLY_WIDE);
+}
+
 
 void MacroAssembler::CMPCompartmentBoundaryWidth(Register r1, Register scratchToAddToPile) {
   // Get bounds of PCC

@@ -439,12 +439,18 @@ void MacroAssembler::BindJumpTarget(Label* label) {
 void MacroAssembler::CallTarget() {
 #ifdef V8_ENABLE_CONTROL_FLOW_INTEGRITY
   bti(BranchTargetIdentifier::kBtiCall);
+  QuickStash(x20, x21);
+  EnterCompartment(x20, x21);
+  QuickUnStash(x20, x21);
 #endif
 }
 
 void MacroAssembler::JumpOrCallTarget() {
 #ifdef V8_ENABLE_CONTROL_FLOW_INTEGRITY
   bti(BranchTargetIdentifier::kBtiJumpCall);
+  // QuickStash(x20, x21);
+  // EnterCompartment();
+  // QuickUnStash(x20, x21);
 #endif
 }
 
@@ -466,18 +472,27 @@ void MacroAssembler::BindJumpOrCallTarget(Label* label) {
 
 void MacroAssembler::Bl(Label* label) {
   DCHECK(allow_macro_instructions());
+  QuickStash(x20, x21);
+  ExitCompartment(x20, x21);
+  QuickUnStash(x20, x21);
   bl(label);
 }
 
 void MacroAssembler::Blr(const Register& xn) {
   DCHECK(allow_macro_instructions());
   DCHECK(!xn.IsZero());
+  QuickStash(x20, x21);
+  ExitCompartment(x20, x21);
+  QuickUnStash(x20, x21);
   blr(xn);
 }
 
 void MacroAssembler::Br(const Register& xn) {
   DCHECK(allow_macro_instructions());
   DCHECK(!xn.IsZero());
+  QuickStash(x20, x21);
+  ExitCompartment(x20, x21);
+  QuickUnStash(x20, x21);
   br(xn);
 }
 
@@ -1075,6 +1090,9 @@ void MacroAssembler::Clrperm(const CRegister& cd, const CRegister& cn, const Cap
 
 void MacroAssembler::Br(const CRegister& cn) {
   DCHECK(allow_macro_instructions());
+  QuickStash(x20, x21);
+  ExitCompartment(x20, x21);
+  QuickUnStash(x20, x21);
   br(cn);
 }
 
@@ -1149,6 +1167,11 @@ void MacroAssembler::Rbit(const Register& rd, const Register& rn) {
 void MacroAssembler::Ret(const Register& xn) {
   DCHECK(allow_macro_instructions());
   DCHECK(!xn.IsZero());
+  // TODO this is hilariously dumb; if future me is still seeing this, it desperately needs addressing. We currently
+  // check comp boundaries on EVERY `ret` regardless of what's actually returning...!
+  Push(x20, x21);
+  ExitCompartmentOnReturn(x20, x21);
+  Pop(x21, x20);
   ret(xn);
   CheckVeneerPool(false, false);
 }

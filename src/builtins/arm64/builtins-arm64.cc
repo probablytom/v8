@@ -1294,6 +1294,10 @@ void Builtins::Generate_BaselineOutOfLinePrologue(MacroAssembler* masm) {
 
   // Do "fast" return to the caller pc in lr.
   __ LoadRoot(kInterpreterAccumulatorRegister, RootIndex::kUndefinedValue);
+  
+  __ Push(x20, x21);
+  __ ExitCompartmentOnReturn(x20, x21);
+  __ Pop(x21, x20);
   __ Ret();
 
   __ bind(&flags_need_processing);

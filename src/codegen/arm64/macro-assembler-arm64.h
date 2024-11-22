@@ -243,6 +243,7 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
   void SetupSuperPCC(Register r1, Register r2, bool mustStash);
   void EnterCompartment(Register r1, Register r2);
   void ExitCompartment(Register r1, Register r2);
+  void ExitCompartmentOnReturn(Register r1, Register r2);
   void CMPCompartmentBoundaryWidth(Register r1, Register scratchToAddToPile);
   void CMPCompartmentBoundaryWidthAgainst(Register r1, Register scratchToAddToPile, size_t to_compare);
   void EnterSecurityDomain(Register r1, Register r2, CallType calltype);
@@ -2470,7 +2471,7 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
 
   #ifdef CHERI_HYBRID
   bool superpcc_initialised = false;
-  size_t compartment_width = 0xFFFFFFFF;
+  size_t compartment_width = 0xFFFFFF;
   size_t max_compartment_width = 0xFFFFFFFF;
   bool restrict_next_jump = false;
   void *__capability capto_cheri_builtin_table;
