@@ -231,41 +231,22 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
   #ifdef CHERI_HYBRID
   SystemRegister stashSystemReg = RDDC;
   SystemRegister stashSystemReg2 = RCSP;
+  SystemRegister superPCCReg = RCTPIDR;
+
 
   void QuickStash(Register reg);
   void QuickStash(Register reg1, Register reg2);
   void QuickUnStash(Register reg);
   void QuickUnStash(Register reg1, Register reg2);
-  void PushCurrentCompBoundaries(Register scratch, Register sentinel_reg);
-  void PopEarlierCompBoundaries(Register retReg, Register scratch);
-  void LoadSuperPCCAddress(Register r1);
   void LoadSuperPCC(Register r1);
   void SetupSuperPCC(Register r1, Register r2, bool mustStash);
-  void EnterCompartment(Register r1, Register r2);
-  void ExitCompartment(Register r1, Register r2);
-  void ExitCompartmentOnReturn(Register r1, Register r2);
-  void CMPCompartmentBoundaryWidth(Register r1, Register scratchToAddToPile);
-  void CMPCompartmentBoundaryWidthAgainst(Register r1, Register scratchToAddToPile, size_t to_compare);
-  void EnterSecurityDomain(Register r1, Register r2, CallType calltype);
-  void CallOutsideOfSecurityDomain(Register r1, Register r2, CallType calltype);
-  void CompartmentCheckFollowingCallWithinCompartment(Register r1, Register r2, CallType calltype);
-  void CheckReturningWithinCompartment(Register r1, Register r2, Register returnAddrReg, CallType calltype);
-  void EnsureWithinSecurityBoundary(CallType calltype);
-  void EnsureOutsideSecurityBoundary(CallType calltype);
-  // void BL_QuicklyLeavingBoundary(Label* toBLTo);
-  void RestoreSecurityBoundary(CallType calltype);
-  void RestrictDDC(Register superddc_address_reg, Register ddc_val_reg, Label *ddc_storage_location);
-  void DerestrictDDC(Register superddc_address_reg, Register ddc_val_reg, Label *ddc_storage_location);
-  void RestrictPCC(Register scratch, Register jumpPointReg, Label *ddc_storage_location);
-  void DerestrictPCC(Register scratch, Register jumpPointReg, Label *ddc_storage_location);
-  void EnterCheriCompartment(Register r1, Register r2);
-  void EnterCheriCompartment(Register r1);
-  void EnterCheriCompartment();
-  void ExitCheriCompartment(Register r1, Register r2);
-  void ExitCheriCompartment(Register r1);
-  void ExitCheriCompartment();
-  void ClearExecutivePermission(CRegister r);
-  void SetupRestrictedRegisters();
+  void _EnterCompartment(Register r1, Register r2);
+  void EnterCompartment(Register r1, Register r2, bool stashRequired);
+  void EnterCompartmentIfNotAlreadyInOne();
+  void _ExitCompartment(Register r1, Register r2);
+  void ExitCompartment(Register r1, Register r2, bool stashRequired);
+  void ExitCompartmentIfRegisterOutsideBounds(Register dest);
+  // void ExitCompartmentIfLabelOutsideBounds(Label* label);
   void MovSysReg(SystemRegister dest, SystemRegister src);
   // A capability to be used to construct RDDC compartment-escaping capabilities
   // to jump to (i.e. a jump-able capability with the executive bit set)
@@ -783,6 +764,10 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
 
   CPURegList* TmpList() { return &tmp_list_; }
   CPURegList* FPTmpList() { return &fptmp_list_; }
+
+#ifdef CHERI_HYBRID
+  bool* CompartmentManagementEnabled() { return &compartment_management_enabled; }
+#endif
 
   static CPURegList DefaultTmpList();
   static CPURegList DefaultFPTmpList();
@@ -1513,8 +1498,8 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
 #ifdef CHERI_HYBRID
   CRegister csp = c31; // TODO move this away from the MacroAssember namespace…!
   inline void Mov(const CRegister& cd, const CRegister& cn);
-  inline void Mrs(const CRegister& rt, SystemRegister sysreg);
-  inline void Msr(SystemRegister sysreg, const CRegister& rt);
+  void Mrs(const CRegister& rt, SystemRegister sysreg);
+  void Msr(SystemRegister sysreg, const CRegister& rt);
   inline void Blr(const CRegister& cn);
   inline void Blrr(const CRegister& cn);
   inline void Brr(const CRegister& cn);
@@ -2405,6 +2390,10 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
   bool allow_macro_instructions_ = true;
 #endif
 
+#ifdef CHERI_HYBRID
+  bool compartment_management_enabled = true;
+#endif
+
   // Scratch registers available for use by the MacroAssembler.
   CPURegList tmp_list_ = DefaultTmpList();
   CPURegList fptmp_list_ = DefaultFPTmpList();
@@ -2632,6 +2621,49 @@ class V8_NODISCARD UseScratchRegisterScope {
   uint64_t old_available_;    // kRegister
   uint64_t old_availablefp_;  // kVRegister
 };
+
+#ifdef CHERI_HYBRID
+class V8_NODISCARD DisableCompartmentManagementScope {
+  public:
+   explicit DisableCompartmentManagementScope(MacroAssembler* masm) {
+      masm_state = masm->CompartmentManagementEnabled();
+      management_permitted = *masm_state;
+     *masm_state = false;
+   }
+
+    V8_EXPORT_PRIVATE ~DisableCompartmentManagementScope() {
+      *masm_state = management_permitted;
+    }
+
+    bool ManagementDisabled() { return !management_permitted; }
+
+  private:
+    bool management_permitted; // Whether management is permitted within this scope. For nested scopes, this will be false.
+    bool* masm_state;
+};
+
+class V8_NODISCARD AvoidCMPClobberScope {
+  public:
+   explicit AvoidCMPClobberScope(MacroAssembler* _masm, Register _tmp) 
+     : masm(_masm),
+       tmp(_tmp) {
+    // masm->Push(xzr, tmp); // Old value of TMP stored
+    masm->Mrs(tmp, NZCV);
+    masm->Push(xzr, tmp); // Old value of NZCV (comparison reg) stored
+   }
+
+   V8_EXPORT_PRIVATE ~AvoidCMPClobberScope() {
+     masm->Pop(tmp, xzr); // Old value of NZCV (comparison reg) stored
+     masm->Msr(NZCV, tmp);
+    // masm->Pop(tmp, xzr); // Old value of TMP restored
+   }
+
+  private:
+    MacroAssembler* masm;
+    Register tmp;
+};
+
+#endif
 
 struct MoveCycleState {
   // List of scratch registers reserved for pending moves in a move cycle, and

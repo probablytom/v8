@@ -3751,24 +3751,24 @@ void CodeGenerator::PrepareForDeoptimizationExits(
   // Emit the jumps to deoptimization entries.
   UseScratchRegisterScope scope(masm());
   Register scratch = scope.AcquireX();
-#ifdef CHERI_HYBRID
-  Register pcc_reg = scope.AcquireX();
-#endif
+// #ifdef CHERI_HYBRID
+//   Register pcc_reg = scope.AcquireX();
+// #endif
   static_assert(static_cast<int>(kFirstDeoptimizeKind) == 0);
   for (int i = 0; i < kDeoptimizeKindCount; i++) {
     if (!saw_deopt_kind[i]) continue;
     DeoptimizeKind kind = static_cast<DeoptimizeKind>(i);
     __ bind(&jump_deoptimization_entry_labels_[i]);
     __ LoadEntryFromBuiltin(Deoptimizer::GetDeoptimizationEntry(kind), scratch);
-    #ifdef CHERI_HYBRID
-    __ QuickStash(pcc_reg);
-    __ LoadSuperPCC(pcc_reg);
-    __ Cvt(scratch.C(), pcc_reg.C(), scratch);
-    __ QuickUnStash(pcc_reg);
-    __ Br(scratch.C());
-    #else
+    // #ifdef CHERI_HYBRID
+    // __ QuickStash(pcc_reg);
+    // __ LoadSuperPCC(pcc_reg);
+    // __ Cvt(scratch.C(), pcc_reg.C(), scratch);
+    // __ QuickUnStash(pcc_reg);
+    // __ Br(scratch.C());
+    // #else
     __ Jump(scratch);
-    #endif
+    // #endif
   }
 }
 

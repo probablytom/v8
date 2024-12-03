@@ -374,6 +374,11 @@ void MacroAssembler::Asr(const Register& rd, const Register& rn,
 
 void MacroAssembler::B(Label* label) {
   DCHECK(allow_macro_instructions());
+
+  // #ifdef CHERI_HYBRID
+  // ExitCompartment(x20, x21, true);
+  // #endif
+
   b(label);
   CheckVeneerPool(false, false);
 }
@@ -439,9 +444,7 @@ void MacroAssembler::BindJumpTarget(Label* label) {
 void MacroAssembler::CallTarget() {
 #ifdef V8_ENABLE_CONTROL_FLOW_INTEGRITY
   bti(BranchTargetIdentifier::kBtiCall);
-  QuickStash(x20, x21);
-  EnterCompartment(x20, x21);
-  QuickUnStash(x20, x21);
+  EnterCompartmentIfNotAlreadyInOne();
 #endif
 }
 
@@ -472,28 +475,36 @@ void MacroAssembler::BindJumpOrCallTarget(Label* label) {
 
 void MacroAssembler::Bl(Label* label) {
   DCHECK(allow_macro_instructions());
-  QuickStash(x20, x21);
-  ExitCompartment(x20, x21);
-  QuickUnStash(x20, x21);
+  #ifdef CHERI_HYBRID
+  ExitCompartment(x20, x21, true);
   bl(label);
+  EnterCompartmentIfNotAlreadyInOne();
+  #else
+  bl(label);
+  #endif
 }
 
 void MacroAssembler::Blr(const Register& xn) {
   DCHECK(allow_macro_instructions());
   DCHECK(!xn.IsZero());
-  QuickStash(x20, x21);
-  ExitCompartment(x20, x21);
-  QuickUnStash(x20, x21);
+  #ifdef CHERI_HYBRID
+  ExitCompartmentIfRegisterOutsideBounds(xn);
   blr(xn);
+  EnterCompartmentIfNotAlreadyInOne();
+  #else
+  blr(xn);
+  #endif
 }
 
 void MacroAssembler::Br(const Register& xn) {
   DCHECK(allow_macro_instructions());
   DCHECK(!xn.IsZero());
-  QuickStash(x20, x21);
-  ExitCompartment(x20, x21);
-  QuickUnStash(x20, x21);
+  #ifdef CHERI_HYBRID
+  ExitCompartmentIfRegisterOutsideBounds(xn);
   br(xn);
+  #else
+  br(xn);
+  #endif
 }
 
 void MacroAssembler::Brk(int code) {
@@ -944,17 +955,6 @@ void MacroAssembler::Msr(SystemRegister sysreg, const Register& rt) {
 }
 
 #ifdef CHERI_HYBRID
-void MacroAssembler::Mrs(const CRegister& rt, SystemRegister sysreg) {
-  DCHECK(allow_macro_instructions());
-  DCHECK(!rt.IsZero());
-  mrs(rt, sysreg);
-}
-
-void MacroAssembler::Msr(SystemRegister sysreg, const CRegister& rt) {
-  DCHECK(allow_macro_instructions());
-  msr(sysreg, rt);
-}
-
 void MacroAssembler::Blr(const CRegister& cn) {
   DCHECK(allow_macro_instructions());
   DCHECK(!cn.IsZero());
@@ -1090,9 +1090,7 @@ void MacroAssembler::Clrperm(const CRegister& cd, const CRegister& cn, const Cap
 
 void MacroAssembler::Br(const CRegister& cn) {
   DCHECK(allow_macro_instructions());
-  QuickStash(x20, x21);
-  ExitCompartment(x20, x21);
-  QuickUnStash(x20, x21);
+  ExitCompartment(x20, x21, true);
   br(cn);
 }
 
@@ -1167,11 +1165,14 @@ void MacroAssembler::Rbit(const Register& rd, const Register& rn) {
 void MacroAssembler::Ret(const Register& xn) {
   DCHECK(allow_macro_instructions());
   DCHECK(!xn.IsZero());
-  // TODO this is hilariously dumb; if future me is still seeing this, it desperately needs addressing. We currently
+  // TODO: this is hilariously dumb; if future me is still seeing this, it desperately needs addressing. We currently
   // check comp boundaries on EVERY `ret` regardless of what's actually returning...!
-  Push(x20, x21);
-  ExitCompartmentOnReturn(x20, x21);
-  Pop(x21, x20);
+
+  // TODO: also, I believe there are scenarios where hand-rolled code in V8 uses the Assembler's `ret`, not the
+  // MacroAssembler's `Ret`...! This impl won't catch those cases; perhaps this should be moved to assembler-arm64.cc.
+
+  // ExitCompartmentIfRegisterOutsideBounds(xn);
+  ExitCompartment(x20, x21, true);
   ret(xn);
   CheckVeneerPool(false, false);
 }

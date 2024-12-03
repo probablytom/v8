@@ -714,6 +714,11 @@ void Generate_JSEntryVariant(MacroAssembler* masm, StackFrame::Type type,
     // C calling convention. The first argument is passed in x0.
     __ Mov(kRootRegister, x0);
 
+#ifdef CHERI_HYBRID
+  // Set up the superPCC in the isolate so we can manage compartment boundaries.
+  __ SetupSuperPCC(x20, x21, true);
+#endif
+
 #ifdef V8_COMPRESS_POINTERS
     // Initialize the pointer cage base register.
     __ LoadRootRelative(kPtrComprCageBaseRegister,
@@ -1295,9 +1300,7 @@ void Builtins::Generate_BaselineOutOfLinePrologue(MacroAssembler* masm) {
   // Do "fast" return to the caller pc in lr.
   __ LoadRoot(kInterpreterAccumulatorRegister, RootIndex::kUndefinedValue);
   
-  __ Push(x20, x21);
-  __ ExitCompartmentOnReturn(x20, x21);
-  __ Pop(x21, x20);
+  __ ExitCompartmentIfRegisterOutsideBounds(x30);
   __ Ret();
 
   __ bind(&flags_need_processing);
@@ -4754,6 +4757,7 @@ void Builtins::Generate_CEntry(MacroAssembler* masm, int result_size,
   __ Mov(x17, ER::Create(IsolateAddressId::kPendingHandlerEntrypointAddress,
                          masm->isolate()));
   __ Ldr(x17, MemOperand(x17));
+  __ ExitCompartment(x20, x21, true);
   __ Br(x17);
 }
 

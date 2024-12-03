@@ -25,10 +25,17 @@ void BaselineCompiler::Prologue() {
   DCHECK_EQ(kJSFunctionRegister, kJavaScriptCallTargetRegister);
   int max_frame_size =
       bytecode_->frame_size() + max_call_args_ * kSystemPointerSize;
+#ifdef CHERI_HYBRID
+  __ masm()->ExitCompartment(x20, x21, true);
   CallBuiltin<Builtin::kBaselineOutOfLinePrologue>(
       kContextRegister, kJSFunctionRegister, kJavaScriptCallArgCountRegister,
       max_frame_size, kJavaScriptCallNewTargetRegister, bytecode_);
-
+  __ masm()->EnterCompartment(x20, x21, true);
+#else
+  CallBuiltin<Builtin::kBaselineOutOfLinePrologue>(
+      kContextRegister, kJSFunctionRegister, kJavaScriptCallArgCountRegister,
+      max_frame_size, kJavaScriptCallNewTargetRegister, bytecode_);
+#endif
   __ masm()->AssertSpAligned();
   PrologueFillFrame();
   __ masm()->AssertSpAligned();

@@ -298,6 +298,17 @@ void MacroAssembler::LogicalMacro(const Register& rd, const Register& rn,
 }
 
 #ifdef CHERI_HYBRID
+void MacroAssembler::Mrs(const CRegister& rt, SystemRegister sysreg) {
+  DCHECK(allow_macro_instructions());
+  DCHECK(!rt.IsZero());
+  mrs(rt, sysreg);
+}
+
+void MacroAssembler::Msr(SystemRegister sysreg, const CRegister& rt) {
+  DCHECK(allow_macro_instructions());
+  msr(sysreg, rt);
+}
+
 void MacroAssembler::Mov(const CRegister& cd, const CRegister& cn) {
   // TODO: should probably by more DCHECKs here, just hacking together an
   // attempt at a solution to moving CSP right now…
@@ -1073,6 +1084,17 @@ void MacroAssembler::B(Label* label, Condition cond) {
   DCHECK(allow_macro_instructions());
   DCHECK((cond != al) && (cond != nv));
 
+#ifdef CHERI_HYBRID
+  if (*this->CompartmentManagementEnabled()) {
+    QuickStash(x20, x21);
+    {
+      AvoidCMPClobberScope scope(this, x20);
+      ExitCompartment(x20, x21, false);
+    }
+    QuickUnStash(x20, x21);
+  }
+#endif
+
   bool need_extra_instructions =
       NeedExtraInstructionsOrRegisterBranch<CondBranchType>(label);
 
@@ -1387,6 +1409,14 @@ void MacroAssembler::PushCalleeSavedRegisters() {
 
 void MacroAssembler::PopCalleeSavedRegisters() {
   ASM_CODE_COMMENT(this);
+
+#ifdef CHERI_HYBRID
+  // We might be popping x26 back to a value of 0, which prevents us from managing compartments: we don't know where our
+  // superPCC is anymore!
+  // Make sure we leave our compartment just in case.
+  ExitCompartment(x20, x21, false); // Stashing unnecessary: we'll clobber these registers below anyway.
+#endif
+
   // Ensure that the macro-assembler doesn't use any scratch registers.
   InstructionAccurateScope scope(this);
 
@@ -2317,13 +2347,6 @@ void MacroAssembler::Jump(const ExternalReference& reference) {
 }
 
 #ifdef CHERI_HYBRID
-void MacroAssembler::ClearExecutivePermission(CRegister cxx) {
-  UseScratchRegisterScope temps(this);
-  Register scratch = temps.AcquireX();
-  Add(scratch, scratch, 0x00000002); // TODO: reg is not necessarily cleared already here…! Should likely be a Mov.
-  Clrperm(cxx, cxx, scratch); // I have no idea why I can't use the immediate variant of this.
-}
-
 void MacroAssembler::MovSysReg(SystemRegister dest, SystemRegister src) {
   UseScratchRegisterScope temps(this);
   CRegister scratch = temps.AcquireC();
@@ -2334,12 +2357,6 @@ void MacroAssembler::MovSysReg(SystemRegister dest, SystemRegister src) {
   }
 
   Msr(dest, scratch);
-}
-
-void MacroAssembler::SetupRestrictedRegisters() {
-  // Set up RCSP
-  MovSysReg(RCTPIDR, CTPIDR);
-  MovSysReg(RCSP, CSP);
 }
 #endif
 
@@ -2353,7 +2370,13 @@ void MacroAssembler::Call(Address target, RelocInfo::Mode rmode) {
   if (CanUseNearCallOrJump(rmode)) {
     int64_t offset = CalculateTargetOffset(target, rmode, pc_);
     DCHECK(IsNearCallOffset(offset));
+#ifdef CHERI_HYBRID
+    ExitCompartment(x20, x21, true);
     near_call(static_cast<int>(offset), rmode);
+    EnterCompartmentIfNotAlreadyInOne();
+#else
+    near_call(static_cast<int>(offset), rmode);
+#endif
   } else {
     IndirectCall(target, rmode);
   }
@@ -2375,7 +2398,13 @@ void MacroAssembler::Call(Handle<Code> code, RelocInfo::Mode rmode) {
   if (CanUseNearCallOrJump(rmode)) {
     EmbeddedObjectIndex index = AddEmbeddedObject(code);
     DCHECK(is_int32(index));
+#ifdef CHERI_HYBRID
+    ExitCompartment(x20, x21, true);
     near_call(static_cast<int32_t>(index), rmode);
+    EnterCompartmentIfNotAlreadyInOne();
+#else
+    near_call(static_cast<int32_t>(index), rmode);
+#endif
   } else {
     IndirectCall(code.address(), rmode);
   }
@@ -2455,7 +2484,13 @@ void MacroAssembler::CallBuiltin(Builtin builtin) {
       break;
     }
     case BuiltinCallJumpMode::kPCRelative:
+#ifdef CHERI_HYBRID
+      ExitCompartment(x20, x21, true);
       near_call(static_cast<int>(builtin), RelocInfo::NEAR_BUILTIN_ENTRY);
+      EnterCompartmentIfNotAlreadyInOne();
+#else
+      near_call(static_cast<int>(builtin), RelocInfo::NEAR_BUILTIN_ENTRY);
+#endif
       break;
     case BuiltinCallJumpMode::kIndirect: {
       UseScratchRegisterScope temps(this);
@@ -2469,7 +2504,13 @@ void MacroAssembler::CallBuiltin(Builtin builtin) {
         Handle<Code> code = isolate()->builtins()->code_handle(builtin);
         EmbeddedObjectIndex index = AddEmbeddedObject(code);
         DCHECK(is_int32(index));
+#ifdef CHERI_HYBRID
+        ExitCompartment(x20, x21, true);
         near_call(static_cast<int32_t>(index), RelocInfo::CODE_TARGET);
+        EnterCompartmentIfNotAlreadyInOne();
+#else
+        near_call(static_cast<int32_t>(index), RelocInfo::CODE_TARGET);
+#endif
       } else {
         UseScratchRegisterScope temps(this);
         Register scratch = temps.AcquireX();
@@ -2628,10 +2669,6 @@ void MacroAssembler::CallJSFunction(Register function_object) {
       code, FieldMemOperand(function_object, JSFunction::kCodeOffset),
       kJSEntrypointTag);
   COMP_ENTRYSEQ
-  Nop();
-  Nop();
-  Nop();
-  Nop();
   Call(code);
   COMP_EXITSEQ
 #else
@@ -2721,13 +2758,20 @@ void MacroAssembler::StoreReturnAddressAndCall(Register target) {
     Check(eq, AbortReason::kReturnAddressNotFoundInFrame);
   }
 
-  #ifdef CHERI_HYBRID
-    // EnsureOutsideSecurityBoundary(typicalCall);
+#ifdef CHERI_HYBRID
+  {
+    // We don't have enough scratch registers remaining here to manage compartments
+    // Fabricate some.
+    UseScratchRegisterScope temps(this);
+    Push(x22, x23);
+    temps.Include(x22, x23);
     Blr(target);
-    // RestoreSecurityBoundary(returnFromCall);
+    temps.Exclude(x22, x23);
+    Pop(x23, x22);
+  }
 #else
-    Blr(target);
-  #endif
+  Blr(target);
+#endif
   Bind(&return_location);
 }
 
@@ -3281,7 +3325,7 @@ void MacroAssembler::LeaveExitFrame(const Register& scratch,
   Pop<MacroAssembler::kAuthLR>(fp, lr);
 
   #ifdef CHERI_HYBRID
-  // RestoreSecurityBoundary(returnFromCall);
+  ExitCompartment(x20, x21, true);
   #endif
 }
 
@@ -4519,6 +4563,11 @@ void MacroAssembler::RestoreFPAndLR() {
   static_assert(StandardFrameConstants::kCallerFPOffset + kSystemPointerSize ==
                     StandardFrameConstants::kCallerPCOffset,
                 "Offsets must be consecutive for ldp!");
+
+#ifdef CHERI_HYBRID
+  ExitCompartment(x20, x21, true);
+#endif
+
 #ifdef V8_ENABLE_CONTROL_FLOW_INTEGRITY
   // Make sure we can use x16 and x17.
   UseScratchRegisterScope temps(this);
@@ -4833,23 +4882,10 @@ void CallApiFunctionAndReturn(MacroAssembler* masm, bool with_profiling,
 
 
 #ifdef CHERI_HYBRID
-void MacroAssembler::LoadSuperPCCAddress(Register r) {
-  // We add using cap registers to avoid using extra scratch registers in the
-  // Add macro which might not be available.
-  UseScratchRegisterScope temps(this);
-  Register temp1 = x9;
-  Register temp2 = x10;
-  Push(temp1, temp2);
-  temps.Include(temp1, temp2);
-  Add(r, kRootRegister, IsolateData::super_pcc_offset());
-  And(r, r, 0xFFFFFFF0);
-  Pop(temp2, temp1);
-  temps.Exclude(temp1, temp2);
-}
-
 void MacroAssembler::LoadSuperPCC(Register reg) {
-  LoadSuperPCCAddress(reg);
-  Ldr(reg.C(), reg);
+  DisableCompartmentManagementScope comp_mgr(this);
+
+  Mrs(reg.C(), superPCCReg);
 }
 
 // Restricts the DDC, saving the previous one in IsolateData so we can leave the
@@ -4862,322 +4898,30 @@ void MacroAssembler::AlignPCTo(int alignment) {
   }
 }
 
-void MacroAssembler::SetupNewCompartmentStoragePoints() {
-  Label hopTo;
-
-  B(&hopTo);
-
-  AlignPCTo(sizeof(void* __capability));
-  Bind(&(this->pcc_storage_label));
-  Nop(); // Space to write PCC
-  Nop();
-  Nop();
-  Nop();
-  Bind(&(this->ddc_storage_label));
-  Nop(); // Space to write DDC
-  Nop();
-  Nop();
-  Nop();
-  Bind(&hopTo);
-}
-
-void MacroAssembler::TearDownCompartmentStoragePoints() {
-  this->pcc_storage_label.Unuse();
-  this->ddc_storage_label.Unuse();
-}
-
-void MacroAssembler::RestrictDDC(Register superddc_address_reg, Register ddc_val_reg, Label *ddc_storage_location) {
-  if (this->within_cheri_compartment && !this->ddc_restricted) {
-
-    // Calculate address of privileged DDC stored in IsolateData
-    Mov(superddc_address_reg, kRootRegister);
-    Add(superddc_address_reg, superddc_address_reg, IsolateData::super_ddc_offset());
-    And(superddc_address_reg, superddc_address_reg, 0xFFFFFFF0);
-    // Adr(superddc_address_reg, ddc_storage_location); // TW: for storing supercap in heap
-
-    // Load current DDC and save in IsolateData for later restoration
-    Mrs(ddc_val_reg.C(), DDC);
-    Str(ddc_val_reg.C(), superddc_address_reg);
-    
-    // Set address for restricted DDC
-    long shiftToRestrict = 0x200000000000;
-    Register new_address = superddc_address_reg; // Not necessary, just for readability...
-    Mov(new_address, shiftToRestrict);
-    Scvalue(ddc_val_reg.C(), ddc_val_reg.C(), new_address);
-
-    // Set bounds for restricted DDC
-    Register new_bounds = superddc_address_reg; // Not necessary, just for readability...
-    Gclim(ddc_val_reg.C(), new_bounds);
-    Sub(new_bounds, new_bounds, Operand(shiftToRestrict));
-    Scbnds(ddc_val_reg.C(), ddc_val_reg.C(), new_bounds);
-
-    // Mov replacement ddc into reg
-    Msr(DDC, ddc_val_reg.C());
-    this->ddc_restricted = true;
-  }
-}
-
-void MacroAssembler::DerestrictDDC(Register superddc_address_reg, Register ddc_val_reg, Label *ddc_storage_location) {
-  if (this->within_cheri_compartment && this->ddc_restricted) {
-    Mov(superddc_address_reg, kRootRegister);
-    Add(superddc_address_reg, superddc_address_reg,
-        IsolateData::super_ddc_offset());
-    And(superddc_address_reg, superddc_address_reg, 0xFFFFFFF0);
-    // Adr(superddc_address_reg, ddc_storage_location); // TW: for storing supercap in heap
-    Ldr(ddc_val_reg.C(), superddc_address_reg);
-    Msr(DDC, ddc_val_reg.C());
-    this->ddc_restricted = false;
-  }
-}
-
-// Restricts the PCC, saving the previous one in IsolateData so we can leave the
-// compartment later.
-// TODO: move to e.g. restricted mode or a comp manager or similar.
-//       This is really naive, but useful for testing!
-void MacroAssembler::RestrictPCC(Register scratch, Register jumpPointReg, Label *pcc_storage_location) {
-  if (this->within_cheri_compartment && !this->pcc_restricted) {
-    Label pccInstallJumpPoint;
-    Label skip;
-    Label fin;
-
-    // grab RDDC val to manipulate in scratch
-    Mrs(scratch.C(), RDDC); // RDDC contains the number of levels of nesting.
-
-    // Branch to the end if we're not in a comp — don't mess with the PCC!
-    Cmp(scratch, 0x0);
-    B(&skip, Condition::kNotEqual);
-
-    // Calculate address of privileged PCC stored in IsolateData
-    LoadSuperPCCAddress(scratch);
-    // Adr(scratch, pcc_storage_location); // TW: for storing supercap in heap
-
-    // Load the PCC into jumpPointReg
-    Adr(jumpPointReg, &pccInstallJumpPoint);
-    Cvtp(jumpPointReg.C(), jumpPointReg);
-
-    // Store the PCC in IsolateData for later restoration
-    Str(jumpPointReg.C(), scratch);
-
-    // Calculate new base for the PCC — zero out everything but the first byte
-    // of the current address.
-    // Gcvalue(jumpPointReg.C(), scratch);
-    // And(scratch, scratch, 0xF0000000);
-    // Scvalue(jumpPointReg.C(), jumpPointReg.C(), scratch);
-
-    // Calculate new bounds for the PCC
-    Gclim(jumpPointReg.C(), scratch);
-    // Sub(scratch, scratch, Operand(0x200000000000));
-    // Add(scratch, scratch, Operand(0x000000800001));
-    Mov(scratch, this->compartment_width);
-    Scbnds(jumpPointReg.C(), jumpPointReg.C(), scratch);
-
-    // Set offset (to correct address calculation) for new PCC
-    // Gcoff(jumpPointReg.C(), scratch);
-    
-    Br(jumpPointReg.C());  // jump to next instruction using the restricted cap in jumpPointReg
-    Bind(&pccInstallJumpPoint);
-
-    // Skip entering a compartment, but still indicate a level of nesting — to
-    // avoid adding a layer of nesting, branch to `&fin` instead.
-    Bind(&skip);
-    // Add 1 to RDDC to indicate we're entering another level of call nesting
-    Mrs(scratch.C(), RDDC);
-    Add(scratch, scratch, 1);
-    Msr(RDDC, scratch.C());
-
-
-    // END OF COMP MANAGEMENT
-    Bind(&fin);
-    this->pcc_restricted = true;
-  }
-}
-
-void MacroAssembler::DerestrictPCC(Register scratch, Register jumpPointReg, Label *pcc_storage_location) {
-  if (this->within_cheri_compartment && this->pcc_restricted) {
-    Label pccInstallJumpPoint;
-
-    Mrs(scratch.C(), RDDC);
-    Cmp(scratch, 0x0); // 0 means we're not in a compartment, so nothing to derestrict.
-    B(&pccInstallJumpPoint, Condition::kEqual);
-    Sub(scratch, scratch, 1);
-    Msr(RDDC, scratch.C());
-
-    // If we're non-zero now then we're still in a compartment, so we should
-    // skip derestriction.
-    Cmp(scratch, 0x0); 
-    B(&pccInstallJumpPoint, Condition::kNotEqual);
-
-    // Derestrict the PCC --- RDDC is 0 so we're leaving the compartment.
-    LoadSuperPCCAddress(scratch);
-    // Adr(scratch, pcc_storage_location); // TW: for storing supercap in heap
-    Ldr(jumpPointReg.C(), scratch);
-    Adr(scratch, &pccInstallJumpPoint);
-    Cvt(jumpPointReg.C(), jumpPointReg.C(), scratch);
-    Br(jumpPointReg.C());
-
-    Bind(&pccInstallJumpPoint);
-    this->pcc_restricted = false;
-  }
-}
-
-void MacroAssembler::EnterCheriCompartment(Register r1, Register r2) {
-  this->within_cheri_compartment = true;
-
-  SetupNewCompartmentStoragePoints();
-
-  Push(r1, r2);
-  RestrictPCC(r1, r2, &(this->pcc_storage_label));
-  // RestrictDDC(r1, r2, &(this->ddc_storage_label));
-  Pop(r1, r2);
-
-}
-
-void MacroAssembler::EnterCheriCompartment(Register r1) {
-  this->within_cheri_compartment = true;
-
-  SetupNewCompartmentStoragePoints();
-
-  Push(r1);
-  {
-    UseScratchRegisterScope temps(this);
-    Register r2 = temps.AcquireX();
-    RestrictPCC(r1, r2, &(this->pcc_storage_label));
-    // RestrictDDC(r1, r2, &(this->ddc_storage_label));
-  }
-  Pop(r1);
-}
-
-void MacroAssembler::EnterCheriCompartment() {
-  this->within_cheri_compartment = true;
-
-  SetupNewCompartmentStoragePoints();
-#ifdef CHERI_HYBRID
-  QuickStash(x20, x21);
-  SetupSuperPCC(x20, x21, false);
-  QuickUnStash(x20, x21);
-#endif
-
-  {
-    UseScratchRegisterScope temps(this);
-    Register r1 = temps.AcquireX();
-    Register r2 = temps.AcquireX();
-    RestrictPCC(r1, r2, &(this->pcc_storage_label));
-    // RestrictDDC(r1, r2, &(this->ddc_storage_label));
-  }
-}
-
-void MacroAssembler::ExitCheriCompartment(Register r1, Register r2) {
-  Push(r1, r2);
-  // DerestrictDDC(r1, r2, &(this->ddc_storage_label));
-  DerestrictPCC(r1, r2, &(this->pcc_storage_label));
-  Pop(r1, r2);
-
-  TearDownCompartmentStoragePoints();
-
-  this->within_cheri_compartment = false;
-}
-
-void MacroAssembler::ExitCheriCompartment(Register r1) {
-  Push(r1);
-  {
-    UseScratchRegisterScope temps(this);
-    Register r2 = temps.AcquireX();
-    // DerestrictDDC(r1, r2, &(this->ddc_storage_label));
-    DerestrictPCC(r1, r2, &(this->pcc_storage_label));
-  }
-  Pop(r1);
-
-  TearDownCompartmentStoragePoints();
-
-  this->within_cheri_compartment = false;
-}
-
-void MacroAssembler::ExitCheriCompartment() {
-  {
-    UseScratchRegisterScope temps(this);
-    Register r1 = temps.AcquireX();
-    Register r2 = temps.AcquireX();
-    // DerestrictDDC(r1, r2, &(this->ddc_storage_label));
-    DerestrictPCC(r1, r2, &(this->pcc_storage_label));
-  }
-
-  TearDownCompartmentStoragePoints();
-
-  this->within_cheri_compartment = false;
-}
-
-// SwapPCCCompartmentBoundary will swap whatever is in the PCC and whatever is
-// in the superPCC stored in the current IsolateData.
-// === DANGER: It does not check whether we are in a valid compartment when
-// called.
-//
-// For use when we might be leaving the compartment and needing to rejoin later,
-// regardless of e.g. levels of nesting.
-// The primary use case for compartment escape is calling a C function from
-// within compartmentalised JS, where we must jump outside of the compartment
-// but will return and resume our regular compartment entry & exit procedures
-void MacroAssembler::SwapPCCCompartmentBoundary(Register s1, Register s2) {
-  Push(s1, s2);
-
-  // Address of stored PCC doesn't matter; this just gives me a label to grab a
-  // PCC-derived capability against. We bind to where we'll jump to when
-  // installing the permissive PCC to avoid using a second label.
-  Label pccInstallationJumpPoint;
-
-  // Make sure we don't do anything if we're not in a compartment; branch if
-  // RDDC is less than or equal to 0.
-  // 1. If RDDC is less than 0, it indicates that the PCC boundary has already
-  //    been swapped.
-  // 2. If RDDC is 0, it means we're not in a compartment and should not swap.
-  Mrs(s1.C(), RDDC);
-  Cmp(s1, xzr);
-  B(le, &pccInstallationJumpPoint);
-
-  // TODO negate whatever value is in RDDC, so that we know whether we're
-  // entering / leaving a compartment.
-
-  // Load stored PCC address into s1
-  LoadSuperPCCAddress(s1);
-  
-  // Get current PCC in s2
-  Adr(s2, &pccInstallationJumpPoint);
-  Cvtp(s2.C(), s2);
-
-  // Swap value in s2 and value at address in s1
-  Swp(s2.C(), s1);
-
-  // Set address of new, permissive PCC
-  Adr(s1, &pccInstallationJumpPoint);
-  Scvalue(s2.C(), s2.C(), s1);
-
-  // Jump to new PCC, temporarily leaving PCC-defined compartment
-  Br(s2.C());
-
-  Bind(&pccInstallationJumpPoint);
-  Pop(s1, s2);
-}
-
 void MacroAssembler::SetupSuperPCC(Register r1, Register r2, bool mustStash) {
-  Label CURRENTLY_IN_COMPARTMENT_DO_NOT_SETUP_SUPERPCC;
+  DisableCompartmentManagementScope comp_mgr(this);
+
+  Label VALUE_ALREADY_EXISTS_IN_SUPERPCCREG_ABORT;
   if (mustStash) {
     Push(r1, r2);
   }
-  GetPCC(r2);
-  Gclim(r2.C(), r1);
-  Mov(r2, this->max_compartment_width);
+
+  Mrs(r2.C(), superPCCReg);
+  Gclen(r2.C(), r1);
+  Mov(r2, -1);
   Cmp(r1, r2);
-  B(le, &CURRENTLY_IN_COMPARTMENT_DO_NOT_SETUP_SUPERPCC);
+  B(ne, &VALUE_ALREADY_EXISTS_IN_SUPERPCCREG_ABORT);
+
   GetPCC(r2);
-  LoadSuperPCCAddress(r1);
-  Str(r2.C(), r1);
-  Bind(&CURRENTLY_IN_COMPARTMENT_DO_NOT_SETUP_SUPERPCC);
+  Msr(superPCCReg, r2.C());
+  
+  Bind(&VALUE_ALREADY_EXISTS_IN_SUPERPCCREG_ABORT);
   if (mustStash) {
     Pop(r2, r1);
   }
 }
 
-void MacroAssembler::EnterCompartment(Register r1, Register r2) {
-
+void MacroAssembler::_EnterCompartment(Register r1, Register r2) {
   // CURRENTLY we're injecting our trampolines around callsites with control flow integrity.
   // They use x16 and x17, which are otherwise scratch registers --- we need to make sure we don't clobber them!
   // To ensure we don't run out of scratch registers, we don't exclude them from the scratch reg pool.
@@ -5188,12 +4932,12 @@ void MacroAssembler::EnterCompartment(Register r1, Register r2) {
 
   // If x26 is empty we're not in an isolate --- abort!
   Label END;
-  Cmp(xzr, x26);
+  Cmp(xzr, kRootRegister);
   B(eq, &END);
 
   Label PCCINSTALL;
 
-  SetupSuperPCC(r1, r2, false);
+  // SetupSuperPCC(r1, r2, false);
   LoadSuperPCC(r1);
   
   // Set superpcc value to compartment start
@@ -5247,8 +4991,7 @@ void MacroAssembler::EnterCompartment(Register r1, Register r2) {
   Pop(x17, x16);
 }
 
-void MacroAssembler::ExitCompartment(Register r1, Register r2) {
-
+void MacroAssembler::_ExitCompartment(Register r1, Register r2) {
   // CURRENTLY we're injecting our trampolines around callsites with control flow integrity.
   // They use x16 and x17, which are otherwise scratch registers --- we need to make sure we don't clobber them!
   // To ensure we don't run out of scratch registers, we don't exclude them from the scratch reg pool.
@@ -5260,9 +5003,22 @@ void MacroAssembler::ExitCompartment(Register r1, Register r2) {
   Label PCCINSTALL;
   Label END;
 
-  // If x26 is 0 we're not in an isolate --- abort!
-  Cmp(xzr, x26);
-  B(eq, &END);
+  // If superPCC is empty, we've not pushed it to the system reg we store it in yet.
+  // in that case, store the superPCC and abort --- we can't be in a compartment yet.
+  Label SUPERPCC_IS_INITIALISED;
+  Mrs(r2.C(), superPCCReg);
+  Gclen(r2.C(), r1);
+  Mov(r2, -1);
+  Cmp(r1, r2);
+  B(ne, &SUPERPCC_IS_INITIALISED);
+
+  // SuperPCC wasn't initialised; initialise it and abort. 
+  // We can't be inside a compartment right now anyway so no exiting work to do.
+  SetupSuperPCC(r1, r2, false);
+  B(&END); // Exit having set up the superPCC.
+
+
+  Bind(&SUPERPCC_IS_INITIALISED);
 
   LoadSuperPCC(r1);
 
@@ -5280,43 +5036,163 @@ void MacroAssembler::ExitCompartment(Register r1, Register r2) {
   Pop(x17, x16);
 }
 
-void MacroAssembler::ExitCompartmentOnReturn(Register r1, Register r2) {
-  // We're about to `ret`. Check whether the address we're returning to is within our current compartment; exit the
-  // compartment if not.
-  // (We assume we return to x30.)
+void MacroAssembler::EnterCompartment(Register r1, Register r2, bool stashRequired = false) {
+  DisableCompartmentManagementScope comp_mgr(this);
+  if (comp_mgr.ManagementDisabled()) {
+    // Nop();
+    return;
+  }
 
-  Label SKIP_EXITING_COMPARTMENT_CURRENT_BOUNDS_SUFFICIENTLY_WIDE;
-  Cvtp(r1.C(), x30);
-  Gctag(r1.C(), r1);
-  Cmp(r1, xzr);
-  B(gt, &SKIP_EXITING_COMPARTMENT_CURRENT_BOUNDS_SUFFICIENTLY_WIDE);
-  ExitCompartment(r1, r2);
-  Bind(&SKIP_EXITING_COMPARTMENT_CURRENT_BOUNDS_SUFFICIENTLY_WIDE);
+  if (stashRequired) {
+    Push(r1, r2);
+  }
+
+  _EnterCompartment(r1, r2);
+
+  if (stashRequired) {
+    Pop(r2, r1);
+  }
 }
 
+void MacroAssembler::ExitCompartment(Register r1, Register r2, bool stashRequired = false) {
+  DisableCompartmentManagementScope comp_mgr(this);
+  if (comp_mgr.ManagementDisabled()) {
+    // Nop();
+    // Nop();
+    return;
+  }
 
-void MacroAssembler::CMPCompartmentBoundaryWidth(Register r1, Register scratchToAddToPile) {
-  // Get bounds of PCC
-  GetPCC(r1);
-  Gclim(r1.C(), r1);
+  if (stashRequired) {
+    Push(r1, r2);
+  }
 
-  // CMP against this->max_compartment_width
-  UseScratchRegisterScope temps(this);
-  temps.Include(scratchToAddToPile);
-  Cmp(r1, this->max_compartment_width);
-  temps.Exclude(scratchToAddToPile);
+  _ExitCompartment(r1, r2);
+
+  if (stashRequired) {
+    Pop(r2, r1);
+  }
 }
 
-void MacroAssembler::CMPCompartmentBoundaryWidthAgainst(Register r1, Register scratchToAddToPile, size_t to_compare) {
-  // Get bounds of PCC
-  GetPCC(r1);
-  Gclim(r1.C(), r1);
+void MacroAssembler::ExitCompartmentIfRegisterOutsideBounds(Register dest) {
+  // Exits a compartment only if a register's contents are outside of its bounds --- avoids unneccesary switching.
+  DisableCompartmentManagementScope comp_mgr(this);
+  if (comp_mgr.ManagementDisabled()) {
+    // Nop();
+    // Nop();
+    // Nop();
+    return;
+  }
 
-  // CMP against this->max_compartment_width
-  UseScratchRegisterScope temps(this);
-  temps.Include(scratchToAddToPile);
-  Cmp(r1, to_compare);
-  temps.Exclude(scratchToAddToPile);
+  Push(x20, x21);
+
+  Label SKIP_EXITING_COMPARTMENT_CURRENT_BOUNDS_SUFFICIENT;
+  Label EXIT_COMPARTMENT;
+
+  Cvtp(x20.C(), dest);
+
+  // Check whether the address we branch to is lower than our lower bound.
+  Gcbase(x20.C(), x21);
+  Cmp(x21, dest);
+  B(gt, &EXIT_COMPARTMENT); // base (lower bound) greater than dest address being compared against; exit compartment so dest is within bounds
+
+  // Check whether the address we branch to is higher than the higher bound.
+  // Give a buffer of 40K (10000 instructions) so the target can be executed. We assume that buffer is sufficient.
+  Gclim(x20.C(), x21);
+  Sub(x21, x21, 0x4 * 10000);
+  Cmp(x21, dest);
+  B(lt, &EXIT_COMPARTMENT); // limit (upper bound) lower than dest address being compared against (minus buffer); exit compartment so dest is within bounds, as well as 10000 following instructions.
+
+  // Addr in dest is within bounds; don't exit the compartment.
+  B(&SKIP_EXITING_COMPARTMENT_CURRENT_BOUNDS_SUFFICIENT);
+
+  // If we get here, the bounds were not sufficient, so we should exit the compartment.
+  Bind(&EXIT_COMPARTMENT);
+  _ExitCompartment(x20, x21);
+
+  Bind(&SKIP_EXITING_COMPARTMENT_CURRENT_BOUNDS_SUFFICIENT);
+  Pop(x21, x20);
+}
+
+// void MacroAssembler::ExitCompartmentIfLabelOutsideBounds(Label* label) {
+//   // Exits a compartment only if a label's address is outside of its bounds --- avoids unneccesary switching.
+//   DisableCompartmentManagementScope comp_mgr(this);
+//   if (comp_mgr.ManagementDisabled()) {
+//     // Nop();
+//     // Nop();
+//     // Nop();
+//     return;
+//   }
+
+//   Push(x20, x21);
+//   Push(x22, xzr);
+//   Register dest = x22;
+
+//   Mov(x20, LinkAndGetBranchInstructionOffsetTo(label));
+
+//   Label SKIP_EXITING_COMPARTMENT_CURRENT_BOUNDS_SUFFICIENT;
+//   Label EXIT_COMPARTMENT;
+
+//   Cvtp(x20.C(), dest);
+
+//   // Check whether the address we branch to is lower than our lower bound.
+//   Gcbase(x20.C(), x21);
+//   Cmp(x21, dest);
+//   B(gt, &EXIT_COMPARTMENT); // base (lower bound) greater than dest address being compared against; exit compartment so dest is within bounds
+
+//   // Check whether the address we branch to is higher than the higher bound.
+//   // Give a buffer of 40K (10000 instructions) so the target can be executed. We assume that buffer is sufficient.
+//   Gclim(x20.C(), x21);
+//   Sub(x21, x21, 0x4 * 10000);
+//   Cmp(x21, dest);
+//   B(lt, &EXIT_COMPARTMENT); // limit (upper bound) lower than dest address being compared against (minus buffer); exit compartment so dest is within bounds, as well as 10000 following instructions.
+
+//   // Addr in dest is within bounds; don't exit the compartment.
+//   B(&SKIP_EXITING_COMPARTMENT_CURRENT_BOUNDS_SUFFICIENT);
+
+//   // If we get here, the bounds were not sufficient, so we should exit the compartment.
+//   Bind(&EXIT_COMPARTMENT);
+//   _ExitCompartment(x20, x21);
+
+//   Bind(&SKIP_EXITING_COMPARTMENT_CURRENT_BOUNDS_SUFFICIENT);
+//   Pop(xzr, x22);
+//   Pop(x21, x20);
+// }
+
+void MacroAssembler::EnterCompartmentIfNotAlreadyInOne() {
+  DisableCompartmentManagementScope comp_mgr(this);
+  if (comp_mgr.ManagementDisabled()) {
+    // Nop();
+    // Nop();
+    // Nop();
+    // Nop();
+    return;
+  }
+
+  // Enters a compartment if comp bounds aren't already restricted.
+  Push(x20, x21);
+
+  Label SKIP_ENTERING_COMPARTMENT_ALREADY_INSIDE_ONE;
+  Label SKIP_ENTERING_COMPARTMENT_NO_SUPERPCC;
+
+  Cmp(x26, xzr);
+  B(eq, &SKIP_ENTERING_COMPARTMENT_NO_SUPERPCC);
+
+  LoadSuperPCC(x20);
+  
+  Gclen(x20.C(), x20);
+  // mksnapshot runs out of temp registers unless we supply an extra one here. Unsure why.
+  {
+    UseScratchRegisterScope temps(this);
+    temps.Include(x21);
+    Cmp(x20, this->max_compartment_width);
+    temps.Exclude(x21);
+  }
+  B(le, &SKIP_ENTERING_COMPARTMENT_ALREADY_INSIDE_ONE);
+  _EnterCompartment(x20, x21);
+
+  Bind(&SKIP_ENTERING_COMPARTMENT_ALREADY_INSIDE_ONE);
+  Bind(&SKIP_ENTERING_COMPARTMENT_NO_SUPERPCC);
+  Pop(x21, x20);
 }
 
 void MacroAssembler::QuickStash(Register reg) {
@@ -5337,502 +5213,7 @@ void MacroAssembler::QuickUnStash(Register reg1, Register reg2) {
   Mrs(reg2.C(), stashSystemReg2);
 }
 
-// // Rule 1: Any JS function must immediately check whether it's in a compartment
-// //         and enter one if it isn't.
-// void MacroAssembler::EnterSecurityDomain(Register r1, Register r2, CallType calltype) {
-
-//   Label END;
-
-//   if (calltype == typicalCall) {
-//     UseScratchRegisterScope temps(this);
-//     if (temps.CanAcquire()) {
-//       PushCurrentCompBoundaries(temps.AcquireX());
-//     } else {
-//       QuickStash(r1);
-//       PushCurrentCompBoundaries(r1);
-//       QuickUnStash(r1);
-//     }
-//   }
-
-//   Push(r1, r2);
-
-//   CMPCompartmentBoundaryWidth(r1, r2);
-
-//   // Branch to label END if LE
-//   B(le, &END);
-
-//   SetupSuperPCC(r1, r2, false); // TODO: find a better place to do this! Can't do it _every_ time we enter a comp
-//   EnterCompartment(r1, r2);
-
-//   // Label END gets bound here
-//   Bind(&END);
-
-//   Pop(r1, r2);
-
-// }
-
-
-// // Rule 2: Any call or tail call to something outside of our security domain
-// //        (i.e. a Builtin) must be preceded by a check as to whether the call
-// //         occurs within a compartment, and exit it if so.
-// void MacroAssembler::CallOutsideOfSecurityDomain(Register r1, Register r2, CallType calltype) {
-
-//   Label END;
-
-//   if (calltype == typicalCall) {
-//     UseScratchRegisterScope temps(this);
-//     if (temps.CanAcquire()) {
-//       PushCurrentCompBoundaries(temps.AcquireX());
-//     } else {
-//       QuickStash(r1);
-//       PushCurrentCompBoundaries(r1);
-//       QuickUnStash(r1);
-//     }
-//   }
-
-//   Push(r1, r2);
-
-//   CMPCompartmentBoundaryWidth(r1, r2); 
-
-//   // Branch to label END if GREATER
-//   B(gt, &END);
-
-//   ExitCompartment(r1, r2);
-
-//   // Label END gets bound here
-//   Bind(&END);
-
-//   Pop(r1, r2);
-// }
-
-
-// // Rule 3: Any call from within our security boundary (i.e. JITted JS) must be
-// //         followed by a check as to whether compartment boundaries are
-// //         installed following the call, and boundaries restored if not.
-// void MacroAssembler::CompartmentCheckFollowingCallWithinCompartment(Register r1, Register r2, CallType calltype) {
-
-//   Label END;
-//   Label SKIP;
-
-//   if (calltype == typicalCall) {
-//     UseScratchRegisterScope temps(this);
-//     QuickStash(r1);
-//     PopEarlierCompBoundaries(r1);
-//     Cmp(r1, this->max_compartment_width);
-//     QuickUnStash(r1);
-//     B(gt, &END);
-//   }
-
-//   Push(r1, r2);
-
-//   CMPCompartmentBoundaryWidth(r1, r2); // TODO: find a better place to do this! Can't do it _every_ time we enter a comp
-
-//   // Branch to label END if LE 
-//   B(le, &END);
-
-//   // SetupSuperPCC(r1, r2);
-//   EnterCompartment(r1, r2);
-
-//   // Label END gets bound here
-//   Bind(&END);
-
-//   Pop(r1, r2);
-
-//   Bind(&SKIP);
-
-// }
-
-
-// // Rule 4: When returning from within our security boundary (i.e. JITted JS),
-// //         the return must be preceeded by a check as to whether the return
-// //         address lies within compartment boundaries, and the compartment
-// //         exited if not.
-// void MacroAssembler::CheckReturningWithinCompartment(Register r1, Register r2, Register returnAddrReg, CallType calltype) {
-//   Label END;
-//   Label SKIP;
-
-//   if (calltype == typicalCall) {
-//     UseScratchRegisterScope temps(this);
-//     QuickStash(r1);
-//     PopEarlierCompBoundaries(r1);
-//     Cmp(r1, this->max_compartment_width);
-//     QuickUnStash(r1);
-//     B(gt, &SKIP);
-//   }
-
-//   Push(r1, r2);
-
-//   // Load current PCC
-//   GetPCC(r1);
-
-//   // Set value to return address
-//   Scvalue(r1.C(), r1.C(), returnAddrReg); // Making returnaddr parameterised because I worry JS and C ABIs will handle this differently, and I can't confirm at present. This can be changed in the future.
-
-//   // Get validity bit
-//   Gctag(r1.C(), r2);
-
-//   // If valid, branch to label END
-//   Cmp(r2, 1);
-//   B(eq, &END);
-
-//   ExitCompartment(r1, r2);
-
-//   // Label END gets bound here
-//   Bind(&END);
-
-//   Pop(r1, r2);
-
-//   Bind(&SKIP);
-
-// }
-
-void checkFrameSize(Register r1, Register r2, int brkVal) {
-  // Label END;
-  // Label PREVIOUS_VAL_EXISTS;
-
-  // Push(r1, r2);
-
-  // // Load frame size from the BytecodeArray object.
-  // Ldr(r1, FieldMemOperand(kInterpreterBytecodeArrayRegister,
-  //                          BytecodeArray::kFrameSizeOffset));
-
-  // Mrs(r2, CID);
-  // Cmp(r2, 0);
-  // // If CID is 0, this is the first time we've done this, so push current frame size to CID and exit.
-  // // If CID is non-zero, check whether it's the same as current frame size, and BRK if not.
-  // B(ne, &PREVIOUS_VAL_EXISTS);
-
-  // // Previous val does not exist.
-  // Msr(CID, r1);
-  // B(&END);
-
-  // // Previous val does exist.
-  // Bind(&PREVIOUS_VAL_EXISTS);
-  // Cmp(r1, r2);
-  // B(eq, &END); // Values are the same --- frame size didn't change
-  // Brk(brkVal); // Values are not the same --- frame size changed!!
-
-  // // Finish by restoring values of r1 and r2 for stack idempotency
-  // Bind(&END);
-  // Pop(r2, r1);
-}
-
-void MacroAssembler::PushCurrentCompBoundaries(Register r1, Register r2) {
-  
-  Nop();
-  Nop();
-  
-  Label NOT_CURRENTLY_IN_COMP;
-  Label NO_DOUBLE_PUSHING_CONTINUE_PUSH;
-  Label END;
-  
-  // Get cursor
-  Add(r1, kRootRegister, IsolateData::compartment_state_stack_cursor_offset());
-  Ldr(r2, MemOperand(r1)); // Load the cursor into r2 from addr calculated above
-
-  // Increment cursor by 1
-  Add(r2, r2, 8);
-
-  // Store updated cursor
-  Str(r2, MemOperand(r1));
-
-  // Ensure we're not double-pushing a frame. If we've pushed frames already
-  // (cursor/index > 0) then confirm the frame we're in isn't already at the top
-  // of the stack.
-
-  // Get original cursor/index value
-  Sub(r2, r2, 8);
-
-  // Ensure cursor is greater than 0 (8 currently, because we just increased it --- need to refactor...)
-  Cmp(r2, 0);
-  B(eq, &NO_DOUBLE_PUSHING_CONTINUE_PUSH);
-
-  Add(r1, kRootRegister, IsolateData::compartment_state_stack_offset());
-  Add(r1, r1, r2);
-  Ldr(r1, MemOperand(r1)); // Load value at address in r1 into r1 --- r1 now contains top value on stack
-  And(r1, r1, 0xFFFFFFFFFFFE); // Ensure r1 isn't marked, so we can compare its value against fp
-  Cmp(r1, fp);
-  // Brk(0xf014);
-  B(ne, &NO_DOUBLE_PUSHING_CONTINUE_PUSH); // Branch to continue pushing if the fp isn't currently on top of stack
-
-  // fp was on top of stack. We should abort to avoid double pushing.
-  // Revert cursor value update first to make this a no-op.
-  Add(r1, kRootRegister, IsolateData::compartment_state_stack_cursor_offset());
-  Str(r2, MemOperand(r1)); // Store updated cursor --- already decremented above.
-  B(&END); // Abort pushing
-
-
-  Bind(&NO_DOUBLE_PUSHING_CONTINUE_PUSH);
-  Add(r2, r2, 8); // r2 decremented above...!
-
-  // Get address of comp stack, indexed by cursor
-  Add(r1, kRootRegister, IsolateData::compartment_state_stack_offset());
-  Add(r1, r1, r2);
-
-  // Mark FP if in compartment
-  GetPCC(r2);
-  Gclim(r2.C(), r2);
-  Cmp(r2, this->max_compartment_width);
-  Mov(r2, fp); // Prepare r2 with contents of fp, to be pushed to comp stack; may be marked following the cmp in the next instruction.
-  B(gt, &NOT_CURRENTLY_IN_COMP);
-
-  Add(r2, r2, 1); // We're currently in a compartment, so mark the FP we push to the comp state stack
-  Brk(0xf023);
-
-  Bind(&NOT_CURRENTLY_IN_COMP); // Label to skip over marking as currently in a compartment
-
-  // Store FP of current frame at cursor position in comp stack
-  Str(r2, MemOperand(r1));
-
-  Bind(&END);
-
-}
-
-void MacroAssembler::PopEarlierCompBoundaries(Register retReg, Register scratch) {
-
-  Nop();
-
-  // TODO: Replace cursor from isolatedata with comp ID reg to avoid the additional instructions used to dereference it from IsolateData
-
-  Label FOUND_CURRENT_FP_IN_COMP_STACK;
-  Label NO_COMPARTMENT_FOUND;
-  Label COMPARTMENT_IN_COMP_STACK;
-  Label COMP_STACK_INDICATES_NOT_COMPARTMENT_RELEVANT;
-  Label DECR_COMP_STACK_CURSOR;
-  Label END;
-
-  Add(retReg, kRootRegister, IsolateData::compartment_state_stack_offset());
-  Add(scratch, kRootRegister, IsolateData::compartment_state_stack_cursor_offset());
-  Ldr(scratch, MemOperand(scratch)); // Load the cursor into scratch from addr calculated above
-  // !!! if cursor <=0, we have nothing on the stack. The 0th value is always empty. Abort!
-  Cmp(scratch, 0);
-  B(le, &END);
-  Add(retReg, retReg, scratch); // retReg is now set to the address of the cursor's index into the stack
-  Ldr(retReg, MemOperand(retReg)); // Retreg now contains the full address found at the current cursor position in the comp stack
-  
-  And(scratch, retReg, 0xFFFFFFFFFFFE); // Remove the flag bit indicating whether this is compartment-relevant
-  // Brk(0xf012);
-  Cmp(scratch, fp);
-  B(ne, &NO_COMPARTMENT_FOUND); // If the address _SANS FLAG BIT_ isn't equal to the current fp, it means that the current frame isn't compartment-relevant. 
-
-
-  // This frame was compartment-relevant, but we don't know whether we need to
-  // ensure we're inside or outside of a compartment until we check its flag bit
-  // (LSB).
-  Bind(&FOUND_CURRENT_FP_IN_COMP_STACK);
-  And(scratch, retReg, 0x00000001);
-  Cmp(scratch, 0x1);
-  B(eq, &COMPARTMENT_IN_COMP_STACK);
-
-  // Brk(0xf00f);
-  Bind(&COMP_STACK_INDICATES_NOT_COMPARTMENT_RELEVANT);
-  Mov(retReg, sentinel_not_in_compartment);
-  B(&DECR_COMP_STACK_CURSOR);
-  
-  
-  
-
-  Bind(&COMPARTMENT_IN_COMP_STACK);
-  Mov(retReg, compartment_width);
-  // Naturally progresses to DECR_COMP_STACK_CURSOR, which should happen next.
-
-
-  Bind(&DECR_COMP_STACK_CURSOR);
-  // We'll need a couple of spare registers so we don't clobber useful
-  // information calculated earlier.
-  // NB: Just realised I can push and pop my regular registers. Previously was
-  // x1 and x2. Maybe get rid of the spare vars?
-  Register spare1 = retReg;
-  Register spare2 = scratch;
-  Push(spare1, spare2);
-
-  // Brk(0xf010);
-  Add(spare1, kRootRegister, IsolateData::compartment_state_stack_cursor_offset());
-  Ldr(spare2, MemOperand(spare1));
-  Sub(spare2, spare2, 8); // Decr cursor by 1
-  Str(spare2, MemOperand(spare1)); // Store decremented cursor value
-
-  Pop(spare2, spare1);
-  B(&END);
-
-
-
-  // Value found on comp stack didn't indicate that this frame is
-  // compartment-relevant. Ignore it and set retReg to a sentinel indicating
-  // that there's nothing interesting here.
-  Bind(&NO_COMPARTMENT_FOUND);
-  Mov(retReg, sentinel_nothing_to_pop);
-  // B(&END);
-
-
-  // Cmp(sentinel_reg, sentinel_compartment_bounds_pushed);
-  // B(eq, &END);
-  // Push(sentinel_reg, scratch);
-  // Mov(scratch, sentinel_nothing_to_pop);
-
-  Bind(&END);
-}
-
-void MacroAssembler::EnsureWithinSecurityBoundary(CallType calltype) {
-  
-
-  int orig_size = pc_offset();
-
-  Register r1 = x20;
-  Register r2 = x21;
-  SetupSuperPCC(r1, r2, true);
-
-  if (calltype == typicalCall) {
-    QuickStash(r1, r2);
-    PushCurrentCompBoundaries(r1, r2);
-    QuickUnStash(r1, r2);
-  }
-
-  Push(r1, r2);
-
-  EnterCompartment(r1, r2);
-
-  Brk(0xf026);
-
-  Pop(r1, r2);
-
-  Nop();
-  Nop();
-
-  int length_of_trampoline = pc_offset() - orig_size;
-  if (length_of_trampoline > max_size_of_cheri_comp_trampoline) {
-    max_size_of_cheri_comp_trampoline = length_of_trampoline;
-  }
-}
-
-int MacroAssembler::max_size_of_cheri_comp_trampoline = -1; // initial value...
-
-void MacroAssembler::EnsureOutsideSecurityBoundary(CallType calltype) {
-
-  int orig_size = pc_offset();
-
-  Register r1 = x20;
-  Register r2 = x21;
-  SetupSuperPCC(r1, r2, true);
-
-  if (calltype == typicalCall) {
-    // If we're making a call, we expect to return here. Stash comp boundaries so we know whether to restore after returning.
-    UseScratchRegisterScope temps(this);
-    QuickStash(r1, r2);
-    PushCurrentCompBoundaries(r1, r2);
-    QuickUnStash(r1, r2);
-  }
-
-  Push(r1, r2);
-
-  ExitCompartment(r1, r2);
-
-  Pop(r1, r2);
-
-  Nop();
-  Nop();
-  Nop();
-
-  int length_of_trampoline = pc_offset() - orig_size;
-  if (length_of_trampoline > max_size_of_cheri_comp_trampoline) {
-    max_size_of_cheri_comp_trampoline = length_of_trampoline;
-  }
-}
-
-void MacroAssembler::RestoreSecurityBoundary(CallType calltype) {
-  DCHECK_EQ(calltype, returnFromCall); // Can only be used when returning because of stack structure, for now...
-  
-  int orig_size = pc_offset();
-  
-  Register r1 = x20;
-  Register r2 = x21;
-
-  Label INSTALL_SUPERPCC;
-  Label REENTER_COMPARTMENT;
-  Label UNSTASH_THENEND;
-  Label END;
-
-  // If we're returning from a call, we need to grab the old compartment
-  // boundaries and check whether it's a sentinel. If it is,  we weren't in a
-  // comp.
-  UseScratchRegisterScope temps(this);
-  QuickStash(r1, r2);
-  PopEarlierCompBoundaries(r1, r2);
-  Cmp(r1, sentinel_nothing_to_pop); // We shouldn't manage the comp because we're "restoring" but shouldn't be; this frame never entered a comp.
-  B(eq, &UNSTASH_THENEND);
-  Cmp(r1, sentinel_not_in_compartment); // We saw a value indicating that we weren't previously in a compartment, so r1 doesn't contain real bounds. That means we should ensure we're _not_ in a compartment. 
-  B(eq, &INSTALL_SUPERPCC);
-  // We saw neither sentinel, so r1 contains real bounds, Reinstall a compartment.
-  // TODO: the bounds on the compartment are relative to this point, but perhaps we should actually restore bounds etc from a previous compartment's PCC? Can we stash that somewhere?
-
-  // We were previously in a compartment. Reenter the compartment now so we can
-  // continue executing whatever we were in. To be optimised: if the PCC we'd
-  // compute is effectively the same as the PCC we already have (i.e. base,
-  // bounds the same or roughly so) then we can skip entering the compartment.
-  Bind(&REENTER_COMPARTMENT);
-  
-  QuickUnStash(r1, r2);
-  Push(r1, r2);
-  EnterCompartment(r1, r2);
-  Pop(r2, r1);
-  B(&END);
-
-  // We install the superpcc at this point, because we weren't in a compartment.
-  // This can be optimised: we should only install the superPCC if we're also
-  // not currently in a compartment.
-  Bind(&INSTALL_SUPERPCC);
-
-  QuickUnStash(r1, r2);
-  Push(r1, r2);
-  ExitCompartment(r1, r2);
-  Pop(r2, r1);
-  B(&END);
-
-  Bind(&UNSTASH_THENEND);
-  QuickUnStash(r1, r2);
-
-  Bind(&END);
-
-  Nop();
-
-  int length_of_trampoline = pc_offset() - orig_size;
-  if (length_of_trampoline > max_size_of_cheri_comp_trampoline) {
-    max_size_of_cheri_comp_trampoline = length_of_trampoline;
-  }
-}
-
-void MacroAssembler::IfNotInCompartmentJumpTo(Label *JUMPPOINT_IF_NOT_IN_COMP) {
-
-  UseScratchRegisterScope temps(this);
-  Register PCCWidth = temps.AcquireX();
-  Register maxWidth = temps.AcquireX();
-
-  Mov(maxWidth, this->max_compartment_width);
-
-  GetPCC(PCCWidth);
-  Gclim(PCCWidth.C(), PCCWidth);
-  Cmp(PCCWidth, maxWidth);
-  B(gt, JUMPPOINT_IF_NOT_IN_COMP);
-
-}
-
-// // BLs to an address in a label by building a capability from a supercapability and jumping to that, thereby leaving the security boundary.
-// void MacroAssembler::BL_QuicklyLeavingBoundary(Label* toBLTo) {
-//   UseScratchRegisterScope temps(this);
-//   Register scratch = temps.AcquireX();
-//   Register toJump = temps.AcquireX();
-
-//   Adr(toJump, toBLTo);
-
-//   LoadSuperPCC(scratch);
-  
-//   Cvt(toJump.C(), scratch.C(), toJump));
-
-//   Blr(toJump.C());
-  
-// }
-
-#endif
+#endif // CHERI_HYBRID
 
 
 }  // namespace internal
