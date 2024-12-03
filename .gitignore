@@ -120,3 +120,7 @@ bazel-bin
 bazel-out
 bazel-testlogs
 bazel-v8
+
+# === 2412203 TOM ADDED ignore files produced by applying patches for freebsd
+*.orig
+*.rej
