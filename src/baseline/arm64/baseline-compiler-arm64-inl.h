@@ -23,8 +23,7 @@ void BaselineCompiler::Prologue() {
   // Enter the frame here, since CallBuiltin will override lr.
   __ masm()->EnterFrame(StackFrame::BASELINE, MacroAssembler::builtinCall);
   DCHECK_EQ(kJSFunctionRegister, kJavaScriptCallTargetRegister);
-  int max_frame_size =
-      bytecode_->frame_size() + max_call_args_ * kSystemPointerSize;
+  int max_frame_size = bytecode_->max_frame_size();
 #ifdef CHERI_HYBRID
   __ masm()->ExitCompartment(x20, x21, true);
   CallBuiltin<Builtin::kBaselineOutOfLinePrologue>(
