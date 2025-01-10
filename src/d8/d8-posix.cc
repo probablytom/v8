@@ -7,6 +7,10 @@
 
 #include "src/d8/d8.h"
 
+#ifdef CHERI_HYBRID // TODO: use something freebsd-specific, not something cheri-specific; doing this now while I get things to build so I don't lose momentum.
+#include <netinet/in.h>
+#include <sys/types.h>
+#endif
 #ifndef V8_OS_ZOS
 #include <netinet/ip.h>
 #endif

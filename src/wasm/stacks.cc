@@ -35,7 +35,7 @@ StackMemory::StackMemory() : owned_(true) {
   size_ = RoundUp(size_, allocator->AllocatePageSize());
   limit_ = static_cast<uint8_t*>(
       allocator->AllocatePages(nullptr, size_, allocator->AllocatePageSize(),
-                               PageAllocator::kReadWrite));
+                               PageAllocator::kReadWrite, PageAllocator::kReadWrite));
   if (v8_flags.trace_wasm_stack_switching) {
     PrintF("Allocate stack #%d (limit: %p, base: %p)\n", id_, limit_,
            limit_ + size_);

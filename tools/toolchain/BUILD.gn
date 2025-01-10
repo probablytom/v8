@@ -47,3 +47,34 @@ gcc_toolchain("mips64el-bundled") {
     is_clang = false
   }
 }
+gcc_toolchain("morello_llvm_hybrid_native"){cc = "/home/probablytom/bin/clang-morello"
+cxx = "/home/probablytom/bin/clang++-morello"
+readelf = "/usr/local64/bin/llvm-readelf-morello"
+nm = "/usr/local64/bin/llvm-nm-morello"
+ar = "/usr/local64/bin/llvm-ar-morello"
+ld = cxx
+extra_ldflags="-Wl,-znotext,-L/lib,-L/usr/local64/lib/,-L/usr/local/lib -g -O0"
+extra_cflags = "--target=aarch64-unknown-freebsd -mabi=aapcs -march=morello -Xclang -morello-vararg=new -I/usr/local/include -I/usr/local64/include/ -I/usr/include --include sys/types.h -g -O0 -DCHERI_HYBRID -DCHERI_PROTECT_GENERATED_CODE -Wno-unknown-warning-option -Wno-unused-command-line-argument -Wno-c++98-compat-extra-semi -Wno-implicit-int-conversion -Wno-thread-safety-analysis"
+extra_cxxflags = "--target=aarch64-unknown-freebsd -mabi=aapcs -march=morello -Xclang -morello-vararg=new -I/usr/local/include -I/usr/local64/include/ -I/usr/include -I/home/probablytom/chromium-gh/chromium/third_party/perfetto --include sys/types.h -g -O0 -DCHERI_HYBRID -DCHERI_PROTECT_GENERATED_CODE -Wno-unknown-warning-option -Wno-unused-command-line-argument -Wno-c++98-compat-extra-semi -Wno-implicit-int-conversion -Wno-thread-safety-analysis"
+toolchain_args = {target_cpu = "arm64"
+current_cpu = "arm64"
+current_os = "freebsd"
+is_clang = true
+use_lld = true
+v8_enable_i18n_support = false
+simple_template_names = false}}gcc_toolchain("morello_llvm_legacy_native"){cc = "/home/probablytom/bin/clang-morello"
+cxx = "/home/probablytom/bin/clang++-morello"
+readelf = "/usr/local64/bin/llvm-readelf-morello"
+nm = "/usr/local64/bin/llvm-nm-morello"
+ar = "/usr/local64/bin/llvm-ar-morello"
+ld = cxx
+extra_ldflags="-Wl,-znotext,-L/lib,-L/usr/local64/lib/,-L/usr/local/lib -g -O0"
+extra_cflags = "--target=aarch64-unknown-freebsd -mabi=aapcs -march=morello -Xclang -morello-vararg=new -I/usr/local/include -I/usr/local64/include/ -I/usr/include --include sys/types.h -g -O0 -Wno-unknown-warning-option -Wno-unused-command-line-argument -Wno-c++98-compat-extra-semi -Wno-implicit-int-conversion -Wno-thread-safety-analysis"
+extra_cxxflags = "--target=aarch64-unknown-freebsd -mabi=aapcs -march=morello -Xclang -morello-vararg=new -I/usr/local/include -I/usr/local64/include/ -I/usr/include -I/home/probablytom/chromium-gh/chromium/third_party/perfetto --include sys/types.h -g -O0 -Wno-unknown-warning-option -Wno-unused-command-line-argument -Wno-c++98-compat-extra-semi -Wno-implicit-int-conversion -Wno-thread-safety-analysis"
+toolchain_args = {target_cpu = "arm64"
+current_cpu = "arm64"
+current_os = "freebsd"
+is_clang = true
+use_lld = true
+v8_enable_i18n_support = false
+simple_template_names = false}}

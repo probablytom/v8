@@ -6327,7 +6327,6 @@ int Shell::Main(int argc, char* argv[]) {
     D8Console console(isolate);
     Initialize(isolate, &console);
     PerIsolateData data(isolate);
-    isolate_running_streaming_tasks_ = {};
 
     // Fuzzilli REPRL = read-eval-print-loop
     do {

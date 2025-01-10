@@ -2564,7 +2564,7 @@ void BytecodeGenerator::BuildTryFinally(
   Register result = register_allocator()->NewRegister();
   Register message = register_allocator()->NewRegister();
   builder()->LoadTheHole().StoreAccumulatorInRegister(message);
-  ControlScope::DeferredCommands commands(this, token, result, message);
+  ControlScope::DeferredCommands commands(this, token, result);
 
   // Preserve the context in a dedicated register, so that it can be restored
   // when the handler is entered by the stack-unwinding machinery.
@@ -2593,7 +2593,7 @@ void BytecodeGenerator::BuildTryFinally(
 
   // Pending message object is saved on entry.
   try_control_builder.BeginFinally();
-  Register message = context;  // Reuse register.
+  message = context;  // Reuse register.
 
   // Clear message object as we enter the finally block.
   builder()->LoadTheHole().SetPendingMessage().StoreAccumulatorInRegister(
