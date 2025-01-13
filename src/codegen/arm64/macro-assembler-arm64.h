@@ -1501,7 +1501,7 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
   inline void Msr(SystemRegister sysreg, const Register& rt);
 
 #ifdef CHERI_HYBRID
-  CRegister csp = c31; // TODO move this away from the MacroAssember namespace…!
+  // CRegister csp = c31; // TODO move this away from the MacroAssember namespace…!
   inline void Mov(const CRegister& cd, const CRegister& cn);
   void Mrs(const CRegister& rt, SystemRegister sysreg);
   void Msr(SystemRegister sysreg, const CRegister& rt);

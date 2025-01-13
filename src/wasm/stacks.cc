@@ -35,7 +35,11 @@ StackMemory::StackMemory() : owned_(true) {
   size_ = RoundUp(size_, allocator->AllocatePageSize());
   limit_ = static_cast<uint8_t*>(
       allocator->AllocatePages(nullptr, size_, allocator->AllocatePageSize(),
+#ifdef CHERI_HYBRID
                                PageAllocator::kReadWrite, PageAllocator::kReadWrite));
+#else
+                               PageAllocator::kReadWrite));
+#endif
   if (v8_flags.trace_wasm_stack_switching) {
     PrintF("Allocate stack #%d (limit: %p, base: %p)\n", id_, limit_,
            limit_ + size_);

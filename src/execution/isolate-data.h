@@ -79,7 +79,7 @@ class Isolate;
   V(BuiltinEntryTable, Builtins::kBuiltinCount* kSystemPointerSize,            \
     builtin_entry_table)                                                       \
   V(BuiltinTable, Builtins::kBuiltinCount* kSystemPointerSize, builtin_table)  \
-  ISOLATE_CHERI_DATA_FIELDS(V)                                                
+  ISOLATE_CHERI_DATA_FIELDS(V)
 
 #ifdef CHERI_HYBRID
 #define ISOLATE_CHERI_DATA_FIELDS(V)                                                            \
@@ -413,6 +413,11 @@ class IsolateData final {
   // The entries in this array are tagged pointers to Code objects.
   Address builtin_table_[Builtins::kBuiltinCount] = {};
 
+// #ifdef CHERI_HYBRID
+//   // For escaping compartments, we make copies of the builtin tables.
+//   // capability_entry_tables_alignment_padding_ ensures they're aligned correctly.
+//   static_assert(FIELD_SIZE(kCapabilityEntryTablesAlignmentPaddingOffset) > 0);
+//   uint8_t capability_entry_tables_alignment_padding_[FIELD_SIZE(kCapabilityEntryTablesAlignmentPaddingOffset)];
 
 #ifdef CHERI_HYBRID
   // // For escaping compartments, we make copies of the builtin tables.
