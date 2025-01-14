@@ -80,12 +80,7 @@ SafepointEntry SafepointTable::TryFindEntry(Address pc) const {
   for (int i = 0; i < length_; ++i) {
     SafepointEntry entry = GetEntry(i);
     if (i == length_ - 1 || GetEntry(i + 1).pc() > pc_offset) {
-      if (entry.pc() > pc_offset) {
-        int entry_pc = entry.pc(); // To check in gdb
-        int next_pc = GetEntry(i+1).pc();
-        DCHECK_LT(entry.pc(), pc_offset);
-        return {};
-      }
+      if (entry.pc() > pc_offset) return {};
       return entry;
     }
   }

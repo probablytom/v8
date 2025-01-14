@@ -2646,28 +2646,6 @@ class V8_NODISCARD DisableCompartmentManagementScope {
     bool management_permitted; // Whether management is permitted within this scope. For nested scopes, this will be false.
     bool* masm_state;
 };
-
-class V8_NODISCARD AvoidCMPClobberScope {
-  public:
-   explicit AvoidCMPClobberScope(MacroAssembler* _masm, Register _tmp) 
-     : masm(_masm),
-       tmp(_tmp) {
-    // masm->Push(xzr, tmp); // Old value of TMP stored
-    masm->Mrs(tmp, NZCV);
-    masm->Push(xzr, tmp); // Old value of NZCV (comparison reg) stored
-   }
-
-   V8_EXPORT_PRIVATE ~AvoidCMPClobberScope() {
-     masm->Pop(tmp, xzr); // Old value of NZCV (comparison reg) stored
-     masm->Msr(NZCV, tmp);
-    // masm->Pop(tmp, xzr); // Old value of TMP restored
-   }
-
-  private:
-    MacroAssembler* masm;
-    Register tmp;
-};
-
 #endif
 
 struct MoveCycleState {

@@ -5234,6 +5234,26 @@ void MacroAssembler::QuickUnStash(Register reg1, Register reg2) {
   Mrs(reg2.C(), stashSystemReg2);
 }
 
+class V8_NODISCARD AvoidCMPClobberScope {
+  public:
+   explicit AvoidCMPClobberScope(MacroAssembler* _masm, Register _tmp) 
+     : masm(_masm),
+       tmp(_tmp) {
+    // masm->Push(xzr, tmp); // Old value of TMP stored
+    masm->Mrs(tmp, NZCV);
+    masm->Push(xzr, tmp); // Old value of NZCV (comparison reg) stored
+   }
+
+   V8_EXPORT_PRIVATE ~AvoidCMPClobberScope() {
+     masm->Pop(tmp, xzr); // Old value of NZCV (comparison reg) stored
+     masm->Msr(NZCV, tmp);
+    // masm->Pop(tmp, xzr); // Old value of TMP restored
+   }
+
+  private:
+    MacroAssembler* masm;
+    Register tmp;
+};
 #endif // CHERI_HYBRID
 
 
