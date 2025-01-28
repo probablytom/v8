@@ -82,7 +82,8 @@ class Isolate;
   ISOLATE_CHERI_DATA_FIELDS(V)
 
 #ifdef CHERI_HYBRID
-#define ISOLATE_CHERI_DATA_FIELDS(V)                                                            \
+#define ISOLATE_CHERI_DATA_FIELDS(V)                                                              \
+  V(CompileWithCompartments, kUInt8Size, compile_with_compartments)                               \
 //  V(kCapabilityEntryTablesAlignmentPaddingOffset, 8, capability_entry_tables_alignment_padding) \
 //  V(kBuiltinEntryCapabilityTableOffset, Builtins::kBuiltinCount* sizeof(void* __capability),    \
 //    builtin_entry_capability_table)                                                             \
@@ -281,6 +282,16 @@ class IsolateData final {
     }
   }
 
+#ifdef CHERI_HYBRID
+  bool CanCompileWithCompartments() {
+    return compile_with_compartments_;
+  }
+
+  void EmitCompartmentManagementInstructions(bool emit_compartment_instructions) {
+    compile_with_compartments_ = emit_compartment_instructions;
+  }
+#endif
+
  private:
   // Static layout definition.
   //
@@ -420,6 +431,7 @@ class IsolateData final {
 //   uint8_t capability_entry_tables_alignment_padding_[FIELD_SIZE(kCapabilityEntryTablesAlignmentPaddingOffset)];
 
 #ifdef CHERI_HYBRID
+  uint8_t compile_with_compartments_ = true;
   // // For escaping compartments, we make copies of the builtin tables.
   // // capability_entry_tables_alignment_padding_ ensures they're aligned correctly.
   // static_assert(FIELD_SIZE(kCapabilityEntryTablesAlignmentPaddingOffset) > 0);

@@ -9,6 +9,25 @@
 namespace v8 {
 namespace internal {
 
+void Token::__avoid_initialisation_fiasco() {
+  Token::__fiasco_avoidance_calls += 1;
+
+  #define KT(a, b, c) \
+    IsPropertyNameBits::encode(Token::IsAnyIdentifier(a) || a == kEscapedKeyword),
+  #define KK(a, b, c) \
+    IsKeywordBits::encode(true) | IsPropertyNameBits::encode(true),
+  uint8_t reproduced_token_flags[kNumTokens] = {TOKEN_LIST(KT, KK)};
+  #undef KT
+  #undef KK
+
+  for (int i = 0; i < kNumTokens; i++) {
+    Token::token_flags[i] = reproduced_token_flags[i];
+  }
+
+}
+
+int Token::__fiasco_avoidance_calls = 0;
+
 #define T(name, string, precedence) #name,
 const char* const Token::name_[kNumTokens] = {TOKEN_LIST(T, T)};
 #undef T
@@ -38,7 +57,7 @@ const int8_t Token::precedence_[2][kNumTokens] = {{TOKEN_LIST(T1, T1)},
   IsPropertyNameBits::encode(Token::IsAnyIdentifier(a) || a == kEscapedKeyword),
 #define KK(a, b, c) \
   IsKeywordBits::encode(true) | IsPropertyNameBits::encode(true),
-const uint8_t Token::token_flags[] = {TOKEN_LIST(KT, KK)};
+uint8_t Token::token_flags[] = {TOKEN_LIST(KT, KK)};
 #undef KT
 #undef KK
 

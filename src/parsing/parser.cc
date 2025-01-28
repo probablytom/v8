@@ -551,6 +551,8 @@ void Parser::ParseProgram(Isolate* isolate, DirectHandle<Script> script,
                           MaybeHandle<ScopeInfo> maybe_outer_scope_info) {
   DCHECK_EQ(script->id(), flags().script_id());
 
+  Token::__avoid_initialisation_fiasco();
+
   // It's OK to use the Isolate & counters here, since this function is only
   // called in the main thread.
   DCHECK(parsing_on_main_thread_);

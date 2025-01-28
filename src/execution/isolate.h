@@ -2237,6 +2237,16 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
   }
 #endif  // V8_ENABLE_WASM_SIMD256_REVEC
 
+#ifdef CHERI_HYBRID
+  bool CanCompileWithCompartments() {
+    return isolate_data()->CanCompileWithCompartments();
+  }
+
+  void EmitCompartmentManagementInstructions(bool emit_comp_instructions) {
+    isolate_data()->EmitCompartmentManagementInstructions(emit_comp_instructions);
+  }
+#endif
+
  private:
   explicit Isolate(IsolateGroup* isolate_group);
   ~Isolate();

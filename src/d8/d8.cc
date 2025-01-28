@@ -3494,6 +3494,10 @@ void Shell::AddHistogramSample(void* histogram, int sample) {
 
 // Turn a value into a human-readable string.
 Local<String> Shell::Stringify(Isolate* isolate, Local<Value> value) {
+#ifdef CHERI_HYBRID
+  NoCompartmentCompilationScope disableCompartments(isolate);
+#endif
+
   v8::Local<v8::Context> context =
       v8::Local<v8::Context>::New(isolate, evaluation_context_);
   if (stringify_function_.IsEmpty()) {

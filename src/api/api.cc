@@ -10773,6 +10773,18 @@ void v8::Isolate::LocaleConfigurationChangeNotification() {
 #endif  // V8_INTL_SUPPORT
 }
 
+#ifdef CHERI_HYBRID
+bool v8::Isolate::CanCompileWithCompartments() {
+  i::Isolate* i_isolate = reinterpret_cast<i::Isolate*>(this);
+  return i_isolate->isolate_data()->CanCompileWithCompartments();
+}
+
+void v8::Isolate::EmitCompartmentManagementInstructions(bool emit_comp_instructions) {
+  i::Isolate* i_isolate = reinterpret_cast<i::Isolate*>(this);
+  i_isolate->isolate_data()->EmitCompartmentManagementInstructions(emit_comp_instructions);
+}
+#endif
+
 #if defined(V8_OS_WIN) && defined(V8_ENABLE_ETW_STACK_WALKING)
 void Isolate::SetFilterETWSessionByURLCallback(
     FilterETWSessionByURLCallback callback) {

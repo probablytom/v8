@@ -488,7 +488,8 @@ void MacroAssembler::Blr(const Register& xn) {
   DCHECK(allow_macro_instructions());
   DCHECK(!xn.IsZero());
   #ifdef CHERI_HYBRID
-  ExitCompartmentIfRegisterOutsideBounds(xn);
+  //ExitCompartmentIfRegisterOutsideBounds(xn);
+  ExitCompartment(x20, x21, true);
   blr(xn);
   EnterCompartmentIfNotAlreadyInOne();
   #else
@@ -500,7 +501,8 @@ void MacroAssembler::Br(const Register& xn) {
   DCHECK(allow_macro_instructions());
   DCHECK(!xn.IsZero());
   #ifdef CHERI_HYBRID
-  ExitCompartmentIfRegisterOutsideBounds(xn);
+  //ExitCompartmentIfRegisterOutsideBounds(xn);
+  ExitCompartment(x20, x21, true);
   br(xn);
   #else
   br(xn);

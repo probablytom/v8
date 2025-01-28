@@ -343,12 +343,15 @@ class V8_EXPORT_PRIVATE Token {
     return precedence_[accept_IN][token];
   }
 
+  static void __avoid_initialisation_fiasco();
+  static int __fiasco_avoidance_calls;
+
  private:
   static const char* const name_[kNumTokens];
   static const char* const string_[kNumTokens];
   static const uint8_t string_length_[kNumTokens];
   static const int8_t precedence_[2][kNumTokens];
-  static const uint8_t token_flags[kNumTokens];
+  static uint8_t token_flags[kNumTokens];
 };
 
 }  // namespace internal

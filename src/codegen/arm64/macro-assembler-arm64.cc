@@ -54,6 +54,29 @@ constexpr int kStackSavedSavedFPSizeInBits = kDRegSizeInBits;
 
 }  // namespace
 
+#ifdef CHERI_HYBRID
+class V8_NODISCARD AvoidCMPClobberScope {
+  public:
+   explicit AvoidCMPClobberScope(MacroAssembler* _masm, Register _tmp) 
+     : masm(_masm),
+       tmp(_tmp) {
+    // masm->Push(xzr, tmp); // Old value of TMP stored
+    masm->Mrs(tmp, NZCV);
+    masm->Push(xzr, tmp); // Old value of NZCV (comparison reg) stored
+   }
+
+   V8_EXPORT_PRIVATE ~AvoidCMPClobberScope() {
+     masm->Pop(tmp, xzr); // Old value of NZCV (comparison reg) stored
+     masm->Msr(NZCV, tmp);
+    // masm->Pop(tmp, xzr); // Old value of TMP restored
+   }
+
+  private:
+    MacroAssembler* masm;
+    Register tmp;
+};
+#endif
+
 void MacroAssembler::PushCPURegList(CPURegList registers) {
   // If LR was stored here, we would need to sign it if
   // V8_ENABLE_CONTROL_FLOW_INTEGRITY is on.
@@ -5233,27 +5256,6 @@ void MacroAssembler::QuickUnStash(Register reg1, Register reg2) {
   Mrs(reg1.C(), stashSystemReg);
   Mrs(reg2.C(), stashSystemReg2);
 }
-
-class V8_NODISCARD AvoidCMPClobberScope {
-  public:
-   explicit AvoidCMPClobberScope(MacroAssembler* _masm, Register _tmp) 
-     : masm(_masm),
-       tmp(_tmp) {
-    // masm->Push(xzr, tmp); // Old value of TMP stored
-    masm->Mrs(tmp, NZCV);
-    masm->Push(xzr, tmp); // Old value of NZCV (comparison reg) stored
-   }
-
-   V8_EXPORT_PRIVATE ~AvoidCMPClobberScope() {
-     masm->Pop(tmp, xzr); // Old value of NZCV (comparison reg) stored
-     masm->Msr(NZCV, tmp);
-    // masm->Pop(tmp, xzr); // Old value of TMP restored
-   }
-
-  private:
-    MacroAssembler* masm;
-    Register tmp;
-};
 #endif // CHERI_HYBRID
 
 

@@ -14,6 +14,7 @@
 #include "src/codegen/bailout-reason.h"
 #include "src/common/globals.h"
 #include "src/objects/tagged-index.h"
+#include "src/execution/isolate.h"
 
 // Simulator specific helpers.
 #if USE_SIMULATOR
@@ -199,6 +200,14 @@ enum class StackLimitKind { kInterruptStackLimit, kRealStackLimit };
 class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
  public:
   using MacroAssemblerBase::MacroAssemblerBase;
+
+  explicit MacroAssembler(Isolate* isolate,
+                          const AssemblerOptions& options,
+                          CodeObjectRequired create_code_object,
+                          std::unique_ptr<AssemblerBuffer> buffer)
+                          : MacroAssemblerBase(isolate, options, create_code_object, std::move(buffer)) {
+  compartment_management_enabled = isolate->CanCompileWithCompartments();
+}
 
 #if DEBUG
   void set_allow_macro_instructions(bool value) {

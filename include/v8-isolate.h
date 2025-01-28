@@ -1728,6 +1728,11 @@ class V8_EXPORT Isolate {
   void operator delete(void*, size_t) = delete;
   void operator delete[](void*, size_t) = delete;
 
+#ifdef CHERI_HYBRID
+  bool CanCompileWithCompartments();
+  void EmitCompartmentManagementInstructions(bool emit_comp_instructions);
+#endif
+
  private:
   template <class K, class V, class Traits>
   friend class PersistentValueMapBase;
@@ -1760,6 +1765,24 @@ MaybeLocal<T> Isolate::GetDataFromSnapshotOnce(size_t index) {
   }
   return {};
 }
+
+#ifdef CHERI_HYBRID
+class V8_NODISCARD NoCompartmentCompilationScope {
+  public:
+   explicit NoCompartmentCompilationScope(Isolate* isolate) : isolate_(isolate) {
+      isolate_state = isolate->CanCompileWithCompartments();
+      isolate_->EmitCompartmentManagementInstructions(false);
+   }
+
+    ~NoCompartmentCompilationScope() {
+      isolate_->EmitCompartmentManagementInstructions(isolate_state);
+    }
+
+  private:
+    bool isolate_state;
+    Isolate* isolate_;
+};
+#endif
 
 }  // namespace v8
 
