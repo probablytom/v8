@@ -810,7 +810,11 @@ void SandboxTesting::Enable(Mode mode) {
     target_page_size_ = vas->page_size();
     target_page_base_ =
         vas->AllocatePages(vas->RandomPageAddress(), target_page_size_,
+#ifdef CHERI_HYBRID
                            target_page_size_, PagePermissions::kRead, PagePermissions::kReadWrite);
+#else
+                           target_page_size_, PagePermissions::kRead);
+#endif
     CHECK_NE(target_page_base_, kNullAddress);
     fprintf(stderr,
             "Sandbox testing mode is enabled. Write to the page starting at "

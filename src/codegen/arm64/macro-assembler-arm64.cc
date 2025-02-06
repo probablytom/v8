@@ -3202,7 +3202,11 @@ void MacroAssembler::Prologue() {
   Push(cp, kJSFunctionRegister, kJavaScriptCallArgCountRegister, padreg);
 }
 
+#ifdef CHERI_HYBRID
 void MacroAssembler::EnterFrame(StackFrame::Type type, CallType callType) {
+#else
+void MacroAssembler::EnterFrame(StackFrame::Type type) {
+#endif
   UseScratchRegisterScope temps(this);
 
   #ifdef CHERI_HYBRID
@@ -3211,8 +3215,6 @@ void MacroAssembler::EnterFrame(StackFrame::Type type, CallType callType) {
   } else {
       // EnsureOutsideSecurityBoundary(typicalCall);
   }
-  Add(x1, x1, x6);
-  Sub(x1, x1, x6);
   #endif
 
   if (StackFrame::IsJavaScript(type)) {
@@ -3265,12 +3267,6 @@ void MacroAssembler::EnterExitFrame(const Register& scratch, int extra_space,
          frame_type == StackFrame::BUILTIN_EXIT ||
          frame_type == StackFrame::API_ACCESSOR_EXIT ||
          frame_type == StackFrame::API_CALLBACK_EXIT);
-
-#ifdef CHERI_HYBRID
-  // EnsureOutsideSecurityBoundary(typicalCall); // TODO: maybe set up new calltypes for types of frames.
-  Add(x1, x1, x5);
-  Sub(x1, x1, x5);
-#endif
 
   // Set up the new stack frame.
   Push<MacroAssembler::kSignLR>(lr, fp);
@@ -3351,9 +3347,9 @@ void MacroAssembler::LeaveExitFrame(const Register& scratch,
   Mov(sp, fp);
   Pop<MacroAssembler::kAuthLR>(fp, lr);
 
-  #ifdef CHERI_HYBRID
+#ifdef CHERI_HYBRID
   ExitCompartment(x20, x21, true);
-  #endif
+#endif
 }
 
 void MacroAssembler::LoadGlobalProxy(Register dst) {

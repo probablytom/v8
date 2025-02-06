@@ -211,7 +211,21 @@ void JumpTableAssembler::SkipUntil(int offset) {
 void JumpTableAssembler::EmitLazyCompileJumpSlot(uint32_t func_index,
                                                  Address lazy_compile_target) {
   int start = pc_offset();
+// TODO [CHERI_HYBRID]: adding this scope means that CodeEntry doesn't enter a
+// comp for jumps through this table, which isn't ideal. Some targets e.g.
+// WasmCompileLazy do immediately enter a compartment when jumped to, but I'm
+// unsure whether every target does.
+// Added the scope to get wasm compilation working, but there's more work to do
+// here. Do we need the scope? Could we enter a compartment when jumping below?
+// Think about how this table could work (and could be abused maliciously).
+#ifdef CHERI_HYBRID
+{
+  DisableCompartmentManagementScope comp_mgr(this);
   CodeEntry();                                             // 0-1 instr
+}
+#else
+  CodeEntry();                                             // 0-1 instr
+#endif
   Mov(kWasmCompileLazyFuncIndexRegister.W(), func_index);  // 1-2 instr
   Jump(lazy_compile_target, RelocInfo::NO_INFO);           // 1 instr
   int nop_bytes = start + kLazyCompileTableSlotSize - pc_offset();
@@ -220,11 +234,20 @@ void JumpTableAssembler::EmitLazyCompileJumpSlot(uint32_t func_index,
 }
 
 bool JumpTableAssembler::EmitJumpSlot(Address target) {
+#ifdef CHERI_HYBRID
+  constexpr ptrdiff_t kCodeEntryCompartmentManagementSize = 0;//128;
+#ifdef V8_ENABLE_CONTROL_FLOW_INTEGRITY
+  static constexpr ptrdiff_t kCodeEntryMarkerSize = kInstrSize + kCodeEntryCompartmentManagementSize;
+#else
+  static constexpr ptrdiff_t kCodeEntryMarkerSize = kCodeEntryCompartmentManagementSize;
+#endif // V8_ENABLE_CONTROL_FLOW_INTEGRITY
+#else // CHERI_HYBRID
 #ifdef V8_ENABLE_CONTROL_FLOW_INTEGRITY
   static constexpr ptrdiff_t kCodeEntryMarkerSize = kInstrSize;
 #else
   static constexpr ptrdiff_t kCodeEntryMarkerSize = 0;
-#endif
+#endif // V8_ENABLE_CONTROL_FLOW_INTEGRITY
+#endif // CHERI_HYBRID
 
   uint8_t* jump_pc = pc_ + kCodeEntryMarkerSize;
   ptrdiff_t jump_distance = reinterpret_cast<uint8_t*>(target) - jump_pc;
@@ -234,7 +257,21 @@ bool JumpTableAssembler::EmitJumpSlot(Address target) {
     return false;
   }
 
-  CodeEntry();
+// TODO [CHERI_HYBRID]: adding this scope means that CodeEntry doesn't enter a
+// comp for jumps through this table, which isn't ideal. Some targets e.g.
+// WasmCompileLazy do immediately enter a compartment when jumped to, but I'm
+// unsure whether every target does.
+// Added the scope to get wasm compilation working, but there's more work to do
+// here. Do we need the scope? Could we enter a compartment when jumping below?
+// Think about how this table could work (and could be abused maliciously).
+#ifdef CHERI_HYBRID
+{
+  DisableCompartmentManagementScope comp_mgr(this);
+  CodeEntry();                                             // 0-1 instr
+}
+#else
+  CodeEntry();                                             // 0-1 instr
+#endif
 
   DCHECK_EQ(jump_pc, pc_);
   DCHECK_EQ(instr_offset,
@@ -250,7 +287,22 @@ void JumpTableAssembler::EmitFarJumpSlot(Address target) {
   // will only be called for the very specific runtime slot table, and we want
   // to have maximum control over the generated code.
   // Do not reuse this code without validating that the same assumptions hold.
-  CodeEntry();  // 0-1 instructions
+
+  // TODO [CHERI_HYBRID]: adding this scope means that CodeEntry doesn't enter a
+  // comp for jumps through this table for these slots. Not ideal! Some targets
+  // e.g. WasmCompileLazy do immediately enter a compartment when jumped to, but
+  // I'm unsure whether every target does.
+  // Added the scope to get wasm compilation working, but there's more work to do
+  // here. Do we need the scope? Could we enter a compartment when jumping below?
+  // Think about how this table could work (and could be abused maliciously).
+  #ifdef CHERI_HYBRID
+  {
+    DisableCompartmentManagementScope comp_mgr(this);
+    CodeEntry();                                             // 0-1 instr
+  }
+  #else
+    CodeEntry();                                             // 0-1 instr
+  #endif
   constexpr Register kTmpReg = x16;
   DCHECK(TmpList()->IncludesAliasOf(kTmpReg));
   int kOffset = ENABLE_CONTROL_FLOW_INTEGRITY_BOOL ? 3 : 2;
@@ -262,7 +314,11 @@ void JumpTableAssembler::EmitFarJumpSlot(Address target) {
 #endif
   dq(target);  // 8 bytes (== 2 instructions)
   static_assert(2 * kInstrSize == kSystemPointerSize);
+#ifdef CHERI_HYBRID // Account for extra size required for compartment management
+  const int kSlotCount = (ENABLE_CONTROL_FLOW_INTEGRITY_BOOL ? 6 : 4) ;//+ 32; 
+#else
   const int kSlotCount = ENABLE_CONTROL_FLOW_INTEGRITY_BOOL ? 6 : 4;
+#endif
   static_assert(kFarJumpTableSlotSize == kSlotCount * kInstrSize);
 }
 

@@ -130,7 +130,11 @@ void ExternalEntityTable<Entry, size>::Initialize() {
   // kNullAddress) at index 0. It may later be temporarily marked read-write,
   // see UnsealedReadOnlySegmentScope.
   Address first_segment = vas_->AllocatePages(
+    #ifdef CHERI_HYBRID
       vas_->base(), kSegmentSize, kSegmentSize, PagePermissions::kRead, PagePermissions::kRead);
+    #else
+      vas_->base(), kSegmentSize, kSegmentSize, PagePermissions::kRead);
+    #endif
   if (first_segment != vas_->base()) {
     V8::FatalProcessOutOfMemory(
         nullptr,
@@ -442,7 +446,11 @@ typename ExternalEntityTable<Entry, size>::Segment
 ExternalEntityTable<Entry, size>::AllocateTableSegment() {
   Address start =
       vas_->AllocatePages(VirtualAddressSpace::kNoHint, kSegmentSize,
+      #ifdef CHERI_HYBRID
                           kSegmentSize, PagePermissions::kReadWrite, PagePermissions::kReadWrite);
+      #else
+                          kSegmentSize, PagePermissions::kReadWrite);
+      #endif
   if (!start) {
     V8::FatalProcessOutOfMemory(nullptr,
                                 "ExternalEntityTable::AllocateSegment");

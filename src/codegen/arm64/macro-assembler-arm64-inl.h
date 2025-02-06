@@ -444,8 +444,10 @@ void MacroAssembler::BindJumpTarget(Label* label) {
 void MacroAssembler::CallTarget() {
 #ifdef V8_ENABLE_CONTROL_FLOW_INTEGRITY
   bti(BranchTargetIdentifier::kBtiCall);
+#ifdef CHERI_HYBRID
   EnterCompartmentIfNotAlreadyInOne();
-#endif
+#endif // CHERI_HYBRID
+#endif // V8_ENABLE_CONTROL_FLOW_INTEGRITY
 }
 
 void MacroAssembler::JumpOrCallTarget() {
@@ -1092,7 +1094,9 @@ void MacroAssembler::Clrperm(const CRegister& cd, const CRegister& cn, const Cap
 
 void MacroAssembler::Br(const CRegister& cn) {
   DCHECK(allow_macro_instructions());
+#ifdef CHERI_HYBRID
   ExitCompartment(x20, x21, true);
+#endif
   br(cn);
 }
 
@@ -1174,7 +1178,9 @@ void MacroAssembler::Ret(const Register& xn) {
   // MacroAssembler's `Ret`...! This impl won't catch those cases; perhaps this should be moved to assembler-arm64.cc.
 
   // ExitCompartmentIfRegisterOutsideBounds(xn);
+#ifdef CHERI_HYBRID
   ExitCompartment(x20, x21, true);
+#endif
   ret(xn);
   CheckVeneerPool(false, false);
 }

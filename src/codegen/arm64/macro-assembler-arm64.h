@@ -206,7 +206,10 @@ class V8_EXPORT_PRIVATE MacroAssembler : public MacroAssemblerBase {
                           CodeObjectRequired create_code_object,
                           std::unique_ptr<AssemblerBuffer> buffer)
                           : MacroAssemblerBase(isolate, options, create_code_object, std::move(buffer)) {
-  compartment_management_enabled = isolate->CanCompileWithCompartments();
+#ifdef CHERI_HYBRID
+  compartment_management_enabled = true || isolate->CanCompileWithCompartments(); // TMP CAN REMOVE avoiding a significant recompile and CanCompileWithCompartments segfaults for some reason.
+#endif
+  // compartment_management_enabled = isolate->CanCompileWithCompartments();
 }
 
 #if DEBUG

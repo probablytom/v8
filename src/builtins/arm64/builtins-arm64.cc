@@ -1292,7 +1292,9 @@ void Builtins::Generate_BaselineOutOfLinePrologue(MacroAssembler* masm) {
   // Do "fast" return to the caller pc in lr.
   __ LoadRoot(kInterpreterAccumulatorRegister, RootIndex::kUndefinedValue);
   
+#ifdef CHERI_HYBRID
   __ ExitCompartmentIfRegisterOutsideBounds(x30);
+#endif
   __ Ret();
 
   __ bind(&flags_need_processing);
@@ -4747,7 +4749,9 @@ void Builtins::Generate_CEntry(MacroAssembler* masm, int result_size,
   __ Mov(x17, ER::Create(IsolateAddressId::kPendingHandlerEntrypointAddress,
                          masm->isolate()));
   __ Ldr(x17, MemOperand(x17));
+#ifdef CHERI_HYBRID
   __ ExitCompartment(x20, x21, true);
+#endif
   __ Br(x17);
 }
 
@@ -5208,7 +5212,7 @@ void Generate_DeoptimizationEntry(MacroAssembler* masm,
                  IsolateAddressId::kCEntryFPAddress, isolate)));
   __ Str(fp, MemOperand(x3));
 
-  __ Brk(0xf00b);
+  // __ Brk(0xf00b);
 
   const int kSavedRegistersAreaSize =
       (saved_registers.Count() * kXRegSize) +

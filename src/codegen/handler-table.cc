@@ -239,9 +239,18 @@ int HandlerTable::LookupReturn(int pc_offset) {
   Iterator begin{this, 0}, end{this, NumberOfReturnEntries()};
   SLOW_DCHECK(std::is_sorted(begin, end));  // Must be sorted.
   Iterator result = std::lower_bound(begin, end, pc_offset);
+  #ifdef CHERI_HYBRID
+  // if (result != end && (*result+128*(result.index+1)) == pc_offset) {
+  //   return GetReturnHandler(result.index);
+  // }
+  if (result != end && (*result-128*(result.index+1)) == pc_offset) {
+    return GetReturnHandler(result.index);
+  }
+  #else
   if (result != end && *result == pc_offset) {
     return GetReturnHandler(result.index);
   }
+  #endif
   return -1;
 }
 

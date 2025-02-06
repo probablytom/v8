@@ -10,7 +10,7 @@ namespace v8 {
 namespace internal {
 
 #ifdef CHERI_HYBRID
-const int Deoptimizer::kCheriCompartmentExitSize = 8 * kInstrSize;
+const int Deoptimizer::kCheriCompartmentExitSize = 0 * kInstrSize;
 #endif
 
 #ifdef CHERI_HYBRID
