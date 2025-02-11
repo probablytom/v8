@@ -5118,7 +5118,7 @@ void MacroAssembler::ExitCompartmentIfRegisterOutsideBounds(Register dest) {
 
   // Check whether the address we branch to is higher than the higher bound.
   // Give a buffer of 40K (10000 instructions) so the target can be executed. We assume that buffer is sufficient.
-  Gclim(x20.C(), x21);
+  Gclim(x20.C(), x21);  // Technically doens't behave correctly --- it doesn't saturate, and limits can be very large! Consider base + offset instead.
   Sub(x21, x21, 0x4 * 10000);
   Cmp(x21, dest);
   B(lt, &EXIT_COMPARTMENT); // limit (upper bound) lower than dest address being compared against (minus buffer); exit compartment so dest is within bounds, as well as 10000 following instructions.

@@ -44,18 +44,18 @@ void TypeCanonicalizer::CheckMaxCanonicalIndex() const {
   }
 }
 
-// We currently store canonical indices in {ValueType} instances, so they
-// must fit into the range of valid module-relative (non-canonical) type
-// indices.
-// TODO(jkummerow): Raise this limit, to make long-lived WasmEngines scale
-// better. Plan: stop constructing ValueTypes from canonical type indices.
-static constexpr size_t kMaxCanonicalTypes = kV8MaxWasmTypes;
-
-void TypeCanonicalizer::CheckMaxCanonicalIndex() const {
-  if (canonical_supertypes_.size() > kMaxCanonicalTypes) {
-    V8::FatalProcessOutOfMemory(nullptr, "too many canonicalized types");
-  }
-}
+// // We currently store canonical indices in {ValueType} instances, so they
+// // must fit into the range of valid module-relative (non-canonical) type
+// // indices.
+// // TODO(jkummerow): Raise this limit, to make long-lived WasmEngines scale
+// // better. Plan: stop constructing ValueTypes from canonical type indices.
+// static constexpr size_t kMaxCanonicalTypes = kV8MaxWasmTypes;
+// 
+// void TypeCanonicalizer::CheckMaxCanonicalIndex() const {
+//   if (canonical_supertypes_.size() > kMaxCanonicalTypes) {
+//     V8::FatalProcessOutOfMemory(nullptr, "too many canonicalized types");
+//   }
+// }
 
 void TypeCanonicalizer::AddRecursiveGroup(WasmModule* module, uint32_t size) {
   AddRecursiveGroup(module, size,

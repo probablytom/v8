@@ -79,21 +79,21 @@ class Isolate;
   V(BuiltinEntryTable, Builtins::kBuiltinCount* kSystemPointerSize,            \
     builtin_entry_table)                                                       \
   V(BuiltinTable, Builtins::kBuiltinCount* kSystemPointerSize, builtin_table)  \
-  ISOLATE_CHERI_DATA_FIELDS(V)                                                
+  ISOLATE_CHERI_DATA_FIELDS(V)
 
 #ifdef CHERI_HYBRID
 #define ISOLATE_CHERI_DATA_FIELDS(V)                                                            \
-  V(kCapabilityEntryTablesAlignmentPaddingOffset, 8, capability_entry_tables_alignment_padding) \
-  V(kBuiltinEntryCapabilityTableOffset, Builtins::kBuiltinCount* sizeof(void* __capability),    \
-    builtin_entry_capability_table)                                                             \
-  V(kBuiltinCapabilityTableOffset, Builtins::kBuiltinCount* sizeof(void* __capability),         \
-    builtin_capability_table)                                                                   \
-  V(kSuperCapAlignmentPaddingOffset, 16, super_cap_alignment_padding)                           \
-  V(kCompartmentStateStack, kNumberOfCompartments * sizeof(uint64_t), compartment_state_stack)  \
-  V(kCompartmentStateStackCursor, 16, compartment_state_stack_cursor)                           \
-  V(kCompartmentStateStackPadding, 16, compartment_state_stack_padding)                         \
-  V(kSuperPCCOffset, sizeof(void *__capability), super_pcc)                                     \
-  V(kSuperDDCOffset, sizeof(void *__capability), super_ddc)
+//  V(kCapabilityEntryTablesAlignmentPaddingOffset, 8, capability_entry_tables_alignment_padding) \
+//  V(kBuiltinEntryCapabilityTableOffset, Builtins::kBuiltinCount* sizeof(void* __capability),    \
+//    builtin_entry_capability_table)                                                             \
+//  V(kBuiltinCapabilityTableOffset, Builtins::kBuiltinCount* sizeof(void* __capability),         \
+//    builtin_capability_table)                                                                   \
+//  V(kSuperCapAlignmentPaddingOffset, 16, super_cap_alignment_padding)                           \
+//  V(kCompartmentStateStack, kNumberOfCompartments * sizeof(uint64_t), compartment_state_stack)  \
+//  V(kCompartmentStateStackCursor, 16, compartment_state_stack_cursor)                           \
+//  V(kCompartmentStateStackPadding, 16, compartment_state_stack_padding)                         \
+//  V(kSuperPCCOffset, sizeof(void *__capability), super_pcc)                                     \
+//  V(kSuperDDCOffset, sizeof(void *__capability), super_ddc)
 #else
 #define ISOLATE_CHERI_DATA_FIELDS(V)
 #endif // CHERI_HYBRID
@@ -413,32 +413,37 @@ class IsolateData final {
   // The entries in this array are tagged pointers to Code objects.
   Address builtin_table_[Builtins::kBuiltinCount] = {};
 
+// #ifdef CHERI_HYBRID
+//   // For escaping compartments, we make copies of the builtin tables.
+//   // capability_entry_tables_alignment_padding_ ensures they're aligned correctly.
+//   static_assert(FIELD_SIZE(kCapabilityEntryTablesAlignmentPaddingOffset) > 0);
+//   uint8_t capability_entry_tables_alignment_padding_[FIELD_SIZE(kCapabilityEntryTablesAlignmentPaddingOffset)];
 
 #ifdef CHERI_HYBRID
-  // For escaping compartments, we make copies of the builtin tables.
-  // capability_entry_tables_alignment_padding_ ensures they're aligned correctly.
-  static_assert(FIELD_SIZE(kCapabilityEntryTablesAlignmentPaddingOffset) > 0);
-  uint8_t capability_entry_tables_alignment_padding_[FIELD_SIZE(kCapabilityEntryTablesAlignmentPaddingOffset)];
+  // // For escaping compartments, we make copies of the builtin tables.
+  // // capability_entry_tables_alignment_padding_ ensures they're aligned correctly.
+  // static_assert(FIELD_SIZE(kCapabilityEntryTablesAlignmentPaddingOffset) > 0);
+  // uint8_t capability_entry_tables_alignment_padding_[FIELD_SIZE(kCapabilityEntryTablesAlignmentPaddingOffset)];
 
-  void* __capability builtin_entry_capability_table_[Builtins::kBuiltinCount];
-  void* __capability builtin_capability_table_[Builtins::kBuiltinCount];
+  // void* __capability builtin_entry_capability_table_[Builtins::kBuiltinCount];
+  // void* __capability builtin_capability_table_[Builtins::kBuiltinCount];
 
-  static_assert(FIELD_SIZE(kSuperCapAlignmentPaddingOffset) > 0);
-  uint8_t super_cap_alignment_padding_[FIELD_SIZE(kSuperCapAlignmentPaddingOffset)];
+  // static_assert(FIELD_SIZE(kSuperCapAlignmentPaddingOffset) > 0);
+  // uint8_t super_cap_alignment_padding_[FIELD_SIZE(kSuperCapAlignmentPaddingOffset)];
 
-  // A stack of bits that we can pop onto and off of to tell us whether we need to enter or exit a compartment on return.
-  // TODO: make this aware of the FP of the stack that's having the state restored. Maybe an array of FP values, with LSB set to indicate whether it's in a compartment?
-  uint64_t compartment_state_stack_[kNumberOfCompartments];
+  // // A stack of bits that we can pop onto and off of to tell us whether we need to enter or exit a compartment on return.
+  // // TODO: make this aware of the FP of the stack that's having the state restored. Maybe an array of FP values, with LSB set to indicate whether it's in a compartment?
+  // uint64_t compartment_state_stack_[kNumberOfCompartments];
 
-  // A cursor pointing to the last frame state pushed to the compartment stack.
-  // I allocate 16 of these for alignment purposes, but we only use the first one.
-  uint8_t compartment_state_stack_cursor_[16];
+  // // A cursor pointing to the last frame state pushed to the compartment stack.
+  // // I allocate 16 of these for alignment purposes, but we only use the first one.
+  // uint8_t compartment_state_stack_cursor_[16];
 
-  static_assert(FIELD_SIZE(kCompartmentStateStackPadding) > 0);
-  uint8_t compartment_state_stack_padding_[FIELD_SIZE(kCompartmentStateStackPadding)];
+  // static_assert(FIELD_SIZE(kCompartmentStateStackPadding) > 0);
+  // uint8_t compartment_state_stack_padding_[FIELD_SIZE(kCompartmentStateStackPadding)];
 
-  void *__capability super_pcc_ = NULL;
-  void *__capability super_ddc_ = NULL;
+  // void *__capability super_pcc_ = NULL;
+  // void *__capability super_ddc_ = NULL;
 #endif
 
   // Ensure the size is 16-byte aligned in order to make alignment of the field

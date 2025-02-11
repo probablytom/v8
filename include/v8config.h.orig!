@@ -9,7 +9,7 @@
 // 201703L" for its experimental -std=gnu++2a config.
 // TODO(leszeks): Change to `__cplusplus <= 202002L` once we only support
 // compilers with full C++20 support.
-#if __cplusplus <= 201703L && !(V8_OS_FREEBSD || defined(CHERI_HYBRID))
+#if __cplusplus <= 201703L
 #error "C++20 or later required."
 #endif
 

@@ -14,7 +14,17 @@
 #include "src/objects/templates.h"
 #include "src/sandbox/sandbox.h"
 
-#ifdef V8_OS_LINUX
+#if defined(V8_OS_FREEBSD)
+#define _GNU_SOURCE
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <pthread_np.h>
+#include <unistd.h>
+#endif
+
+#if defined(V8_OS_LINUX) || defined(V8_OS_FREEBSD)
 #include <signal.h>
 #include <sys/mman.h>
 #include <unistd.h>
@@ -497,7 +507,7 @@ void SandboxTesting::InstallMemoryCorruptionApiIfEnabled(Isolate* isolate) {
 #endif  // V8_ENABLE_MEMORY_CORRUPTION_API
 
 namespace {
-#ifdef V8_OS_LINUX
+#if defined(V8_OS_LINUX) || defined(V8_OS_FREEBSD)
 
 void PrintToStderr(const char* output) {
   // NOTE: This code MUST be async-signal safe.
@@ -637,7 +647,11 @@ void CrashFilter(int signal, siginfo_t* info, void* void_context) {
   // negatives (e.g. a stack overflow on the main thread that "jumps over" the
   // first page of the gap region), but is probably good enough in practice.
   pthread_attr_t attr;
+#ifdef V8_OS_FREEBSD
+  int pthread_error = pthread_attr_get_np(pthread_self(), &attr);
+#else
   int pthread_error = pthread_getattr_np(pthread_self(), &attr);
+#endif
   if (!pthread_error) {
     uintptr_t stack_base;
     size_t stack_size;
@@ -735,7 +749,11 @@ void InstallCrashFilter() {
   VirtualAddressSpace* vas = GetPlatformVirtualAddressSpace();
   Address alternate_stack =
       vas->AllocatePages(VirtualAddressSpace::kNoHint, SIGSTKSZ,
+#ifdef CHERI_HYBRID
+                         vas->page_size(), PagePermissions::kReadWrite, PagePermissions::kReadWrite);
+#else
                          vas->page_size(), PagePermissions::kReadWrite);
+#endif
   CHECK_NE(alternate_stack, kNullAddress);
   stack_t signalstack = {
       .ss_sp = reinterpret_cast<void*>(alternate_stack),
@@ -807,7 +825,7 @@ void SandboxTesting::Enable(Mode mode) {
             "reported, all other crashes will be ignored.\n");
   }
 
-#ifdef V8_OS_LINUX
+#if defined(V8_OS_LINUX) || defined(V8_OS_FREEBSD)
   InstallCrashFilter();
 #else
   FATAL("The sandbox crash filter is currently only available on Linux");
